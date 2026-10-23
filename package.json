@@ -1,0 +1,28 @@
+{
+  "name": "rusty-harness-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "docs",
+    "crates/rusty-harness-wasm"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "lint:md": "markdownlint-cli2",
+    "commitlint": "commitlint"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21",
+    "@commitlint/config-conventional": "^21",
+    "@eslint/js": "^10",
+    "@types/bun": "^1",
+    "eslint": "^10",
+    "eslint-config-prettier": "^10",
+    "markdownlint-cli2": "^0.24",
+    "prettier": "^3",
+    "typescript": "~6.0",
+    "typescript-eslint": "^8"
+  }
+}

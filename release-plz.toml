@@ -1,0 +1,26 @@
+# release-plz: https://release-plz.dev/docs/config
+[workspace]
+# One version for the whole workspace; the changelog lives at the repository root.
+changelog_update = false
+git_release_enable = false
+git_tag_enable = false
+semver_check = false
+
+[[package]]
+name = "rusty_harness"
+changelog_update = true
+changelog_path = "CHANGELOG.md"
+changelog_include = ["rusty-harness-py", "rusty-harness-wasm"]
+semver_check = true
+git_tag_enable = true
+git_tag_name = "v{{ version }}"
+git_release_enable = true
+git_release_name = "v{{ version }}"
+
+[[package]]
+name = "rusty-harness-py"
+release = false
+
+[[package]]
+name = "rusty-harness-wasm"
+release = false

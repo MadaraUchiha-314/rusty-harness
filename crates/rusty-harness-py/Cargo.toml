@@ -1,0 +1,33 @@
+[package]
+name = "rusty-harness-py"
+description = "Python bindings for rusty_harness (PyPI package `rusty_harness`)."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+name = "rusty_harness_py"
+crate-type = ["cdylib", "rlib"]
+doctest = false
+# Python tests (pytest) cover this crate. Skipping the Rust test harness also keeps
+# `cargo test` from linking libpython.
+test = false
+
+[[bin]]
+name = "stub_gen"
+doc = false
+test = false
+
+[dependencies]
+pyo3 = { workspace = true }
+pyo3-async-runtimes = { workspace = true }
+pyo3-stub-gen = { workspace = true }
+rusty_harness = { workspace = true, features = ["rt-tokio"] }
+
+[lints]
+workspace = true

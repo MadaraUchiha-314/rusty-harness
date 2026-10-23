@@ -1,0 +1,10 @@
+# Markdown is linted by markdownlint; generated and vendored output is not ours to format.
+*.md
+target/
+**/dist/
+**/node_modules/
+docs/.vitepress/cache/
+crates/rusty-harness-py/.venv/
+docs/specs/
+bun.lock
+.the-loop/

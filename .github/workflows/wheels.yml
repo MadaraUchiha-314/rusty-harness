@@ -1,0 +1,56 @@
+# Builds abi3 wheels (one per platform) and an sdist, and tests every wheel with pytest.
+name: Wheels
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  wheel:
+    name: Wheel (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-latest, target: x86_64 }
+          - { name: linux-aarch64, os: ubuntu-24.04-arm, target: aarch64 }
+          - { name: macos-universal2, os: macos-latest, target: universal2-apple-darwin }
+          - { name: windows-x86_64, os: windows-latest, target: x64 }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: crates/rusty-harness-py
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+      - uses: astral-sh/setup-uv@v10.3.2
+      - name: pytest against the built wheel
+        shell: bash
+        working-directory: crates/rusty-harness-py
+        run: |
+          uv sync --locked
+          uv pip install --no-index --find-links dist rusty_harness
+          uv run --no-sync pytest
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-${{ matrix.name }}
+          path: crates/rusty-harness-py/dist/*.whl
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: crates/rusty-harness-py
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sdist
+          path: crates/rusty-harness-py/dist/*.tar.gz

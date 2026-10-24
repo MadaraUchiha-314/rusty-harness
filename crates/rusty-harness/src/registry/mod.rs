@@ -264,6 +264,31 @@ impl Registry {
         Ok(())
     }
 
+    /// Checks that `entry` is free for type `E`, naming the holder when it is not (what
+    /// an all-or-nothing installer asks before registering anything).
+    ///
+    /// # Errors
+    ///
+    /// [`RegistryError::Conflict`] when the identity is taken.
+    pub fn ensure_free<E: Entity + ?Sized>(
+        &self,
+        entry: &EntityId,
+        kind: EntityKind,
+    ) -> Result<(), RegistryError> {
+        let maps = self
+            .slots
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match maps.get(&TypeId::of::<E>()).and_then(|map| map.get(entry)) {
+            Some(slot) => Err(RegistryError::Conflict {
+                kind,
+                entry: entry.clone(),
+                holder: slot.provenance.clone(),
+            }),
+            None => Ok(()),
+        }
+    }
+
     /// Replaces whatever holds `entity`'s identity, returning the previous instance
     /// (R1.5): the explicit way to swap a default for one's own.
     pub fn replace<E: Entity + ?Sized>(&self, entity: Arc<E>) -> Option<Arc<E>> {

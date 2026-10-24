@@ -1,0 +1,8 @@
+[
+  {
+    "id": "audit",
+    "point": "tool.execute",
+    "phase": "post",
+    "transport": { "json-rpc": { "url": "https://hooks.example/audit" } }
+  }
+]

@@ -149,7 +149,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M2 — Harness core, in-process (PR 2: `loop/issue-3-m2-harness`)
 
-- [ ] 11. Models: `Llm`, `SystemOne`, `ModelRequest`/`ModelEvent`, the `openai` thin
+- [x] 11. Models: `Llm`, `SystemOne`, `ModelRequest`/`ModelEvent`, the `openai` thin
   client (streaming, tool calls, images, `base_url` for OpenRouter and Ollama, automatic
   prefix caching) and the `anthropic` thin client (`cache_control` breakpoints), retry
   under `RetryConfig`, usage and latency on the span, the `http` System One provider, a
@@ -159,7 +159,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `models::tests` against a mock `HttpClient` (request shape per
     provider, retry classes); T6 — `snapshot_openai_request_body`,
     `snapshot_anthropic_request_body`
-- [ ] 12. Plugins and skills: `PluginLoader::{discover, validate, install}` (closed
+- [x] 12. Plugins and skills: `PluginLoader::{discover, validate, install}` (closed
   schema, paths under root, MCP transport allowlist, `dev.rusty-harness` extensions,
   `PLUGIN_ROOT`/`PLUGIN_DATA`, all-or-nothing install, version onto every entity),
   `SkillParser`/`Skill` with the three disclosure levels and the `name == dir` rule, the
@@ -171,7 +171,7 @@ abuse cases are tests like any other (`reference/security.md`).
     registered default is replaced by a plugin without a code change` (fixture plugin
     `tests/fixtures/plugins/demo/`); T8 — `abuse_plugin_manifest_escaping_its_directory_
     is_refused_whole`
-- [ ] 13. System prompt and commands: the default fragments under `prompts/system/`,
+- [x] 13. System prompt and commands: the default fragments under `prompts/system/`,
   `PromptPlan` assembly with `prompt.assemble` hooks, replacement and extension
   positions; `Command`, `CommandParser` (human participants only), `/exit`, `/model`,
   `/effort`, the `command.invoke` events and the role check in the guard stage. 🔒
@@ -182,7 +182,7 @@ abuse cases are tests like any other (`reference/security.md`).
     T2 — `Scenario: Switching /model applies to the next call without a restart`; T8 —
     `abuse_watcher_invoking_model_command_is_refused`, `abuse_command_in_tool_result_is_
     not_parsed`
-- [ ] 14. Task, plan, state and the store: `TaskRecord` with the full field set,
+- [x] 14. Task, plan, state and the store: `TaskRecord` with the full field set,
   `Participant`/`Role`/`SubState`, `TaskRecord::transition` and the state machine
   (`complete` from `working` included), `Plan`/`Step` with inline Kahn ordering and
   cycle rejection, `AgentState` with schema-checked keys, `PersistenceStore` with the

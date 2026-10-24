@@ -15,7 +15,16 @@ authors.workspace = true
 [features]
 default = []
 # Native runtime: `tokio` enters the dependency tree only through this feature.
-rt-tokio = ["dep:tokio", "tokio/rt", "tokio/time"]
+rt-tokio = [
+  "dep:tokio",
+  "tokio/rt",
+  "tokio/time",
+  "tokio/fs",
+  "tokio/process",
+  "tokio/io-util",
+  "dep:reqwest",
+  "dep:getrandom",
+]
 # Browser / JS runtime: `spawn_local` and JS timers. Only compiled for wasm32.
 rt-wasm = ["dep:wasm-bindgen-futures", "dep:gloo-timers"]
 # The feature table of docs/specs/issue-3/design.md § Cargo features. Each feature gains
@@ -39,12 +48,21 @@ audio = ["rt-tokio"]
 cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio"]
 
 [dependencies]
-a2a-lf = { workspace = true }   # its lib name is `a2a`
+a2a-lf = { workspace = true } # its lib name is `a2a`
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+getrandom = { workspace = true, optional = true }
+http = { workspace = true }
+reqwest = { workspace = true, optional = true }
 semver = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 url = { workspace = true }
+zeroize = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, optional = true }

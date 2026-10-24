@@ -79,7 +79,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `registry::tests` (register, duplicate rejected, replace, not-found
     names kind and entry); T2 — `Scenario: A registered default is replaced by a plugin
     without a code change` (completed in task 12)
-- [ ] 4. Host capabilities: the `Host` builder and the capability traits (`HttpClient`,
+- [x] 4. Host capabilities: the `Host` builder and the capability traits (`HttpClient`,
   `WebSocketClient`, `Clock`, `Rng`, `SecretResolver`, `FileSystem`, `ProcessSpawner`,
   `McpTransport`, `Microphone`, `Speaker`, `LogSink`), the `MaybeSync` seam and the
   `HarnessStream`/`HarnessFuture` aliases and `#[harness_async_trait]`, native defaults

@@ -25,3 +25,7 @@ wasm-bindgen-test = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+# Used only by the code `#[wasm_bindgen] async fn` expands to, which machete cannot see.
+ignored = ["wasm-bindgen-futures"]

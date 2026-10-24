@@ -4,10 +4,18 @@
   "currentNode": "work",
   "nodes": {
     "work": {
-      "attempts": 1,
-      "outcome": "",
+      "attempts": 2,
+      "outcome": "pass",
       "enteredAt": "2026-10-23T23:02:25+00:00",
-      "exitedAt": "",
+      "exitedAt": "2026-10-23T23:58:15+00:00",
+      "lastBlock": "",
+      "forced": false
+    },
+    "review": {
+      "attempts": 1,
+      "outcome": "more-work",
+      "enteredAt": "2026-10-23T23:58:15+00:00",
+      "exitedAt": "2026-10-24T00:03:43+00:00",
       "lastBlock": "",
       "forced": false
     }
@@ -25,7 +33,18 @@
   "effort": "",
   "claudeArtifact": false,
   "repos": [],
-  "pullRequests": [],
+  "pullRequests": [
+    {
+      "ref": "github:MadaraUchiha-314/rusty-harness#5",
+      "repository": "MadaraUchiha-314/rusty-harness",
+      "number": 5,
+      "url": "https://github.com/MadaraUchiha-314/rusty-harness/issues/5",
+      "stateDir": "pr-loops/MadaraUchiha-314__rusty-harness/pr-5",
+      "state": "open",
+      "linkedAt": "2026-10-23T23:54:49+00:00",
+      "linkedBy": "session"
+    }
+  ],
   "loop": "pdlc-adhoc-loop",
   "phase": "implementation"
 }

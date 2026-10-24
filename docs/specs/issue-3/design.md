@@ -814,16 +814,31 @@ pub struct AgentState { entries: BTreeMap<StateKey, StateValue /* serde_json::Va
 impl AgentState { pub fn set<T: Serialize>(&mut self, key: StateKey, v: T) -> Result<StateDelta, StateError /* SchemaViolation */>; pub fn get<T: DeserializeOwned>(&self, key: &StateKey) -> Result<Option<T>>; }
 
 pub trait PersistenceStore: Entity [dyn] {                                           // R14.2
-    async fn put_task(&self, t: &TaskRecord) -> Result<Version>;  async fn get_task(&self, id: &TaskId) -> Result<Option<TaskRecord>>;
+    async fn commit(&self, c: TaskCommit) -> Result<CommitSeq>;        // the ONLY write path for task state: atomic, idempotent on event ids
+    async fn get_task(&self, id: &TaskId) -> Result<Option<TaskRecord>>;
     async fn list_tasks(&self, q: TaskQuery /* carries the caller's ParticipantId; the store applies it */) -> Result<Page<TaskRecord>>;
-    async fn append_event(&self, task: &TaskId, e: &StoredEvent) -> Result<Seq>;  fn tail_events(&self, task: &TaskId, from: Seq) -> BoxStream<'_, Result<StoredEvent>>;
+    fn tail_events(&self, task: &TaskId, from: Seq, viewer: &Caller) -> BoxStream<'_, Result<StoredEvent>>;   // per-subscriber projection
     async fn put_state(&self, task: &TaskId, s: &AgentState) -> Result<()>;      async fn get_state(&self, task: &TaskId) -> Result<Option<AgentState>>;
     async fn put_blob(&self, key: &BlobKey, bytes: Bytes) -> Result<()>;          async fn get_blob(&self, key: &BlobKey) -> Result<Option<Bytes>>;   // contexts, model turns, summaries
     async fn put_inbox(&self, e: &InboxEvent) -> Result<EventRef>;               async fn pending_inbox(&self, task: &TaskId) -> Result<Vec<InboxEvent>>;
     async fn ack_inbox(&self, r: &EventRef) -> Result<()>;
     async fn put_plan(&self, p: &Plan) -> Result<()>;                            async fn get_plan(&self, id: &PlanId) -> Result<Option<Plan>>;
 }
+pub struct TaskCommit { pub task: TaskRecord, pub events: Vec<StoredEvent> /* ids chosen by the caller */, pub blobs: Vec<(BlobKey, Bytes)>,
+                        pub state: Option<AgentState>, pub plan: Option<Plan>, pub inbox_applied: Vec<EventId>, pub pending_calls: Vec<PendingCall>,
+                        pub expect_version: Option<Version> /* optimistic concurrency */ }
+pub struct StoredEvent { pub id: EventId /* uuid v5(task, iteration, attempt, kind, ordinal) */, pub seq: Seq, pub at: DateTime<Utc>,
+                         pub attempt: Attempt, pub visibility: Visibility /* All | Members(ChannelId) */, pub response: a2a::StreamResponse }
 ```
+
+`commit` is atomic and idempotent: everything in one `TaskCommit` lands or nothing does,
+an event whose id already exists is skipped (so a retried activity re-committing the same
+events duplicates nothing), and `expect_version` rejects a stale writer. `MemoryStore`
+commits under one lock. `FileStore` is a **journal**: each commit is one JSON file
+`commits/<task>/<seq>.json` written by temp-file + atomic rename, and the task record,
+event log, state and plan are views derived from the journal (materialized into
+`tasks/`, `events/` … after the rename, and rebuilt from the journal on open if the
+materialization is behind), so a crash between any two writes leaves a consistent store.
 
 `MemoryStore` (default; `BTreeMap`s under a `Mutex`, `tokio::sync::broadcast` for
 tails) and `FileStore` (native; one JSON file per record under `<data_dir>/`, written by
@@ -1017,7 +1032,7 @@ flowchart TB
 | `call_model` | provider usage only | yes; completed result replays from history (R22.4) | none needed; a crash *during* it is a fresh call |
 | `execute_tool` | tool's own | `Idempotent`: yes. `SideEffecting { accepts_key: true }`: yes, key `(task, n, call_id)` in `ToolCx`. `accepts_key: false`: **one attempt**, then a `tool.execute` post hook decides (default: surface to the model as failed) | key passed in `ToolCx.idempotency_key` |
 | `send_a2a` | may create a remote task | yes: A2A `messageId` is `uuid::v5(task, n, call_id)`; the remote task id is written to heartbeat details, so a retry resumes with `GetTask` instead of resending | messageId reuse |
-| `set_state` / `persist` | store upsert, event append | yes | upsert; event seq from store |
+| `set_state` / `persist` | one `commit` | yes | deterministic event ids; `commit` skips ids it has |
 | `ask_participant` | sends a channel question | yes | ask id |
 
 Timeouts (R22.5): `build_context` 30 s; `call_model` start-to-close 10 min, heartbeat
@@ -1228,6 +1243,7 @@ A2UI rides on its own extension (`https://a2ui.org/a2a-extension/a2ui/v0.9.1`), 
 
 | Record | Key | Content |
 |---|---|---|
+| commit (the journal) | `commits/<task_id>/<seq>` | `TaskCommit`; everything below is derived from it |
 | task | `tasks/<task_id>` | `TaskRecord` (JSON) + `Version` |
 | event log | `events/<task_id>/<seq>` | `StoredEvent { seq, at, response: a2a::StreamResponse, final_for_turn }` |
 | state | `state/<task_id>` | `AgentState` |
@@ -1236,7 +1252,8 @@ A2UI rides on its own extension (`https://a2ui.org/a2a-extension/a2ui/v0.9.1`), 
 | inbox | `inbox/<event_id>` | `InboxEvent` + `acked: bool` |
 | liveness | `liveness/<worker_id>` | `Liveness` |
 
-`FileStore` is a directory with these as paths; `MemoryStore` the same keys in maps.
+`FileStore` is a directory with these as paths, the journal being authoritative;
+`MemoryStore` the same keys in maps under one lock.
 Nothing at rest ever contains a `Secret` (the type has no `Serialize` impl).
 
 ### Configuration (`rusty-harness.schema.json`, Q9)

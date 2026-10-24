@@ -898,7 +898,12 @@ sequenceDiagram
 
 `Channel { id, task, members: BTreeSet<ParticipantId>, created_by, open: bool }` is owned
 by the harness (R18.5); a message carrying a `channel` the sender is not a member of is
-rejected as `TaskNotFound` (abuse 2). Members who are not connected over A2A (Slack,
+rejected as `TaskNotFound` (abuse 2). A question addressed to a subset of the task's
+participants carries `visibility: members` in its `channels/v1` metadata, and the event
+log every subscriber reads is a **per-subscriber projection**: a subscriber of the task
+who is not a member of the channel receives the status update with the state change and
+sub-state only, its question parts and A2UI payload redacted; the reply is visible to
+members only in the same way (R18.5, abuse 2). Members who are not connected over A2A (Slack,
 e-mail) are reached by a channel adapter hook on `participant.ask` (a plugin), and their
 answer re-enters as an inbox event (R18.6). Delegation creates a task with the delegate as
 `Assignee`, the current task's assignee as `Reporter`, linked in `sub_tasks` (R18.3).
@@ -935,7 +940,8 @@ flowchart LR
   behaviour; each item is tracked as an upstream issue and removed when the SDK ships it.
 - **Executor:** `HarnessExecutor: AgentExecutor` → `execute` builds `AgentRequest` from
   `ExecutorContext`, runs `request.receive`, hands the message to `Inbox::accept`, and
-  returns `event_log.tail(task, from)` as the stream; `cancel` signals
+  returns `event_log.tail(task, from, &caller)` — the per-subscriber projection — as the
+  stream; `cancel` signals
   `DurableExecution::cancel` and yields the final `Task`. The SDK's handler persists to
   the store (our `PersistenceStore` implements `TaskStore`), fans out to subscribers and
   sends push notifications (`HttpPushSender`, whose SSRF guard plus our allowlist is abuse

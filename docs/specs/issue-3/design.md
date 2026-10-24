@@ -821,7 +821,7 @@ pub trait PersistenceStore: Entity [dyn] {                                      
     async fn put_state(&self, task: &TaskId, s: &AgentState) -> Result<()>;      async fn get_state(&self, task: &TaskId) -> Result<Option<AgentState>>;
     async fn put_blob(&self, key: &BlobKey, bytes: Bytes) -> Result<()>;          async fn get_blob(&self, key: &BlobKey) -> Result<Option<Bytes>>;   // contexts, model turns, summaries
     async fn put_inbox(&self, e: &InboxEvent) -> Result<EventRef>;               async fn pending_inbox(&self, task: &TaskId) -> Result<Vec<InboxEvent>>;
-    async fn ack_inbox(&self, r: &EventRef) -> Result<()>;
+    async fn mark_inbox(&self, r: &EventRef, s: InboxStatus) -> Result<()>;      // Applied is written by `commit(inbox_applied)`, never here
     async fn put_plan(&self, p: &Plan) -> Result<()>;                            async fn get_plan(&self, id: &PlanId) -> Result<Option<Plan>>;
 }
 pub struct TaskCommit { pub task: TaskRecord, pub events: Vec<StoredEvent> /* ids chosen by the caller */, pub blobs: Vec<(BlobKey, Bytes)>,
@@ -970,10 +970,11 @@ flowchart LR
 
 ```rust
 pub struct InboxEvent { pub id: EventId, pub target: EventTarget /* Task(TaskId) | Context(ContextId) */, pub kind: a2a::StreamResponse,
+                        pub status: InboxStatus /* Received | Signalled { at } | Applied { commit } */,
                         pub sender: Caller, pub received_at: DateTime<Utc>, pub delivery: DeliveryKind /* Interrupt | Queue */, pub extensions: Vec<ExtensionUri> }
 pub struct Inbox;
 impl Inbox {
-    pub async fn accept(&self, e: InboxEvent) -> Result<EventRef, InboxError>;   // validate (R20.6) → inbox.accept hooks → store.put_inbox → durable.start_or_signal → ack
+    pub async fn accept(&self, e: InboxEvent) -> Result<EventRef, InboxError>;   // validate (R20.6) → inbox.accept hooks → store.put_inbox (Received) → durable.start_or_signal → Signalled
     pub async fn drain(&self, task: &TaskId, at: Boundary) -> Result<Vec<InboxEvent>>;  // called by the loop at step boundaries / idle
 }
 ```
@@ -984,9 +985,15 @@ same authentication, which is how another agent's push notification or a channel
 delivers (R20.1–2). Delivery policy (R20.4): `Message` from a participant and `CancelTask`
 are `Interrupt` (observed at the next loop boundary); `TaskStatusUpdateEvent`/
 `TaskArtifactUpdateEvent` from sub-agents are `Queue` (until the step that awaits them
-completes); `inbox.deliver` hooks may reclassify. The store write happens before the
-HTTP response (R20.3); in `remote` mode the durable signal is sent after the store write
-and retried by the heartbeat if the signal fails (outbox pattern), so nothing is lost.
+completes); `inbox.deliver` hooks may reclassify.
+
+An event has three durable states (R20.3–5): `Received` is written before the HTTP
+response; `Signalled` after `start_or_signal` returned; `Applied` only by the workflow's
+apply step, inside the same `commit` as the state change it caused (`inbox_applied`), so
+consumption and effect are one write. The heartbeat re-signals events still `Received`,
+or `Signalled` longer than `[loop] signal_grace` (30 s) without `Applied`; the workflow
+keeps the set of applied event ids in its state and treats a duplicate signal as a no-op,
+so a lost signal response causes neither a lost input nor a duplicate turn.
 
 ### Durable execution (R22)
 
@@ -1064,8 +1071,9 @@ startup → `HarnessError::Durable(Unreachable)` and the process exits (fail-clo
 
 ### Heartbeat (R23)
 
-`Heartbeat { interval: 5 s }` runs on the runtime seam: forwards undelivered inbox events
-(`store.pending_inbox` → `durable.start_or_signal`, the outbox retry), writes
+`Heartbeat { interval: 5 s }` runs on the runtime seam: re-signals inbox events still
+`Received`, or `Signalled` past the grace period without `Applied`
+(`store.pending_inbox` → `durable.start_or_signal`, idempotent on id), writes
 `Liveness { last_boundary, running_tasks, worker_id }` to the store and the o11y gauge,
 runs `task.stalled` for tasks whose `updated_at` is older than `[loop] stall_after`
 (default 15 min), and, in Temporal modes, the long activities call `record_heartbeat`
@@ -1249,7 +1257,7 @@ A2UI rides on its own extension (`https://a2ui.org/a2a-extension/a2ui/v0.9.1`), 
 | state | `state/<task_id>` | `AgentState` |
 | plan | `plans/<plan_id>` | `Plan` |
 | blob | `ctx/<task>/<n>`, `turn/<task>/<n>`, `summary/<task>/<n>`, `tool/<task>/<n>/<call>` | bytes (JSON), the payloads activities reference |
-| inbox | `inbox/<event_id>` | `InboxEvent` + `acked: bool` |
+| inbox | `inbox/<event_id>` | `InboxEvent` with its `status` |
 | liveness | `liveness/<worker_id>` | `Liveness` |
 
 `FileStore` is a directory with these as paths, the journal being authoritative;

@@ -404,13 +404,15 @@ pub struct Veto { pub reason: StringKey, pub detail: Option<String>, pub by: Ent
 pub trait PreHook<O: Operation> [dyn]  { async fn pre(&self, cx: &HookCx, input: O::Input) -> Result<PreOutcome<O::Input>, HookError>; }
 pub trait InHook<O: Operation> [dyn]   { async fn run(&self, cx: &HookCx, input: O::Input, next: Next<'_, O>) -> Result<O::Output, HookError>; } // R4.3, middleware
 pub trait PostHook<O: Operation> [dyn] { async fn post(&self, cx: &HookCx, input: &O::Input, output: O::Output) -> Result<O::Output, HookError>; } // R4.4
+pub trait GuardHook<O: Operation> [dyn] { async fn guard(&self, cx: &HookCx, input: &O::Input) -> Result<GuardOutcome, HookError>; } // policy: runs last, cannot mutate
+pub enum GuardOutcome { Allow, Deny(Veto) }
 
 pub struct HookCx { pub task: Option<TaskId>, pub context_id: Option<ContextId>, pub caller: Option<Caller>,
                     pub trace: SpanContext, pub registry: Arc<Registry>, pub host: Arc<Host> }
 
 pub struct HookDispatcher;
 impl HookDispatcher {
-    pub fn register<O: Operation>(&self, phase: Phase, hook: Arc<dyn …>, order: HookOrder) -> EntityId;   // R4.5, R4.9
+    pub fn register<O: Operation>(&self, phase: Phase /* Pre | Guard | In | Post */, hook: Arc<dyn …>, order: HookOrder) -> EntityId;   // R4.5, R4.9
     pub async fn run<O: Operation>(&self, cx: &HookCx, input: O::Input,
                                    default: impl FnOnce(O::Input) -> BoxFuture<'_, Result<O::Output>>) -> Result<O::Output, HarnessError>;
 }
@@ -419,8 +421,15 @@ pub enum FailurePolicy { FailClosed, LogAndContinue }                           
 ```
 
 `run` executes every `pre` hook in order (stopping at the first veto, surfaced as
-`HarnessError::Vetoed`), then the innermost `in` hook (the last registered wraps the
-default; an `in` hook may call `next` or replace it), then every `post` hook. Remote
+`HarnessError::Vetoed`), then the **guard stage**: every `GuardHook` runs on the final,
+mutated input, may only allow or deny, and is always fail-closed; policy (tool allowlists,
+role checks, agent registration, secret-shaped argument checks) registers as guards, never
+as `pre`, so no later `pre` hook can rewrite what was approved. Then the innermost `in`
+hook runs on exactly the guarded input (the last registered wraps the default; an `in`
+hook may call `next` or replace the implementation, but the dispatcher compares the
+operation's identity fields — tool name, agent id, command name, store key — before and
+after and fails the operation with `HookError::TargetChanged` if an `in` hook moved
+them), then every `post` hook. Remote
 hooks (`hooks::remote`) implement the same three traits over JSON-RPC 2.0 (`POST`, method
 `hook.<phase>.<point>`, params = `{cx, input}`) or as an MCP tool call named
 `hook_<phase>_<point>`, matching sherma's two remote shapes (R4.10); the typed input and
@@ -444,7 +453,7 @@ the default failure policy is `FailClosed` for `pre` on the rows marked 🔒 (R4
 | `model.create` | `ModelConfig` → `Arc<dyn Llm>` | sherma `model_create` |
 | `model.call` | `ModelRequest` → `ModelTurn` | sherma `model_call` |
 | `response.parse` | `ModelTurn` → `Vec<ToolCall>` | the "extract tool calls" step |
-| `tool.execute` 🔒 | `ToolCall` → `ToolResult` | sherma `tool_call`; policy lives here |
+| `tool.execute` 🔒 | `ToolCall` → `ToolResult` | sherma `tool_call`; policy lives in the guard stage |
 | `tool.result.size` | `ToolResult` → `ToolResult` | R8.6 truncation policy |
 | `a2a.send` 🔒 | `OutboundMessage` → `AgentReply` | sherma `agent_call`; sub-agents |
 | `skill.load`, `skill.unload`, `skill.invoke` | `SkillRef` → … | sherma skill hooks, R6.4 |
@@ -1378,7 +1387,9 @@ lifting.**
   intersections with skills (Agent Skills `allowed-tools`) and the policy hook enforces a
   per-role tool allowlist (`[hooks.policies.tools]`), default deny for `SideEffecting`
   tools when the caller is not an `Admin` or `Assignee`.
-- **Fail-closed behaviour:** missing or erroring `pre` policy on `tool.execute`,
+- **Fail-closed behaviour:** policy runs in the guard stage after every mutable `pre`
+  hook and before dispatch, on the input that will actually execute; a guard that is
+  missing or errors denies. Missing or erroring policy on `tool.execute`,
   `a2a.send`, `state.persist` → operation does not run (`FailurePolicy::FailClosed`,
   not configurable below `LogAndContinue` for these three; abuse 4); unresolvable
   `SecretRef` → entity not constructed, harness reports the reference name; invalid

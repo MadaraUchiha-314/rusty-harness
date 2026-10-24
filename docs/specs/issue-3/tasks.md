@@ -182,7 +182,7 @@ abuse cases are tests like any other (`reference/security.md`).
     T2 — `Scenario: Switching /model applies to the next call without a restart`; T8 —
     `abuse_watcher_invoking_model_command_is_refused`, `abuse_command_in_tool_result_is_
     not_parsed`
-- [ ] 14. Task, plan, state and the store: `TaskRecord` with the full field set,
+- [x] 14. Task, plan, state and the store: `TaskRecord` with the full field set,
   `Participant`/`Role`/`SubState`, `TaskRecord::transition` and the state machine
   (`complete` from `working` included), `Plan`/`Step` with inline Kahn ordering and
   cycle rejection, `AgentState` with schema-checked keys, `PersistenceStore` with the

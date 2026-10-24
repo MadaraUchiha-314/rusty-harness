@@ -468,7 +468,7 @@ the default failure policy is `FailClosed` for `pre` on the rows marked 🔒 (R4
 | `response.deliver` | `Delivery` → `()` | final/partial messages |
 | `command.invoke` | `CommandCall` → `CommandResult` | `pre` veto = role check (abuse 10); emits invoked/executed/failed |
 | `participant.ask`, `participant.delegate` | `Ask` → `AskHandle`; `Delegation` → `TaskId` | R18.4 override |
-| `durable.activity_run`, `durable.activity_retry` | `ActivityRef` → …; `RetryDecision` → `RetryDecision` | R22.3 |
+| `durable.activity_run`, `durable.activity_failure`, `durable.activity_retry` | `ActivityRef` → …; `ActivityFailure` → `()`; `RetryDecision` → `RetryDecision` | R22.3; failure and retry run inside the `retry_decision` activity |
 | `heartbeat.tick`, `task.stalled` | `Liveness` → `()`; `StalledTask` → `StallAction` | R23.3 |
 | `harness.error` | `HarnessError` → `HarnessError` | sherma `error` |
 | `infra.http`, `infra.clock`, `infra.random`, `infra.secret` | the `Host` calls | R4.7: an `in` hook replaces the host impl |
@@ -1058,10 +1058,17 @@ Timeouts (R22.5): `build_context` 30 s; `call_model` start-to-close 10 min, hear
 30 s; `execute_tool` 5 min default (a `ToolDescriptor` may raise it), heartbeat 15 s;
 `send_a2a` start-to-close = remaining task wall clock, heartbeat 30 s; the workflow has
 no timeout (a long-running task is open-ended) but every wait is a `select!` over
-signals and an optional `[loop] idle_timeout`. A worker crash during an activity is
-detected by the heartbeat timeout and the activity re-dispatched; a crash of the workflow
-worker replays from history on the next worker with no repeated side effect, by
-construction of the table above.
+signals and an optional `[loop] idle_timeout`. **Retries are orchestrated by the
+workflow, not the engine:** every activity runs with the engine's `maximum_attempts = 1`,
+so any failure, including a heartbeat or start-to-close timeout from a crashed worker,
+returns to the workflow as an `ActivityExecutionError`. The workflow then runs the
+`retry_decision` activity, which executes the `durable.activity_failure` and
+`durable.activity_retry` hook points (on whichever worker is alive, so a crashed
+worker's hooks still run) and returns `RetryDecision::{Retry { after }, Stop { outcome }}`
+under `RetryConfig`; on `Retry` the workflow sleeps `ctx.timer(after)` and re-executes
+the activity as attempt `n + 1`, committing the retraction first (attempt protocol). A
+crash of the workflow worker replays from history on the next worker with no repeated
+side effect, by construction of the table above.
 Cancel and complete (R22.6): `CancelTask` → `cancel` signal, or a `complete` transition →
 `complete` signal; the workflow cancels in-flight activities through their cancellation
 tokens (heartbeating tools observe `ctx.cancel`), commits a retraction for the

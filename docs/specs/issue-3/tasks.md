@@ -159,7 +159,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `models::tests` against a mock `HttpClient` (request shape per
     provider, retry classes); T6 — `snapshot_openai_request_body`,
     `snapshot_anthropic_request_body`
-- [ ] 12. Plugins and skills: `PluginLoader::{discover, validate, install}` (closed
+- [x] 12. Plugins and skills: `PluginLoader::{discover, validate, install}` (closed
   schema, paths under root, MCP transport allowlist, `dev.rusty-harness` extensions,
   `PLUGIN_ROOT`/`PLUGIN_DATA`, all-or-nothing install, version onto every entity),
   `SkillParser`/`Skill` with the three disclosure levels and the `name == dir` rule, the

@@ -1,0 +1,3 @@
+# Phrases
+
+hello · hi · welcome

@@ -15,7 +15,7 @@ include!(concat!(env!("OUT_DIR"), "/prompts.rs"));
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromptFragment {
     id: EntityId,
-    source: &'static str,
+    source: String,
     locale: String,
     description: String,
     placeholders: Vec<String>,
@@ -40,7 +40,7 @@ impl PromptFragment {
     ///
     /// [`PromptFileError`] for a missing or malformed front matter, an id that does not
     /// match the path, or a placeholder list that does not match the body.
-    pub fn parse(path: &'static str, text: &str) -> Result<Self, PromptFileError> {
+    pub fn parse(path: &str, text: &str) -> Result<Self, PromptFileError> {
         let err = |reason: &str| PromptFileError {
             path: path.to_owned(),
             reason: reason.to_owned(),
@@ -101,7 +101,7 @@ impl PromptFragment {
         }
         Ok(Self {
             id: EntityId::versioned(id, version),
-            source: path,
+            source: path.to_owned(),
             locale,
             description,
             placeholders,
@@ -111,8 +111,8 @@ impl PromptFragment {
 
     /// The crate-relative path of the file.
     #[must_use]
-    pub fn source(&self) -> &'static str {
-        self.source
+    pub fn source(&self) -> &str {
+        &self.source
     }
 
     /// The locale the file is written in.

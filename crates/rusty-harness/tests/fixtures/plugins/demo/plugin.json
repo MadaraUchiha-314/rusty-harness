@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "demo",
+  "version": "1.0.0",
+  "description": "The fixture plugin of issue-3's tests: one skill, one stdio MCP server, one hook, one prompt.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "dev.rusty-harness": {
+      "note": "hooks, commands and prompts live in the dev.rusty-harness/ directory"
+    }
+  }
+}

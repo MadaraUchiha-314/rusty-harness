@@ -1,0 +1,26 @@
+{
+  "name": "rusty-harness-workspace",
+  "private": true,
+  "workspaces": [
+    "docs",
+    "crates/rusty-harness-wasm"
+  ],
+  "type": "module",
+  "scripts": {
+    "lint": "oxlint --type-aware",
+    "format": "oxfmt --check",
+    "format:fix": "oxfmt",
+    "lint:md": "markdownlint-cli2",
+    "commitlint": "commitlint"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21",
+    "@commitlint/config-conventional": "^21",
+    "@types/bun": "^1",
+    "markdownlint-cli2": "^0.24",
+    "oxfmt": "^0.74",
+    "oxlint": "^1.89",
+    "oxlint-tsgolint": "^7",
+    "typescript": "~6.0"
+  }
+}

@@ -5,3 +5,4 @@ Index of durable decisions. Each record lives beside this file as
 
 | # | Decision | Status |
 |---|----------|--------|
+| [001](decision-001.md) | Repository tooling baseline | accepted |

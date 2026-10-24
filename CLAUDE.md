@@ -16,10 +16,16 @@ in [`.claude/settings.json`](.claude/settings.json).
 
 ## Tooling
 
-Use Cargo's own commands, and run all of them before pushing:
+The layout, toolchain and every local command are documented in
+[`docs/development/`](docs/development/local-development.md). Install the git hooks once
+(`prek install`); they run the same checks as CI. Before pushing, at minimum:
 
 ```sh
 cargo fmt --all --check
-cargo clippy --all-targets -- -D warnings
-cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo nextest run --workspace --all-features && cargo test --doc --workspace --all-features
+cargo check --target wasm32-unknown-unknown -p rusty_harness --no-default-features --features rt-wasm
 ```
+
+All logic lives in `crates/rusty-harness`; `crates/rusty-harness-py` and
+`crates/rusty-harness-wasm` are thin adapters. Commits are Conventional Commits.

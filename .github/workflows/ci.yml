@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  rust-lint:
+    name: Rust lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-machete
+      - run: cargo fmt --all --check
+      - run: cargo check --all-targets --all-features
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo deny check
+      - run: cargo machete
+
+  rust-test:
+    name: Rust test (${{ matrix.toolchain }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, msrv]
+    env:
+      # Overrides rust-toolchain.toml, so the MSRV leg really builds on the MSRV.
+      # Keep 1.88 in sync with `rust-version` in Cargo.toml.
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain == 'msrv' && '1.88' || 'stable' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.toolchain }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run --workspace --all-features
+      - run: cargo test --doc --workspace --all-features
+
+  wasm-check:
+    # Required status check: catches runtime-specific code leaking into the core.
+    name: Core compiles for wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: >-
+          cargo check --target wasm32-unknown-unknown -p rusty_harness
+          --no-default-features --features rt-wasm
+      - name: tokio stays out of the wasm dependency tree
+        run: |
+          if cargo tree -p rusty_harness --no-default-features --features rt-wasm \
+              --target wasm32-unknown-unknown -e normal | grep -q '^.*tokio '; then
+            echo "::error::tokio is in the core's wasm32 dependency tree"; exit 1
+          fi
+
+  wasm:
+    name: WASM + TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: wasm-bindgen-test (Node)
+        run: wasm-pack test --node
+        working-directory: crates/rusty-harness-wasm
+      - name: wasm-bindgen-test (headless Chrome)
+        run: wasm-pack test --headless --chrome
+        working-directory: crates/rusty-harness-wasm
+      - run: bun run build
+        working-directory: crates/rusty-harness-wasm
+      - run: bun run test
+        working-directory: crates/rusty-harness-wasm
+      - run: bunx tsc --noEmit -p crates/rusty-harness-wasm
+      - run: bunx tsc --noEmit -p docs
+      - run: bun run lint
+      - run: bun run format
+
+  python-lint:
+    name: Python lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/rusty-harness-py
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v10.3.2
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - name: rusty_harness.pyi is up to date
+        run: |
+          # stub_gen embeds Python: point PyO3 at the venv's interpreter and its libpython.
+          export PYO3_PYTHON="$PWD/.venv/bin/python"
+          LD_LIBRARY_PATH="$("$PYO3_PYTHON" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          export LD_LIBRARY_PATH
+          cargo run -p rusty-harness-py --bin stub_gen
+          git diff --exit-code -- rusty_harness.pyi
+
+  wheels:
+    name: Wheels
+    uses: ./.github/workflows/wheels.yml
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run lint:md
+      - run: bun run --cwd docs build
+
+  commitlint:
+    name: Conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: >-
+          bunx commitlint --verbose
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}

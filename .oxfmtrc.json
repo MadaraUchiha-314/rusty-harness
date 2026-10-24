@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "ignorePatterns": [
+    "*.md",
+    "target/**",
+    "**/dist/**",
+    "docs/.vitepress/cache/**",
+    "crates/rusty-harness-py/.venv/**",
+    "docs/specs/**",
+    ".the-loop/**",
+    "bun.lock"
+  ]
+}

@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  release-pr:
+    # Opens or updates the release PR: workspace version bump + CHANGELOG.md from
+    # conventional commits, with cargo-semver-checks on the core crate.
+    name: Release PR
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-semver-checks
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          # PRs opened with GITHUB_TOKEN do not trigger CI; a PAT/App token does.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+  release:
+    # Publishes rusty_harness to crates.io, tags v<version> and creates the GitHub
+    # release — but only once the release PR has merged (a no-op otherwise).
+    name: Release (crates.io)
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      contents: write
+      id-token: write
+    outputs:
+      released: ${{ steps.release.outputs.releases_created }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Is this version unreleased?
+        id: pending
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "rusty_harness") | .version')"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: rust-lang/crates-io-auth-action@v1
+        if: steps.pending.outputs.pending == 'true'
+        id: auth
+      - uses: release-plz/action@v0.5
+        if: steps.pending.outputs.pending == 'true'
+        id: release
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+      - name: Released tag
+        id: tag
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          RELEASES: ${{ steps.release.outputs.releases }}
+        run: echo "tag=$(jq -r '.[0].tag' <<< "$RELEASES")" >> "$GITHUB_OUTPUT"
+
+  wheels:
+    name: Wheels
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/wheels.yml
+
+  pypi:
+    name: Publish to PyPI
+    needs: wheels
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  npm:
+    name: Publish to npm
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+        working-directory: crates/rusty-harness-wasm
+      - run: bun run test
+        working-directory: crates/rusty-harness-wasm
+      # npm >= 11.5 exchanges the OIDC token for a publish token (trusted publishing).
+      - run: npm install -g npm@latest
+      - run: npm publish --provenance --access public
+        working-directory: crates/rusty-harness-wasm
+
+  docs:
+    name: Deploy docs
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd docs build
+      - name: API reference
+        run: |
+          cargo doc --no-deps --all-features -p rusty_harness
+          cp -r target/doc docs/.vitepress/dist/api
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs/.vitepress/dist
+      - uses: actions/deploy-pages@v5
+        id: deploy

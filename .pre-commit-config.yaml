@@ -1,0 +1,82 @@
+# Runs with prek (https://github.com/j178/prek) or pre-commit. Install: `prek install`.
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+
+repos:
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+      - id: cargo-nextest
+        name: cargo nextest
+        entry: cargo nextest run --workspace --all-features
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+      - id: cargo-check-wasm
+        name: cargo check (wasm32, core)
+        entry: >-
+          cargo check --target wasm32-unknown-unknown -p rusty_harness
+          --no-default-features --features rt-wasm
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+      - id: ruff
+        name: ruff check
+        entry: uv run --project crates/rusty-harness-py ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        files: ^crates/rusty-harness-py/
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --project crates/rusty-harness-py ruff format --check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        files: ^crates/rusty-harness-py/
+      - id: pyright
+        name: pyright
+        entry: bash -c 'cd crates/rusty-harness-py && uv run pyright'
+        language: system
+        types_or: [python, pyi]
+        files: ^crates/rusty-harness-py/
+        pass_filenames: false
+      - id: oxlint
+        name: oxlint
+        entry: bunx oxlint --type-aware
+        language: system
+        types_or: [ts, javascript]
+      - id: oxfmt
+        name: oxfmt
+        entry: bunx oxfmt --check --no-error-on-unmatched-pattern
+        language: system
+        types_or: [ts, javascript, json, toml, yaml]
+      - id: tsc
+        name: tsc --noEmit
+        entry: >-
+          bash -c 'bunx tsc --noEmit -p crates/rusty-harness-wasm &&
+          bunx tsc --noEmit -p docs'
+        language: system
+        types_or: [ts]
+        pass_filenames: false
+      - id: markdownlint
+        name: markdownlint
+        entry: bunx markdownlint-cli2
+        language: system
+        types: [markdown]
+      - id: commitlint
+        name: commitlint
+        entry: bunx commitlint --edit
+        language: system
+        stages: [commit-msg]
+        pass_filenames: false
+        always_run: true

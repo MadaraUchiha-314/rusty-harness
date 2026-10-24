@@ -1,0 +1,19 @@
+{
+  "config": {
+    "default": true,
+    // Prose wraps at 100; tables and code are exempt.
+    "MD013": { "line_length": 100, "tables": false, "code_blocks": false },
+    // VitePress pages may use inline HTML and start with front-matter.
+    "MD033": false,
+    "MD041": false,
+    "MD060": false,
+  },
+  "globs": ["**/*.md"],
+  "ignores": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "target/**",
+    "CHANGELOG.md",
+    "crates/rusty-harness-py/.venv/**",
+  ],
+}

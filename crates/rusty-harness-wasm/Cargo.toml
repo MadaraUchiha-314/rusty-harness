@@ -1,0 +1,31 @@
+[package]
+name = "rusty-harness-wasm"
+description = "WebAssembly + TypeScript bindings for rusty_harness (npm package `rusty-harness`)."
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+doctest = false
+
+[dependencies]
+rusty_harness = { workspace = true, features = ["rt-wasm"] }
+wasm-bindgen = { workspace = true }
+# `#[wasm_bindgen] async fn` expands to code that names this crate.
+wasm-bindgen-futures = { workspace = true }
+
+[dev-dependencies]
+wasm-bindgen-test = { workspace = true }
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-machete]
+# Used only by the code `#[wasm_bindgen] async fn` expands to, which machete cannot see.
+ignored = ["wasm-bindgen-futures"]

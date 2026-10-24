@@ -90,23 +90,23 @@ flowchart TB
   end
   subgraph A["app_service/ — one process, feature-gated"]
     direction LR
-    SRV["a2a_server\nAgentExecutor adapter · extensions · auth · jsonrpc + rest (+grpc)"]
-    INB["inbox\nsingle ingestion path"]
-    CHA["channels_api\nchannels/v1 extension"]
+    SRV["a2a_server<br/>AgentExecutor adapter · extensions · auth · jsonrpc + rest (+grpc)"]
+    INB["inbox<br/>single ingestion path"]
+    CHA["channels_api<br/>channels/v1 extension"]
     HB["heartbeat"]
-    DUR["durable\nnone | embedded | remote (Temporal)"]
-    O11["o11y\ntracing → OTLP, as hooks"]
+    DUR["durable<br/>none | embedded | remote (Temporal)"]
+    O11["o11y<br/>tracing → OTLP, as hooks"]
   end
   subgraph H["harness/ — the agent"]
     direction LR
-    AG["core_loop::agent\nAgent trait · LocalAgent"]
-    CL["core_loop\ntask · plan · step · state · context_window · compaction · persistence"]
+    AG["core_loop::agent<br/>Agent trait · LocalAgent"]
+    CL["core_loop<br/>task · plan · step · state · context_window · compaction · persistence"]
     SP["system_prompt"]
     SK["skills"]
     TL["tools (+mcp, memory·sandbox seams)"]
-    HK["hooks\ncatalogue · dispatcher · remote"]
-    MO["models\nllm · system_one · speech"]
-    AC["a2a_client\nRemoteAgent · loopback"]
+    HK["hooks<br/>catalogue · dispatcher · remote"]
+    MO["models<br/>llm · system_one · speech"]
+    AC["a2a_client<br/>RemoteAgent · loopback"]
     CH["channels"]
     PL["plugins · commands"]
   end
@@ -155,7 +155,7 @@ flowchart LR
   LP --> ST
   LP --> EL --> AX
   HBt --> IN
-  WK <-->|gRPC| TC["Temporal service\n(Cloud, self-hosted, or the SDK's ephemeral dev server)"]
+  WK <-->|gRPC| TC["Temporal service<br/>(Cloud, self-hosted, or the SDK's ephemeral dev server)"]
 ```
 
 ### Request flow
@@ -192,7 +192,7 @@ sequenceDiagram
   W->>L: activity set_state(input-required, sub-state awaiting-next-turn)
   L->>E: append TaskStatusUpdateEvent(final=true for this turn)
   E-->>X: broadcast
-  X-->>S: stream ends for this request; task stays open
+  X-->>S: stream ends for this request, the task stays open
   S->>X: SendMessage(same taskId, contextId) — next turn
   X->>I: accept(...) → D: signal inbox_event → W resumes
 ```
@@ -793,19 +793,22 @@ stateDiagram-v2
   [*] --> submitted: SendMessage (new task)
   submitted --> working: workflow started
   working --> working: tool calls · iterations
-  working --> input_required: response delivered (long-running)\nsub-state awaiting-next-turn
-  working --> input_required: participant.ask\nsub-state awaiting-participant
+  working --> input_required: response delivered (long-running) · sub-state awaiting-next-turn
+  working --> input_required: participant.ask · sub-state awaiting-participant
   input_required --> working: follow-up SendMessage / channel reply
   working --> completed: response delivered (one-shot)
   input_required --> completed: task/v1 transition=complete
-  working --> completed: task/v1 transition=complete\n(stop path, then completed)
+  working --> completed: task/v1 transition=complete · stop path first
   working --> canceled: CancelTask
   input_required --> canceled: CancelTask
   working --> failed: non-retryable error · limit (policy fail)
   completed --> [*]
   canceled --> [*]
   failed --> [*]
-  note right of completed: terminal: follow-ups rejected with UnsupportedOperationError;\nbuilt-in surfaces start a new task with referenceTaskIds (R21.6)
+  note right of completed
+    terminal. Follow-ups are rejected with UnsupportedOperationError,
+    built-in surfaces start a new task with referenceTaskIds (R21.6)
+  end note
 ```
 
 Transitions are one function, `TaskRecord::transition(Transition) -> Result<Event>`,
@@ -962,7 +965,7 @@ flowchart LR
   R[request] --> V["check_a2a_version (SDK): A2A-Version ≥ 1.0 else UnsupportedVersion"]
   V --> A["auth: RequestAuthorizer → Caller (bearer / api key, constant-time)"]
   A --> X["protocol_gap::ExtensionNegotiator: parse A2A-Extensions ∩ advertised → active set, echo header"]
-  X --> P["participant guard: task-scoped ops require Caller ∈ participants else TaskNotFound;\nListTasks filtered by membership"]
+  X --> P["participant guard: task-scoped ops require Caller ∈ participants else TaskNotFound;<br/>ListTasks filtered by membership"]
   P --> L["rate limit per Caller (token bucket)"]
   L --> H["DefaultRequestHandler (SDK) → HarnessExecutor → Inbox / event log"]
 ```
@@ -1047,8 +1050,8 @@ flowchart TB
     direction TB
     S0["signals: inbox_event(EventRef) · cancel(reason) · complete(by)"]
     A1["activity build_context(task, n) → ctx_ref"]
-    A2["activity call_model(ctx_ref) → turn_ref\nheartbeat every 30 s while streaming"]
-    A3["activities execute_tool(call_ref, idem_key) ×n\njoin_all · heartbeat 15 s"]
+    A2["activity call_model(ctx_ref) → turn_ref<br/>heartbeat every 30 s while streaming"]
+    A3["activities execute_tool(call_ref, idem_key) ×n<br/>join_all · heartbeat 15 s"]
     A4["activity send_a2a(msg_ref, messageId=v5(task,n,call))"]
     A5["activity set_state(transition) → emits status event"]
     Q["query: progress (state, iteration, sub-state)"]

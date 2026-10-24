@@ -1536,8 +1536,20 @@ boundary* (R20), *Killing the activity worker re-dispatches the model call once*
 *Killing the workflow worker replays without a repeated tool side effect* (R22),
 *The heartbeat forwards an event whose signal failed* (R23), *Every operation of a task
 appears in one trace* (R24), *An A2UI ask renders in the web renderer and the TUI*
-(R25), *The wasm build runs a task against a mocked host* (R29), and the eleven abuse
-scenarios above. The executable detail (matrix, environment, evidence, activities) is
+(R25), *The wasm build runs a task against a mocked host* (R29), the eleven abuse
+scenarios above, and the scenarios the design critic round added: *A pre hook that
+rewrites a tool call after approval is re-checked by the guard* (R4), *A task watcher
+outside a channel sees the state change but not the question* (R18), *A crash between
+two store writes leaves a consistent store on reopen* (R14), *A duplicate inbox signal
+applies the event once* (R20), *Killing the worker after the peer accepted and before the
+id was recorded creates no duplicate remote task* (R22), *A retried model call retracts
+the partial output of the failed attempt* (R19.7, R22), *Completing a working task stops
+in-flight activities and ends completed* (R21), *A crashed activity's failure and retry
+hooks run on the surviving worker* (R22.3), *A participant answering after the tool
+timeout resumes the original suspended call* (R18), *GetTask after a restart returns the
+full A2A task* (R12, R14), *Spans across a signal and a retry link into one trace* (R24)
+and *An image artifact renders in a graphics-capable terminal and degrades to alt text*
+(R28). The executable detail (matrix, environment, evidence, activities) is
 `testing-plan.md`.
 
 ## Trade-offs & decisions

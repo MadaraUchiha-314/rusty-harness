@@ -60,7 +60,7 @@ order = []
 
 [tools]
 max_result_bytes = 65536 # a larger tool result goes through `oversize`
-oversize = "truncate"    # truncate | summarise
+oversize = "truncate" # truncate | summarise
 
 [context]
 order = [

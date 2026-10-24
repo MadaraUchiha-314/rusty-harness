@@ -64,7 +64,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T16 — `cargo check --all-targets --all-features`, `cargo deny check`; T12 —
     the wasm32 `cargo check` with `uuid/js` unification proves `a2a-lf` builds there (D5)
     (red→green: the check fails before the feature, passes after)
-- [ ] 2. Module tree and error taxonomy: every module of `design.md` §Module tree as a
+- [x] 2. Module tree and error taxonomy: every module of `design.md` §Module tree as a
   file with a doc comment (self-improvement placeholders included), `error.rs` with
   `HarnessError` and the A2A error mapping, `#![deny(missing_docs)]`.
   - _Depends on:_ 1

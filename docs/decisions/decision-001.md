@@ -18,3 +18,4 @@ The choices below are the ones the issue left open or that the dependency graph 
 | Python `[tool.uv] package = false` | The extension is built by `maturin develop`, not by `uv sync`, so `uv sync` stays fast and never rebuilds Rust. |
 | No hand-written TS wrapper or `tsup` yet | `hello()`'s generated `.d.ts` is already `Promise<string>`; the wrapper lands with the first API that needs one. |
 | `cdylib` crates skip `cargo test` | `rusty-harness-py` sets `test = false` so tests never link libpython; pytest covers it. wasm tests are `wasm32`-only and run under `wasm-pack test`. |
+| JS/TS lint and format with **oxlint** (type-aware, via `oxlint-tsgolint`) and **oxfmt**, not eslint/prettier | Requested in review on #5. oxfmt also formats the repo's JSON, TOML and YAML. `tsc --noEmit` stays the type check. |

@@ -24,7 +24,7 @@ prek run --all-files
 | `cargo-nextest` | `cargo nextest run --workspace --all-features` |
 | `cargo-check-wasm` | `cargo check` of the core for `wasm32-unknown-unknown` with `rt-wasm` |
 | `ruff`, `ruff-format`, `pyright` | the Python crate |
-| `eslint`, `tsc` | every TypeScript source |
+| `oxlint`, `oxfmt`, `tsc` | TypeScript (oxfmt also JSON, TOML, YAML) |
 | `markdownlint` | all Markdown |
 | `commitlint` | the commit message (`commit-msg` stage) |
 

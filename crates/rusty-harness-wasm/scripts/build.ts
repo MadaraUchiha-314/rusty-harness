@@ -10,6 +10,8 @@ const targets = ["bundler", "web", "nodejs"] as const;
 rmSync(join(crateDir, "dist"), { recursive: true, force: true });
 for (const target of targets) {
   const outDir = join(crateDir, "dist", target);
+  // Sequential on purpose: the builds share one cargo target directory.
+  // oxlint-disable-next-line no-await-in-loop
   await $`wasm-pack build ${crateDir} --release --target ${target} --out-dir ${outDir} --out-name rusty_harness`;
   // wasm-pack writes a catch-all .gitignore, which would also hide the files from npm.
   rmSync(join(outDir, ".gitignore"), { force: true });
@@ -21,7 +23,10 @@ if (version === undefined) {
   throw new Error("workspace.package.version not found in Cargo.toml");
 }
 const manifestPath = join(crateDir, "package.json");
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { version: string };
-manifest.version = version;
+const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+if (typeof manifest !== "object" || manifest === null) {
+  throw new Error(`${manifestPath} is not a JSON object`);
+}
+Object.assign(manifest, { version });
 writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`rusty-harness@${version} built for ${targets.join(", ")}`);

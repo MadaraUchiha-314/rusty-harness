@@ -4,7 +4,7 @@
 |---|---|---|
 | Core | `crates/rusty-harness` → crates.io `rusty_harness` | Rust stable (edition 2024), `cargo`, `clippy`, `rustfmt`, `cargo nextest` |
 | Python | `crates/rusty-harness-py` → PyPI `rusty_harness` | PyO3, `pyo3-async-runtimes` (tokio), maturin, `pyo3-stub-gen`, `uv`, `ruff`, `pyright`, `pytest` + `pytest-asyncio` |
-| JS / TS | `crates/rusty-harness-wasm` → npm `rusty-harness` | `wasm-bindgen`, `wasm-pack`, `wasm-bindgen-test`, TypeScript (strict), `eslint`, `prettier`, `vitest` |
+| JS / TS | `crates/rusty-harness-wasm` → npm `rusty-harness` | `wasm-bindgen`, `wasm-pack`, `wasm-bindgen-test`, TypeScript (strict), `oxlint`, `oxfmt`, `vitest` |
 | Docs | `docs/` | VitePress, `markdownlint`, `cargo doc` for the API reference |
 | Repo | root | `bun` (one JS toolchain), `pre-commit`/`prek`, `commitlint`, `cargo deny`, `cargo machete`, release-plz |
 

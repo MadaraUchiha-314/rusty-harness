@@ -9,28 +9,26 @@ yanked = "deny"
 # pyo3-stub-gen -> rustpython-parser, which parses Python stubs; revisit when
 # pyo3-stub-gen drops rustpython-parser.
 ignore = [
-    { id = "RUSTSEC-2025-0075", reason = "unic-char-range, via pyo3-stub-gen" },
-    { id = "RUSTSEC-2025-0080", reason = "unic-common, via pyo3-stub-gen" },
-    { id = "RUSTSEC-2025-0081", reason = "unic-char-property, via pyo3-stub-gen" },
-    { id = "RUSTSEC-2025-0090", reason = "unic-emoji-char, via pyo3-stub-gen" },
-    { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version, via pyo3-stub-gen" },
-    { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident, via pyo3-stub-gen" },
+  { id = "RUSTSEC-2025-0075", reason = "unic-char-range, via pyo3-stub-gen" },
+  { id = "RUSTSEC-2025-0080", reason = "unic-common, via pyo3-stub-gen" },
+  { id = "RUSTSEC-2025-0081", reason = "unic-char-property, via pyo3-stub-gen" },
+  { id = "RUSTSEC-2025-0090", reason = "unic-emoji-char, via pyo3-stub-gen" },
+  { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version, via pyo3-stub-gen" },
+  { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident, via pyo3-stub-gen" },
 ]
 
 [licenses]
 version = 2
 confidence-threshold = 0.9
-allow = [
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "BSD-2-Clause",
-    "MIT",
-    "Unicode-3.0",
-]
+allow = ["Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "MIT", "Unicode-3.0"]
 # Permissive licences pulled in by pyo3-stub-gen -> rustpython-parser, scoped to them.
 exceptions = [
-    { crate = "tiny-keccak", allow = ["CC0-1.0"] },
-    { crate = "unicode_names2", allow = ["Unicode-DFS-2016"] },
+  { crate = "tiny-keccak", allow = [
+    "CC0-1.0",
+  ] },
+  { crate = "unicode_names2", allow = [
+    "Unicode-DFS-2016",
+  ] },
 ]
 
 [licenses.private]

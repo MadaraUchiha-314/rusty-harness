@@ -50,11 +50,16 @@ repos:
         types_or: [python, pyi]
         files: ^crates/rusty-harness-py/
         pass_filenames: false
-      - id: eslint
-        name: eslint
-        entry: bunx eslint
+      - id: oxlint
+        name: oxlint
+        entry: bunx oxlint --type-aware
         language: system
         types_or: [ts, javascript]
+      - id: oxfmt
+        name: oxfmt
+        entry: bunx oxfmt --check --no-error-on-unmatched-pattern
+        language: system
+        types_or: [ts, javascript, json, toml, yaml]
       - id: tsc
         name: tsc --noEmit
         entry: >-

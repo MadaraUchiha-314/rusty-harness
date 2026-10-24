@@ -62,8 +62,8 @@ wasm-pack test --node      # Rust-side wasm-bindgen tests
 wasm-pack test --headless --chrome
 ```
 
-From the root, `bun run lint` (eslint) and `bun run format` (prettier) cover every
-TypeScript source.
+From the root, `bun run lint` (oxlint, type-aware) and `bun run format` (oxfmt) cover every
+TypeScript, JSON, TOML and YAML file; `bun run format:fix` rewrites them.
 
 ## Docs
 

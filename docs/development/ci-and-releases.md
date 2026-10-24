@@ -7,7 +7,7 @@
 | `rust-lint` | fmt, clippy, `cargo check`, `cargo doc` with `-D warnings`, `cargo deny`, `cargo machete` |
 | `rust-test` | nextest + doctests on **stable** and on the **MSRV** |
 | `wasm-check` | the core for `wasm32-unknown-unknown` — mark this a required status check |
-| `wasm` | `wasm-pack test` (Node and headless Chrome), the npm build, vitest, eslint, tsc, prettier |
+| `wasm` | `wasm-pack test` (Node and headless Chrome), the npm build, vitest, oxlint, tsc, oxfmt |
 | `python-lint` | ruff, pyright, and that `rusty_harness.pyi` matches the code |
 | `wheels` | abi3 wheels for Linux x86_64 / aarch64, macOS universal2 and Windows, each tested with pytest |
 | `docs` | markdownlint and the VitePress build (no deploy) |

@@ -1,18 +1,18 @@
 {
   "name": "rusty-harness",
   "version": "0.1.0",
-  "description": "A tiny agent harness that's blazing fast \u2014 WebAssembly build of the Rust core.",
+  "description": "A tiny agent harness that's blazing fast — WebAssembly build of the Rust core.",
+  "homepage": "https://madarauchiha-314.github.io/rusty-harness/",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MadaraUchiha-314/rusty-harness.git",
     "directory": "crates/rusty-harness-wasm"
   },
-  "homepage": "https://madarauchiha-314.github.io/rusty-harness/",
-  "type": "module",
   "files": [
     "dist"
   ],
+  "type": "module",
   "sideEffects": [
     "./dist/bundler/rusty_harness.js",
     "./dist/web/rusty_harness.js"

@@ -10,10 +10,10 @@ license = "Apache-2.0"
 requires-python = ">=3.10"
 dynamic = ["version"]
 classifiers = [
-    "Programming Language :: Rust",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Typing :: Typed",
+  "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Typing :: Typed",
 ]
 
 [project.urls]
@@ -21,13 +21,7 @@ Homepage = "https://madarauchiha-314.github.io/rusty-harness/"
 Repository = "https://github.com/MadaraUchiha-314/rusty-harness"
 
 [dependency-groups]
-dev = [
-    "maturin>=1,<2",
-    "pyright>=1.1",
-    "pytest>=8",
-    "pytest-asyncio>=1",
-    "ruff>=0.8",
-]
+dev = ["maturin>=1,<2", "pyright>=1.1", "pytest>=8", "pytest-asyncio>=1", "ruff>=0.8"]
 
 [tool.maturin]
 module-name = "rusty_harness"

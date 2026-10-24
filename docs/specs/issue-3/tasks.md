@@ -171,7 +171,7 @@ abuse cases are tests like any other (`reference/security.md`).
     registered default is replaced by a plugin without a code change` (fixture plugin
     `tests/fixtures/plugins/demo/`); T8 — `abuse_plugin_manifest_escaping_its_directory_
     is_refused_whole`
-- [ ] 13. System prompt and commands: the default fragments under `prompts/system/`,
+- [x] 13. System prompt and commands: the default fragments under `prompts/system/`,
   `PromptPlan` assembly with `prompt.assemble` hooks, replacement and extension
   positions; `Command`, `CommandParser` (human participants only), `/exit`, `/model`,
   `/effort`, the `command.invoke` events and the role check in the guard stage. 🔒

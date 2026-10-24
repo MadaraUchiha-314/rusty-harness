@@ -320,6 +320,18 @@ pub struct DeclaredCommand {
     pub plugin: String,
 }
 
+impl DeclaredCommand {
+    /// A declaration registered under `id` by `plugin`.
+    #[must_use]
+    pub fn new(id: EntityId, spec: CommandSpec, plugin: impl Into<String>) -> Self {
+        Self {
+            id,
+            spec,
+            plugin: plugin.into(),
+        }
+    }
+}
+
 impl Entity for DeclaredCommand {
     fn kind(&self) -> EntityKind {
         EntityKind::Command

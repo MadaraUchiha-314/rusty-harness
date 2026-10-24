@@ -192,6 +192,65 @@ struct JsonRpcError {
     message: String,
 }
 
+/// Calls `method` (JSON-RPC) or `tool` (MCP) over `transport` with `params` and decodes
+/// the result. Shared by remote hooks and plugin-declared commands.
+///
+/// # Errors
+///
+/// [`HookError::Remote`] for a transport, protocol or decoding failure.
+pub async fn call_remote<P: Serialize + Send + Sync, R: serde::de::DeserializeOwned>(
+    transport: &RemoteTransport,
+    method: &str,
+    tool: &str,
+    params: P,
+) -> Result<R, HookError> {
+    let value = match transport {
+        RemoteTransport::JsonRpc { url, headers, http } => {
+            let body = serde_json::to_vec(&JsonRpcRequest {
+                jsonrpc: "2.0",
+                id: 1,
+                method,
+                params,
+            })
+            .map_err(|e| HookError::Remote(format!("encode: {e}")))?;
+            let mut request = HttpRequest::new(http::Method::POST, url.clone());
+            request.headers = headers.clone();
+            request.headers.insert(
+                http::header::CONTENT_TYPE,
+                http::HeaderValue::from_static("application/json"),
+            );
+            request.body = Bytes::from(body);
+            let response = http
+                .send(request)
+                .await
+                .map_err(|e| HookError::Remote(e.to_string()))?;
+            if !response.status.is_success() {
+                return Err(HookError::Remote(format!(
+                    "http {}",
+                    response.status.as_u16()
+                )));
+            }
+            let envelope: JsonRpcResponse = serde_json::from_slice(&response.body)
+                .map_err(|e| HookError::Remote(format!("decode: {e}")))?;
+            if let Some(err) = envelope.error {
+                return Err(HookError::Remote(format!(
+                    "json-rpc {}: {}",
+                    err.code, err.message
+                )));
+            }
+            envelope
+                .result
+                .ok_or_else(|| HookError::Remote("json-rpc response without result".into()))?
+        }
+        RemoteTransport::McpTool { caller, .. } => {
+            let arguments = serde_json::to_value(params)
+                .map_err(|e| HookError::Remote(format!("encode: {e}")))?;
+            caller.call_tool(tool, arguments).await?
+        }
+    };
+    serde_json::from_value(value).map_err(|e| HookError::Remote(format!("decode: {e}")))
+}
+
 impl<O: Operation> RemoteHook<O> {
     /// A remote hook for `O` reached through `transport`.
     #[must_use]
@@ -214,53 +273,13 @@ impl<O: Operation> RemoteHook<O> {
         phase: Phase,
         params: P,
     ) -> Result<R, HookError> {
-        let value = match &self.transport {
-            RemoteTransport::JsonRpc { url, headers, http } => {
-                let body = serde_json::to_vec(&JsonRpcRequest {
-                    jsonrpc: "2.0",
-                    id: 1,
-                    method: &method_name(phase, O::POINT),
-                    params,
-                })
-                .map_err(|e| HookError::Remote(format!("encode: {e}")))?;
-                let mut request = HttpRequest::new(http::Method::POST, url.clone());
-                request.headers = headers.clone();
-                request.headers.insert(
-                    http::header::CONTENT_TYPE,
-                    http::HeaderValue::from_static("application/json"),
-                );
-                request.body = Bytes::from(body);
-                let response = http
-                    .send(request)
-                    .await
-                    .map_err(|e| HookError::Remote(e.to_string()))?;
-                if !response.status.is_success() {
-                    return Err(HookError::Remote(format!(
-                        "http {}",
-                        response.status.as_u16()
-                    )));
-                }
-                let envelope: JsonRpcResponse = serde_json::from_slice(&response.body)
-                    .map_err(|e| HookError::Remote(format!("decode: {e}")))?;
-                if let Some(err) = envelope.error {
-                    return Err(HookError::Remote(format!(
-                        "json-rpc {}: {}",
-                        err.code, err.message
-                    )));
-                }
-                envelope
-                    .result
-                    .ok_or_else(|| HookError::Remote("json-rpc response without result".into()))?
-            }
-            RemoteTransport::McpTool { caller, .. } => {
-                let arguments = serde_json::to_value(params)
-                    .map_err(|e| HookError::Remote(format!("encode: {e}")))?;
-                caller
-                    .call_tool(&tool_name(phase, O::POINT), arguments)
-                    .await?
-            }
-        };
-        serde_json::from_value(value).map_err(|e| HookError::Remote(format!("decode: {e}")))
+        call_remote(
+            &self.transport,
+            &method_name(phase, O::POINT),
+            &tool_name(phase, O::POINT),
+            params,
+        )
+        .await
     }
 }
 

@@ -1126,14 +1126,20 @@ on the same interval so the engine's heartbeat timeout detects a dead worker (R2
 
 ### Observability (R24)
 
-`o11y::TracingHooks` registers a `post` hook on every catalogue point that opens or
-closes a `tracing` span with `task_id`, `context_id`, point name, duration, and the
+`o11y::TracingHooks` registers an `in` hook on every catalogue point that opens a
+`tracing` span around `next` (so nested operations are child spans and a failing
+operation closes its span with the error) plus a `pre` hook that records vetoes and
+pre-dispatch failures; spans carry `task_id`, `context_id`, point name, duration, and the
 operation's summary attributes (model: tokens in/out, cached; tool: name, bytes;
 compaction: before/after) (R24.1, R4.8). Export: `tracing-opentelemetry` 0.34 +
 `opentelemetry-otlp` 0.33 to `[o11y] otlp_endpoint` (R24.2); Langfuse accepts OTLP, so
 the Langfuse integration is a configuration of the same hook set plus a hook that adds
 Langfuse's generation attributes (R24.3), shipped as `o11y::langfuse` behind a config
-flag, not core code. Logging is `tracing` at both dev time and runtime with `[o11y]
+flag, not core code. Trace context is persisted, not only propagated in memory: the
+W3C `traceparent` travels on every `InboxEvent`, in every activity input and in every
+`commit`, and each activity attempt opens its span as a child of it, so one task's spans
+link across signals, retries and workers into one trace (R24.1). Logging is `tracing`
+at both dev time and runtime with `[o11y]
 log_level`; the redaction layer (`o11y::redact`) drops any field of type `Secret<_>` and
 truncates message content above `debug` (R24.4). On `wasm32` the subscriber writes to the
 host's `LogSink` (R24.5).

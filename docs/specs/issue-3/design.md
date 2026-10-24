@@ -782,6 +782,7 @@ stateDiagram-v2
   input_required --> working: follow-up SendMessage / channel reply
   working --> completed: response delivered (one-shot)
   input_required --> completed: task/v1 transition=complete
+  working --> completed: task/v1 transition=complete\n(stop path, then completed)
   working --> canceled: CancelTask
   input_required --> canceled: CancelTask
   working --> failed: non-retryable error · limit (policy fail)
@@ -798,7 +799,11 @@ creator declares `mode` in the first message's `task/v1` metadata
 (`{"mode": "long-running"}`); absent, `OneShot` (R21.1–2). The built-in surfaces send
 `long-running` by default and offer `/oneshot` (open question D6). "Complete" is a
 `SendMessage` on the task whose `task/v1` metadata is `{"transition": "complete"}`
-(R21.7); "cancel" is `CancelTask`.
+(R21.7); "cancel" is `CancelTask`. Both are legal from `working` as well as from
+`input-required`: they take the same **stop path** (cancel in-flight activities through
+their tokens, discard their partial attempt, allow no further writes for the task) and
+differ only in the terminal state and in `complete` keeping the last delivered output;
+the surfaces confirm a complete-while-working as "complete now" (R21.8).
 
 ### Plan and Step (R13)
 
@@ -1056,9 +1061,12 @@ no timeout (a long-running task is open-ended) but every wait is a `select!` ove
 signals and an optional `[loop] idle_timeout`. A worker crash during an activity is
 detected by the heartbeat timeout and the activity re-dispatched; a crash of the workflow
 worker replays from history on the next worker with no repeated side effect, by
-construction of the table above. Cancel (R22.6): `CancelTask` → `cancel` signal → the
-workflow cancels in-flight activities through their cancellation tokens (heartbeating
-tools observe `ctx.cancel`) → `set_state(canceled)` → return. Streaming back follows the
+construction of the table above.
+Cancel and complete (R22.6): `CancelTask` → `cancel` signal, or a `complete` transition →
+`complete` signal; the workflow cancels in-flight activities through their cancellation
+tokens (heartbeating tools observe `ctx.cancel`), commits a retraction for the
+interrupted attempt, then `set_state(canceled | completed)` → return.
+Streaming back follows the
 **attempt protocol**: every activity attempt has an `Attempt` id (`(iteration, n)`), and
 its partial events (text deltas, tool progress, audio chunks) are committed
 incrementally, each tagged with that attempt; the attempt's final commit carries the

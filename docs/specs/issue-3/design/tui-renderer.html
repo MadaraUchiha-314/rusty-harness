@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>rusty-harness TUI renderer</title>
+<!--
+  Design prototype for issue-3, R27 (TUI renderer) and R25.4 (A2UI basic catalog rendered
+  natively in a terminal). Self-contained: no network, no fonts, no scripts beyond this
+  file. A 100x32 terminal is simulated with box-drawing characters; the implementation
+  reproduces the layout with ratatui widgets. The grey bar is prototype chrome.
+-->
+<style>
+:root { color-scheme: light; --bg: #ece9e2; --fg: #1a1a1a; --term: #1b1d1f; --termfg: #d7dae0; --dim: #7a8089; --line: #3a3f45;
+  --accent: #f0883e; --ok: #7ee787; --warn: #e3b341; --info: #79c0ff; --danger: #ff7b72; --cmd: #d2a8ff; --sel: #2b3a4e; --user: #a5d6ff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; --bg: #0d0f10; --fg: #e6e6e6; } }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #0d0f10; --fg: #e6e6e6; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, sans-serif; }
+.proto { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 16px; background: #1f2937; color: #e5e7eb; font-size: 12px; }
+.proto strong { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 11px; color: #9ca3af; }
+.proto button { padding: 3px 9px; border-radius: 999px; border: 1px solid #4b5563; color: #e5e7eb; background: none; font: inherit; cursor: pointer; }
+.proto button[aria-pressed="true"] { background: #f97316; border-color: #f97316; color: #111827; }
+.proto .sp { flex: 1; }
+.wrap { padding: 20px 16px 40px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.window { width: min(100%, 980px); border-radius: 10px; overflow: hidden; box-shadow: 0 20px 60px rgb(0 0 0 / .35); background: var(--term); }
+.titlebar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: #2a2d31; color: #9aa0a6; font-size: 12px; }
+.titlebar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: #5f6368; }
+.titlebar i:nth-child(1) { background: #ff5f57; } .titlebar i:nth-child(2) { background: #febc2e; } .titlebar i:nth-child(3) { background: #28c840; }
+.titlebar span { margin-left: auto; font-family: ui-monospace, monospace; }
+pre { margin: 0; padding: 10px 14px; color: var(--termfg); font: 13px/1.32 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-x: auto; white-space: pre; tab-size: 2; }
+.d { color: var(--dim); } .a { color: var(--accent); } .ok { color: var(--ok); } .w { color: var(--warn); } .i { color: var(--info); } .x { color: var(--danger); }
+.c { color: var(--cmd); font-weight: 700; } .u { color: var(--user); } .b { font-weight: 700; }
+.sel { background: var(--sel); } .inv { background: var(--termfg); color: var(--term); }
+.cur { background: var(--accent); color: var(--term); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { background: transparent; color: var(--termfg); } }
+@media (prefers-reduced-motion: reduce) { .cur { animation: none; } }
+.note { width: min(100%, 980px); font-size: 13px; color: var(--fg); opacity: .8; }
+.note code { font-family: ui-monospace, monospace; font-size: 12px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="proto" role="toolbar" aria-label="Prototype state switcher">
+  <strong>Prototype · TUI state</strong>
+  <button data-state="chat" aria-pressed="true">Chat · streaming</button>
+  <button data-state="a2ui">A2UI ask (basic catalog)</button>
+  <button data-state="model">/model picker</button>
+  <button data-state="voice">Push-to-talk</button>
+  <button data-state="done">Complete · cancel confirm</button>
+  <button data-state="first">First run · config created</button>
+  <span class="sp"></span>
+  <button id="theme">Toggle page theme</button>
+</div>
+<div class="wrap">
+  <div class="window">
+    <div class="titlebar"><i></i><i></i><i></i><span id="title">rusty-harness — demo-agent — 100×32</span></div>
+
+<pre id="chat">┌ <span class="b">demo-agent</span> <span class="d">· task_01HZX4V3K9N2 · ctx_9a1f</span> ──────────────────────────── <span class="i">● working</span> <span class="d">step 2/4</span>────────┐
+│                                                                                                  │
+│ <span class="u">you</span> <span class="d">12:30</span>                                                                                        │
+│   Draft release notes for Q4. Keep the task open, I will iterate with you.                       │
+│                                                                                                  │
+│ <span class="a">demo-agent</span> <span class="d">12:30 · thought 4 s ▸</span>                                                                 │
+│   I will pull the merged pull requests since <span class="b">v0.3.0</span>, group them by area and draft the notes.     │
+│                                                                                                  │
+│   <span class="d">┌ tool</span> <span class="i">changelog.list_merged</span> <span class="d">───────────────────────────────────────</span> <span class="ok">✓ 1.8 s</span>                   │
+│   <span class="d">│</span> { "since": "v0.3.0", "repo": "acme/platform" }                                               │
+│   <span class="d">│</span> → 25 pull requests                                                                           │
+│   <span class="d">└──────────────────────────────────────────────────────────────────────────────</span>                │
+│                                                                                                  │
+│ <span class="a">demo-agent</span> <span class="d">12:31 · streaming</span>                                                                     │
+│   Three areas changed since <span class="b">v0.3.0</span>:                                                              │
+│   <span class="a">•</span> <span class="b">API</span>: per-tenant rate limits (#401), pagination on /events (#404)                             │
+│   <span class="a">•</span> <span class="b">Auth</span>: refresh-token rotation (#407)                                                          │
+│   <span class="a">•</span> <span class="b">CLI</span>: the new --config flag                                                                   │
+│                                                                                                  │
+│ <span class="d">sub-task</span> classify 25 PRs <span class="d">(loopback agent) ········································</span> <span class="i">working</span>       │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+├ <span class="d">plan</span> <span class="ok">■</span> collect <span class="i">▣</span> group <span class="d">□ draft □ review</span>──────────────────────────────────────────────────────────┤
+│ <span class="d">›</span>                                                                                                │
+│                                                                                                  │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ <span class="inv"> enter </span> send  <span class="inv"> space </span> hold to talk <span class="inv"> / </span> commands <span class="inv"> ^c </span> complete <span class="inv"> ^x </span> cancel <span class="d">gpt-6.1 · high · remote</span>│
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+
+<pre id="a2ui" hidden>┌ <span class="b">demo-agent</span> <span class="d">· task_01HZX4V3K9N2 · ctx_9a1f</span> ───────────────── <span class="w">◐ input-required</span> <span class="d">awaiting-participant</span>┐
+│                                                                                                  │
+│ <span class="a">demo-agent</span> <span class="d">12:33 · asked you on channel ch-7f3a</span>                                                  │
+│                                                                                                  │
+│   <span class="d">╭─ a2ui · basic catalog ─────────────────────────────────────────────────────────────────╮</span>     │
+│                                                                                                  │
+│   <span class="d">│</span>  <span class="b">Which audience are these notes for?</span>                                                         │
+│   <span class="d">│</span>  <span class="d">The tone and the level of detail depend on it. Pick one, or type another.</span>                   │
+│                                                                                                  │
+│   <span class="d">│</span>  <span class="sel"> (●) Customers </span>   ( ) Internal engineering   ( ) Both, two sections                         │
+│                                                                                                  │
+│   <span class="d">│</span>  Something else                                                                              │
+│   <span class="d">│</span>  <span class="d">┌────────────────────────────────────────────────────────────────────────────────────</span>       │
+│   <span class="d">│</span>  <span class="d">│</span> <span class="d">e.g. partners</span>                                                                             │
+│   <span class="d">│</span>  <span class="d">└────────────────────────────────────────────────────────────────────────────────────</span>       │
+│                                                                                                  │
+│   <span class="d">│</span>  <span class="inv"> Send answer </span>  <span class="d">[ Skip ]</span>                                                                     │
+│                                                                                                  │
+│   <span class="d">╰────────────────────────────────────────────────────────────────────────────────────────╯</span>     │
+│                                                                                                  │
+│   <span class="d">Column › Text, Text, ChoicePicker, TextField, Row › Button, Button — Image/Video parts</span>         │
+│   <span class="d">render as their alt text; Modal renders as an overlay; Slider as a bracketed gauge.</span>            │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+├ <span class="d">plan</span> <span class="ok">■</span> collect <span class="ok">■</span> group <span class="i">▣</span> draft <span class="d">□ review</span>──────────────────────────────────────────────────────────┤
+│ <span class="d">›</span> <span class="d">answer above, or type a message (the task stays open)</span>                                          │
+│                                                                                                  │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ <span class="inv"> tab </span> next field  <span class="inv"> ←→ </span> choose  <span class="inv"> enter </span> submit  <span class="inv"> esc </span> back to chat         <span class="d">gpt-6.1 · high · remote</span>│
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+
+<pre id="model" hidden>┌ <span class="b">demo-agent</span> <span class="d">· task_01HZX4V3K9N2 · ctx_9a1f</span> ─────────────────── <span class="w">◐ input-required</span> <span class="d">awaiting-next-turn</span>┐
+│                                                                                                  │
+│ <span class="a">demo-agent</span> <span class="d">12:35</span>                                                                                 │
+│   Done: the draft is attached as <span class="b">release-notes-q4.md</span>. Tell me what to change, or complete.       │
+│                                                                                                  │
+│            <span class="d">┌ /model ─────────────────────────────────────────────────────────────</span>                │
+│            <span class="d">│</span> <span class="d">pick the model for the next call · applies without restarting</span>                       │
+│                                                                                                  │
+│            <span class="d">│</span> <span class="sel"> ▸ openai/gpt-6.1                   current · tools · vision · voice</span>                │
+│            <span class="d">│</span>   openai/gpt-6.1-mini                        tools · vision                         │
+│            <span class="d">│</span>   anthropic/claude-fable-5-1                 tools · vision                         │
+│            <span class="d">│</span>   openrouter/qwen3-coder                      tools                                 │
+│            <span class="d">│</span>   ollama/llama4 <span class="d">(local)</span>                       tools                                 │
+│                                                                                                  │
+│            <span class="d">│</span> <span class="inv"> ↑↓ </span> move  <span class="inv"> enter </span> select  <span class="inv"> esc </span> close                                              │
+│            <span class="d">└──────────────────────────────────────────────────────────────────────</span>               │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+├ <span class="d">plan</span> <span class="ok">■</span> collect <span class="ok">■</span> group <span class="ok">■</span> draft <span class="i">▣</span> review──────────────────────────────────────────────────────────┤
+│ <span class="d">›</span> <span class="c">/model</span>                                                                                         │
+│   <span class="d">/model · /effort · /exit · /plan (planner)      ← matching commands are highlighted</span>            │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ <span class="inv"> enter </span> send  <span class="inv"> space </span> hold to talk <span class="inv"> / </span> commands <span class="inv"> ^c </span> complete <span class="inv"> ^x </span> cancel <span class="d">gpt-6.1 · high · remote</span>│
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+
+<pre id="voice" hidden>┌ <span class="b">demo-agent</span> <span class="d">· task_01HZX4V3K9N2 · ctx_9a1f</span> ─────────────────── <span class="w">◐ input-required</span> <span class="d">awaiting-next-turn</span>┐
+│                                                                                                  │
+│ <span class="a">demo-agent</span> <span class="d">12:35</span>                                                                                 │
+│   Done: the draft is attached as <span class="b">release-notes-q4.md</span>. Tell me what to change, or complete.       │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+├ <span class="d">plan</span> <span class="ok">■</span> collect <span class="ok">■</span> group <span class="ok">■</span> draft <span class="i">▣</span> review──────────────────────────────────────────────────────────┤
+│ <span class="x">●</span> <span class="b">listening</span> <span class="x">▁▂▄▆▅▃▂▁▂▅▇▆▃▁</span> <span class="d">0:04 · realtime · release space to send</span>                               │
+│   <span class="d">partial: "add a line about the deprecations and"</span>                                               │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ <span class="inv"> space </span> <span class="w">held</span> (kitty keyboard protocol)  <span class="d">· without it: press to start, press again to stop</span>        │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+
+<pre id="done" hidden>┌ <span class="b">demo-agent</span> <span class="d">· task_01HZX4V3K9N2 · ctx_9a1f</span> ─────────────────── <span class="w">◐ input-required</span> <span class="d">awaiting-next-turn</span>┐
+│                                                                                                  │
+│ <span class="a">demo-agent</span> <span class="d">12:35</span>                                                                                 │
+│   Done: the draft is attached as <span class="b">release-notes-q4.md</span>. Tell me what to change, or complete.       │
+│                                                                                                  │
+│                                                                                                  │
+│                <span class="d">┌ complete task? ───────────────────────────────────────────</span>                      │
+│                                                                                                  │
+│                <span class="d">│</span>  Sends the task extension's <span class="b">complete</span> message.                                   │
+│                <span class="d">│</span>  The task becomes <span class="ok">completed</span>; a later message starts a                           │
+│                <span class="d">│</span>  new task in the same context that references this one.                         │
+│                <span class="d">│</span>  1 running sub-task will be canceled (policy: cancel).                          │
+│                                                                                                  │
+│                <span class="d">│</span>  <span class="inv"> y </span> complete   <span class="inv"> n </span> keep open   <span class="inv"> x </span> cancel instead                              │
+│                <span class="d">└──────────────────────────────────────────────────────────</span>                       │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+├ <span class="d">plan</span> <span class="ok">■</span> collect <span class="ok">■</span> group <span class="ok">■</span> draft <span class="i">▣</span> review──────────────────────────────────────────────────────────┤
+│ <span class="d">›</span>                                                                                                │
+│                                                                                                  │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ <span class="inv"> enter </span> send  <span class="inv"> space </span> hold to talk <span class="inv"> / </span> commands <span class="inv"> ^c </span> complete <span class="inv"> ^x </span> cancel <span class="d">gpt-6.1 · high · remote</span>│
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+
+<pre id="first" hidden><span class="d">$</span> rusty-harness
+<span class="ok">✓</span> wrote <span class="b">~/.rusty-harness/config.toml</span> with commented defaults
+<span class="ok">✓</span> OPENAI_API_KEY found in environment <span class="d">(referenced, never stored)</span>
+<span class="w">!</span> durable mode <span class="b">none</span>: no Temporal configured — tasks will not survive a restart
+  <span class="d">set [durable] mode = "embedded" for a local dev server, or "remote" with TEMPORAL_ADDRESS</span>
+<span class="ok">✓</span> harness listening on <span class="b">http://127.0.0.1:7474</span> <span class="d">(loopback only: no security scheme configured)</span>
+<span class="ok">✓</span> agent card: <span class="d">http://127.0.0.1:7474/.well-known/agent-card.json</span> · a2a 1.0 · 6 extensions
+<span class="d">starting the TUI… (--no-tui to run as a server, --url to attach to a remote harness)</span>
+
+┌ <span class="b">demo-agent</span> ─────────────────────────────────────────────────────────────── <span class="d">○ no task yet</span>─────────┐
+│                                                                                                  │
+│   <span class="d">Type a message to start a task. Prefix with</span> <span class="c">/</span> <span class="d">for commands.</span>                                    │
+│   <span class="d">Tasks are long-running by default here; use</span> <span class="c">/oneshot</span> <span class="d">for ask-and-close.</span>                        │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│ <span class="d">›</span>                                                                                                │
+│                                                                                                  │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ <span class="inv"> enter </span> send  <span class="inv"> space </span> hold to talk  <span class="inv"> / </span> commands  <span class="inv"> ^c </span> complete <span class="inv"> ^x </span> cancel <span class="d">gpt-6.1 · high · none</span>│
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘</pre>
+  </div>
+  <p class="note">Every string shown here comes from <code>strings/en.json</code> in the implementation (R33); colours follow the
+  terminal's own palette and <code>NO_COLOR</code> switches to the monochrome variant. The TUI is an A2A client: it
+  renders <code>Task</code>, <code>Message</code>, <code>TaskStatusUpdateEvent</code> and <code>TaskArtifactUpdateEvent</code> streams and nothing else.</p>
+</div>
+<script>
+(function () {
+  const states = ['chat', 'a2ui', 'model', 'voice', 'done', 'first'];
+  function apply(name) {
+    states.forEach((s) => { document.getElementById(s).hidden = s !== name; });
+    document.querySelectorAll('.proto [data-state]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.state === name));
+    try { localStorage.setItem('rh.proto.tui', name); } catch (e) {}
+  }
+  document.querySelectorAll('.proto [data-state]').forEach((b) => b.addEventListener('click', () => apply(b.dataset.state)));
+  document.getElementById('theme').addEventListener('click', () => {
+    const r = document.documentElement; const dark = r.dataset.theme === 'dark' || (!r.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    r.dataset.theme = dark ? 'light' : 'dark';
+  });
+  let initial = 'chat'; try { initial = localStorage.getItem('rh.proto.tui') || initial; } catch (e) {}
+  const h = location.hash.slice(1); if (states.includes(h)) initial = h;
+  apply(states.includes(initial) ? initial : 'chat');
+})();
+</script>
+</body>
+</html>

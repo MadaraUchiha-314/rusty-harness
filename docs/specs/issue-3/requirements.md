@@ -133,12 +133,13 @@ requirements gate at the cost of an edit; after it, at the cost of a design chan
 |---|---|---|
 | S1 | The **Self improvement** column (simulation, evaluation, optimization) is out of scope. Module placeholders MAY exist so the tree mirrors the diagram. | The issue says "TBD, not for now". |
 | S2 | **Memory** and **Sandbox** appear in the diagram but not in the text. They are out of scope as features; the tool layer MUST leave a typed extension point for each ([R8](#requirement-8--tools-and-mcp)). | No requirement can be written for an unnamed behaviour; the hook/plugin system is where they will plug in. |
-| S3 | **One spec chain, several pull requests.** Requirements, design and testing plan cover the whole epic; `tasks.md` groups tasks into milestones that each ship. | the-loop's model: one work item, one origin repo, *n* PRs. The issue is one ticket. |
+| S3 | **One spec chain, a stack of pull requests.** Requirements, design and testing plan cover the whole epic; `tasks.md` groups tasks into ordered milestones, and each milestone ships as one PR stacked on the previous milestone's branch, reviewed on its own diff and merged bottom-up. | the-loop's model: one work item, one origin repo, *n* PRs. The issue is one ticket. Stacking was the approver's choice at the requirements gate (Q6). |
 | S4 | The **web renderer is a TypeScript workspace package in this repository**, not a separate repository. | "The folder structure of the code-base [should be] similar to the architecture diagram", and the repo already runs one bun workspace. Open question Q1 confirms. |
 | S5 | **A2A is the only invocation protocol.** Every path into the harness (web, TUI, other agents, local sub-agents) is an A2A message; nothing bypasses it. | "We want to go ALL IN on A2A protocol throughout the harness." |
 | S6 | The **definition-of-done demo** is a requirement ([R32](#requirement-32--definition-of-done-demo)) with its own acceptance criteria, not a note. | It is the author's stated acceptance test for the issue. |
 | S7 | **Risk tier 4.** The work item adds an authenticated network API, holds provider credentials and executes model-chosen tool calls. | Tier 4 means a named human security sign-off before completion, which an enterprise-facing harness warrants on its first release. |
 | S8 | The issue's **"Harness API Server" heading** is read as the app service layer: durable execution, heartbeat, A2A server, inbox, o11y. | The diagram labels that column "App Service Layer"; the module names follow the diagram. |
+| S9 | **A2A protocol version 1.0 or later is a hard constraint**, not a preference: no SDK, client library, renderer or peer that speaks an older A2A is acceptable, and a gap in an SDK is filled from the 1.0 specification, never by downgrading. | The approver's answer at the requirements gate: no compromise on protocol ≥ 1.0. The SDK crates' own version numbers (e.g. `a2a-lf` 0.4.x) say nothing about the protocol they implement. |
 
 ## Requirements
 
@@ -692,8 +693,10 @@ renamed every operation, so the names below are the 1.0 names.
    credentials are present but insufficient for the operation THEN with its authorization
    error.
 5. WHEN the server and client are implemented THEN the system SHALL use the official A2A
-   Rust SDK (`a2aproject/a2a-rs`, crates `a2a-lf`, `a2a-server-lf`, `a2a-client-lf`)
-   and SHALL NOT hand-roll protocol types; conformance SHALL be proven by contract tests
+   Rust SDK (`a2aproject/a2a-rs`, crates `a2a-lf`, `a2a-server-lf`, `a2a-client-lf`),
+   pinned to a release that implements protocol 1.0 or later (the crate version is no
+   proxy for the protocol version), and SHALL NOT hand-roll protocol types;
+   conformance SHALL be proven by contract tests
    driven by the official TypeScript or Python SDK
    ([R31](#requirement-31--testing), [Open questions](#open-questions) Q2).
 6. WHEN a surface (web, TUI) invokes the harness THEN it SHALL do so as an A2A client;
@@ -705,6 +708,13 @@ renamed every operation, so the names below are the 1.0 names.
    including tool-call progress and partial model output.
 8. WHEN a client subscribes to a task it did not create THEN the system SHALL apply the
    same participant check as `GetTask` before streaming anything.
+9. IF a candidate dependency (an A2A SDK, a client library, a renderer such as the A2UI
+   renderer, a sub-agent or peer) speaks only an A2A protocol version below 1.0 THEN
+   the system SHALL NOT use it (S9); WHEN a request names an `A2A-Version` below 1.0
+   THEN the server SHALL reject it with the protocol's unsupported-version error; and
+   WHEN the official Rust SDK lags the protocol THEN the gap SHALL be closed with
+   types generated from the 1.0 specification in a clearly marked module, never by
+   speaking an older version.
 
 ### Requirement 20 — Inbox and events
 
@@ -1314,11 +1324,11 @@ at phase selection).
 | # | Question | Default assumed here | Affects |
 |---|---|---|---|
 | Q1 | Does the web renderer live in this repository (a bun workspace package, e.g. `web/`) or in its own? | This repository (S4). | R2, R26 |
-| Q2 | An official A2A Rust SDK exists (`a2aproject/a2a-rs`, crates `a2a-lf` 0.4.x and friends, with no published maturity label); a same-named community crate `a2a-rs` is not official. Use the official one, accepting its pre-1.0 churn? Its `wasm32` support is unverified. | Yes, the official SDK, pinned; the WASM build uses its types with a `fetch` transport if the SDK's client does not build there. | R19, R29, R31 |
+| Q2 | Protocol version 1.0 or later is fixed (S9); the open point is the implementation. An official A2A Rust SDK exists (`a2aproject/a2a-rs`, crates `a2a-lf` 0.4.x and friends, implementing protocol 1.0.x; a same-named community crate `a2a-rs` is not official). Pin the official SDK, accepting API churn in its 0.x crate releases while it keeps speaking protocol ≥ 1.0? Its `wasm32` support is unverified. | Yes, the official SDK, pinned; the WASM build uses its types with a `fetch` transport if the SDK's client does not build there. | R19, R29, R31 |
 | Q3 | The `embedded` durable mode is the Temporal Rust SDK's ephemeral dev server (it downloads the `temporal` CLI on first use). Acceptable for local development, with no claim of production durability? | Yes; `embedded` is a development mode, documented as such, native only. | R22 |
 | Q4 | What is the API of the System One model ("Jev")? | A generic typed classifier/scorer interface with an HTTP provider; no concrete Jev client until its API is known. | R9 |
 | Q5 | A2A long-running tasks: the protocol keeps a task open across turns via `input-required` and lets a client send follow-up messages with the same task id; it does not let an extension add values to the `TaskState` enum, but extensions may add metadata to task status. Confirm the sub-state approach in R21 (standard state + extension metadata). | Yes, as written in R21 criteria 3 and 4. | R21, R19 |
-| Q6 | Should this epic be split into child issues per milestone after requirements approval, each with its own PR, all linked to #3? | Yes: one spec chain here, milestones in `tasks.md`, one PR per milestone recorded against #3 (S3). | S3 |
+| Q6 | Should this epic be split into child issues per milestone after requirements approval, each with its own PR, all linked to #3? | Yes, as **stacked PRs** (the approver's answer at the gate): one spec chain here, ordered milestones in `tasks.md`, one PR per milestone branched from the previous milestone's branch, reviewed on its own diff, merged bottom-up, each recorded against #3 (S3). | S3 |
 | Q7 | Terminals do not report key release, so "long press space" cannot be detected reliably. Accept a push-to-talk toggle (press to start, press again to stop) or a hold heuristic based on key-repeat? | Toggle, with the hold heuristic where the terminal supports the kitty keyboard protocol. | R27 |
 | Q8 | How do PyPI and npm installs provide the `rusty-harness` binary: platform-specific native binaries bundled per package, a post-install download, or a WASM-based TUI? | Native binaries per platform published alongside the Python wheel and as npm optional dependencies; no download at install time. | R27, R30 |
 | Q9 | Configuration format is TOML as the issue states; should a JSON schema be published for it? | Yes, generated from the Rust types, used by the contract tests. | R27, R30 |

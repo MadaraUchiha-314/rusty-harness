@@ -195,7 +195,7 @@ abuse cases are tests like any other (`reference/security.md`).
     commit, stale version); T13 — `chaos_crash_between_store_writes_leaves_a_consistent_
     store_on_reopen` (the test kills a child process mid-journal); T2 — `Scenario:
     GetTask after a restart returns the full A2A task` (completed in task 23)
-- [ ] 15. Tools and MCP: `Tool`, `ToolDescriptor` with `Idempotency`, `ToolCx`,
+- [x] 15. Tools and MCP: `Tool`, `ToolDescriptor` with `Idempotency`, `ToolCx`,
   `ToolOutput::{Value, Suspend}`, `ToolExecutor` (schema validation, parallel calls,
   issue order, unknown tool → typed error, `tool.result.size` policy), the `memory` and
   `sandbox` seams, `tools::mcp` on `rmcp` (stdio and streamable HTTP natively, host

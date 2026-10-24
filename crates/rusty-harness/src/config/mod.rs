@@ -45,6 +45,8 @@ pub struct Config {
     pub agents: BTreeMap<String, SubAgentConfig>,
     /// Hook ordering and policies.
     pub hooks: HooksConfig,
+    /// Tool execution.
+    pub tools: ToolsConfig,
     /// The context window.
     pub context: ContextConfig,
     /// The core loop's limits.
@@ -328,6 +330,37 @@ pub struct HooksConfig {
     /// Failure policy per point, `fail-closed` or `log-and-continue` (R4.6); the
     /// security-relevant points cannot be lowered.
     pub policies: BTreeMap<String, String>,
+}
+
+/// `[tools]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolsConfig {
+    /// A tool result larger than this, in bytes, goes through the oversize policy (R8.6).
+    pub max_result_bytes: usize,
+    /// `truncate` (keep the head and the tail) or `summarise` (one call to the `default`
+    /// model with `prompts/tool/summarise-result.md`).
+    pub oversize: OversizePolicyConfig,
+}
+
+impl Default for ToolsConfig {
+    fn default() -> Self {
+        Self {
+            max_result_bytes: 64 * 1024,
+            oversize: OversizePolicyConfig::Truncate,
+        }
+    }
+}
+
+/// `[tools] oversize`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OversizePolicyConfig {
+    /// Keep the head and the tail, mark the cut.
+    #[default]
+    Truncate,
+    /// Ask a model for a shorter version; truncate when that fails.
+    Summarise,
 }
 
 /// `[context]`.

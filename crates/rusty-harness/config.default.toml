@@ -58,6 +58,10 @@ paths = []
 order = []
 [hooks.policies]
 
+[tools]
+max_result_bytes = 65536 # a larger tool result goes through `oversize`
+oversize = "truncate"    # truncate | summarise
+
 [context]
 order = [
   "system_prompt",

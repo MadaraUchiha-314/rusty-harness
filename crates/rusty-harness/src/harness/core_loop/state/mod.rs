@@ -168,6 +168,18 @@ fn type_matches(expected: &str, v: &Value) -> bool {
     }
 }
 
+/// Checks `value` against the supported subset of a JSON schema (the one `AgentState`
+/// applies to its keys); on failure, the JSON pointer of the offending value and why.
+///
+/// # Errors
+///
+/// `(path, reason)` for the first violation.
+pub fn check_against(schema: &Value, value: &Value) -> Result<(), (String, String)> {
+    let mut path = String::new();
+    validate(schema, value, &mut path)
+        .map_err(|reason| (if path.is_empty() { "/".into() } else { path }, reason))
+}
+
 /// Validates `value` against the supported subset of `schema`; `path` is the JSON pointer
 /// of the offending value on error.
 fn validate(schema: &Value, value: &Value, path: &mut String) -> Result<(), String> {

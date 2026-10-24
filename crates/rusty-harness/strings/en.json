@@ -21,7 +21,7 @@
   "command.unknown": "Unknown command {name}. Did you mean {suggestion}?",
   "command.unknown_no_suggestion": "Unknown command {name}.",
   "task.limit_reached": "The task reached its {limit} limit and is waiting for you.",
-  "tool.denied": "The tool {name} was denied by policy.",
+  "tool.denied": "The tool {tool} is not available to your role.",
   "tui.confirm.complete": "Complete the task? Sends the task extension's complete message; {n, plural, =0 {no running sub-task is affected} one {# running sub-task will be canceled} other {# running sub-tasks will be canceled}}.",
   "tui.hint.cancel": "cancel",
   "tui.hint.commands": "commands",

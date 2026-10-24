@@ -74,7 +74,10 @@
     },
     "locale": {
       "description": "The locale for user-facing strings (R33.8); `LANG` then `en` when absent.",
-      "type": ["string", "null"],
+      "type": [
+        "string",
+        "null"
+      ],
       "default": null
     },
     "loop": {
@@ -127,7 +130,10 @@
       "$ref": "#/$defs/ServerConfig",
       "default": {
         "bind": "127.0.0.1:7474",
-        "bindings": ["jsonrpc", "rest"],
+        "bindings": [
+          "jsonrpc",
+          "rest"
+        ],
         "limits": {
           "requests_per_minute": 120,
           "streams_per_caller": 8
@@ -146,6 +152,14 @@
         "$ref": "#/$defs/SystemOneConfig"
       },
       "default": {}
+    },
+    "tools": {
+      "description": "Tool execution.",
+      "$ref": "#/$defs/ToolsConfig",
+      "default": {
+        "max_result_bytes": 65536,
+        "oversize": "truncate"
+      }
     },
     "tui": {
       "description": "The terminal UI.",
@@ -182,7 +196,10 @@
         },
         "system_prompt": {
           "description": "A prompt fragment reference (`file:` or a registered id) replacing the default\nsystem prompt (R7.2).",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null
         }
       },
@@ -201,7 +218,10 @@
         },
         "model": {
           "description": "The model alias that summarises; the active model when absent.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null
         },
         "threshold": {
@@ -375,7 +395,10 @@
         },
         "max_tokens": {
           "description": "Total tokens per task, when set.",
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "format": "uint64",
           "default": null,
           "minimum": 0
@@ -420,13 +443,19 @@
         },
         "base_url": {
           "description": "The API base URL for `OpenAI`-compatible providers; the provider's own when absent.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "uri",
           "default": null
         },
         "effort": {
           "description": "The default reasoning effort (`low`, `medium`, `high`).",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null
         },
         "model": {
@@ -449,7 +478,11 @@
         }
       },
       "additionalProperties": false,
-      "required": ["provider", "model", "api_key"]
+      "required": [
+        "provider",
+        "model",
+        "api_key"
+      ]
     },
     "ModelProvider": {
       "description": "A language model provider.",
@@ -482,12 +515,30 @@
         },
         "otlp_endpoint": {
           "description": "The OTLP endpoint; no export when absent (R24.2).",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "uri",
           "default": null
         }
       },
       "additionalProperties": false
+    },
+    "OversizePolicyConfig": {
+      "description": "`[tools] oversize`.",
+      "oneOf": [
+        {
+          "description": "Keep the head and the tail, mark the cut.",
+          "type": "string",
+          "const": "truncate"
+        },
+        {
+          "description": "Ask a model for a shorter version; truncate when that fails.",
+          "type": "string",
+          "const": "summarise"
+        }
+      ]
     },
     "PersistenceConfig": {
       "description": "`[persistence]`.",
@@ -495,7 +546,10 @@
       "properties": {
         "path": {
           "description": "The data directory for the file store.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null
         },
         "store": {
@@ -590,7 +644,10 @@
             }
           },
           "additionalProperties": false,
-          "required": ["scheme", "token"]
+          "required": [
+            "scheme",
+            "token"
+          ]
         },
         {
           "description": "An API key in a header.",
@@ -610,7 +667,11 @@
             }
           },
           "additionalProperties": false,
-          "required": ["scheme", "header", "key"]
+          "required": [
+            "scheme",
+            "header",
+            "key"
+          ]
         }
       ]
     },
@@ -626,7 +687,10 @@
         "bindings": {
           "description": "The bindings to serve: `jsonrpc`, `rest` and, with the feature, `grpc`.",
           "type": "array",
-          "default": ["jsonrpc", "rest"],
+          "default": [
+            "jsonrpc",
+            "rest"
+          ],
           "items": {
             "type": "string"
           }
@@ -641,7 +705,10 @@
         },
         "public_url": {
           "description": "The URL clients reach the server at, for the agent card.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "uri",
           "default": null
         },
@@ -690,7 +757,9 @@
         }
       },
       "additionalProperties": false,
-      "required": ["card_url"]
+      "required": [
+        "card_url"
+      ]
     },
     "SystemOneConfig": {
       "description": "`[system_one.<alias>]`.",
@@ -719,7 +788,10 @@
         }
       },
       "additionalProperties": false,
-      "required": ["provider", "url"]
+      "required": [
+        "provider",
+        "url"
+      ]
     },
     "TemporalConfig": {
       "description": "`[durable.temporal]`.",
@@ -774,6 +846,25 @@
       },
       "additionalProperties": false
     },
+    "ToolsConfig": {
+      "description": "`[tools]`.",
+      "type": "object",
+      "properties": {
+        "max_result_bytes": {
+          "description": "A tool result larger than this, in bytes, goes through the oversize policy (R8.6).",
+          "type": "integer",
+          "format": "uint",
+          "default": 65536,
+          "minimum": 0
+        },
+        "oversize": {
+          "description": "`truncate` (keep the head and the tail) or `summarise` (one call to the `default`\nmodel with `prompts/tool/summarise-result.md`).",
+          "$ref": "#/$defs/OversizePolicyConfig",
+          "default": "truncate"
+        }
+      },
+      "additionalProperties": false
+    },
     "TuiConfig": {
       "description": "`[tui]`.",
       "type": "object",
@@ -804,12 +895,18 @@
         },
         "model": {
           "description": "The model.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null
         },
         "provider": {
           "description": "`openai-realtime`, or absent for no voice.",
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null
         }
       },

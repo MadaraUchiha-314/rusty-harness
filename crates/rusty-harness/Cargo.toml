@@ -37,7 +37,7 @@ rt-wasm = ["dep:wasm-bindgen-futures", "dep:gloo-timers"]
 # The A2A server, the inbox route and the HTTP bindings (native only).
 server = ["rt-tokio"]
 # Tools over the official MCP Rust SDK (native only; the browser uses a host transport).
-mcp = ["rt-tokio"]
+mcp = ["rt-tokio", "dep:rmcp"]
 # Durable execution on the official Temporal Rust SDK (native only).
 durable-temporal = ["rt-tokio"]
 # `embedded` durable mode: the SDK's ephemeral dev server (development only).
@@ -61,6 +61,14 @@ futures = { workspace = true }
 getrandom = { workspace = true, optional = true }
 http = { workspace = true }
 reqwest = { workspace = true, optional = true }
+rmcp = { workspace = true, optional = true, features = [
+  "client",
+  "transport-child-process",
+  "transport-streamable-http-client-reqwest",
+  "server",
+  "transport-io",
+  "macros",
+] }
 schemars = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
@@ -88,6 +96,15 @@ uuid = { workspace = true, features = ["js"] }
 # Native-only: tests and doctests run under tokio behind `rt-tokio`.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
+
+# The stdio MCP server the tool tests talk to (testing-plan T2); built only with `mcp`.
+[[bin]]
+name = "echo-mcp"
+path = "tests/fixtures/plugins/demo/bin/echo-mcp.rs"
+required-features = ["mcp"]
+test = false
+doc = false
+bench = false
 
 [build-dependencies]
 # build.rs reads strings/en.json to generate the StringKey constants (R33).

@@ -1,1 +1,1767 @@
 //! The `Agent` trait (sherma's base agent in A2A types) and `LocalAgent`, the loop (R11).
+//!
+//! [`Agent`] is sherma's base agent translated to the official A2A Rust types:
+//! `card()`, `schemas()`, `send_message()` as a stream of `StreamResponse`, and
+//! `cancel_task()` (design.md § Agent and the core loop, the mapping table). Local
+//! agents, remote agents and loopback sub-agents all implement it.
+//!
+//! [`LocalAgent`] runs the canonical loop: build the context, call the model, parse the
+//! tool calls, execute them, repeat; each step is a hook point (`context.build`,
+//! `model.call`, `response.parse`, `tool.execute`), the whole loop is `task.run`. Events
+//! and signals that arrive while a step runs are observed at the loop boundary (R11.5);
+//! limits stop the loop with a typed [`LoopOutcome`] (R11.4); a response with no tool
+//! calls is delivered and the task's mode decides between `completed` and
+//! `input-required` (R11.3, R21.1, R21.3).
+
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
+
+use bytes::Bytes;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::HarnessError;
+use crate::app_service::durable::CancelReason;
+use crate::app_service::inbox::InboxEvent;
+use crate::assets::{Prompt, PromptRegistry};
+use crate::config::Config;
+use crate::harness::commands::ModelRouter;
+use crate::harness::core_loop::compaction::{CompactionRequest, Compactor};
+use crate::harness::core_loop::context_window::{
+    ContextBuilder, ContextInputs, ContextTemplate, HistoryEntry, TokenRatio, Turn, request_chars,
+};
+use crate::harness::core_loop::persistence::{
+    BlobWrite, PersistenceStore, StoreError, StoredEvent, TaskCommit, Visibility,
+};
+use crate::harness::core_loop::plan::Plan;
+use crate::harness::core_loop::state::AgentState;
+use crate::harness::core_loop::task::{
+    Attempt, Caller, ContextId, Participant, ParticipantId, ParticipantKind, PendingCall, ResumeOn,
+    Role, StateChange, SubTaskPolicy, TASK_EXT, TaskDraft, TaskId, TaskMode, TaskRecord,
+    Transition, transition_with_hooks,
+};
+use crate::harness::hooks::{HookCx, HookDispatcher, HookPoint, Operation};
+use crate::harness::models::llm::{ModelRequest, ModelTurn, collect};
+use crate::harness::skills::Skill;
+use crate::harness::system_prompt::SystemPrompt;
+use crate::harness::tools::{CancelToken, Executed, OversizePolicy, ToolCall, ToolExecutor};
+use crate::harness_async_trait;
+use crate::host::Host;
+use crate::registry::{Entity, EntityId, EntityKind, Registry};
+use crate::runtime::{HarnessStream, boxed_stream};
+
+/// What the service layer knows about one call (sherma's `context`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CallContext {
+    /// The task the message addresses; a new id creates a task.
+    pub task_id: TaskId,
+    /// The conversation.
+    pub context_id: ContextId,
+    /// The stored task, when the service layer already loaded it.
+    #[serde(default)]
+    pub stored_task: Option<a2a::Task>,
+    /// The authenticated caller (boundary 1).
+    pub caller: Caller,
+    /// Transport parameters the service layer passes through.
+    #[serde(default)]
+    pub service_params: BTreeMap<String, String>,
+}
+
+/// One `send_message` (sherma's `message, context, request_metadata, extensions`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AgentRequest {
+    /// The message.
+    pub message: a2a::Message,
+    /// The call.
+    pub call: CallContext,
+    /// Request metadata.
+    #[serde(default)]
+    pub metadata: Option<HashMap<String, Value>>,
+    /// Extension URIs the caller activated.
+    #[serde(default)]
+    pub extensions: Vec<String>,
+}
+
+/// The agent's input and output schemas (sherma's `input_schema` / `output_schema`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AgentSchemas {
+    /// JSON Schema of what it accepts, when declared.
+    pub input: Option<Value>,
+    /// JSON Schema of what it produces, when declared.
+    pub output: Option<Value>,
+}
+
+/// What an agent call can fail with.
+#[derive(Debug, thiserror::Error)]
+pub enum AgentError {
+    /// A harness failure (a veto, a hook failure, an illegal move).
+    #[error(transparent)]
+    Harness(#[from] HarnessError),
+    /// The store.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    /// The protocol forbids it: a follow-up on a terminal task (R21.6), a task of
+    /// another context.
+    #[error("unsupported operation: {0}")]
+    Unsupported(String),
+    /// The model.
+    #[error("model: {0}")]
+    Model(String),
+}
+
+impl AgentError {
+    /// The A2A error for the wire (R19.4).
+    #[must_use]
+    pub fn to_a2a(&self) -> a2a::A2AError {
+        match self {
+            Self::Harness(e) => e.to_a2a(),
+            Self::Store(e) => a2a::A2AError::internal(e.to_string()),
+            Self::Unsupported(m) => a2a::A2AError::unsupported_operation(m.clone()),
+            Self::Model(m) => a2a::A2AError::internal(m.clone()),
+        }
+    }
+}
+
+harness_async_trait! {
+    /// sherma's base agent, in A2A types (R11.1).
+    pub trait Agent: Entity {
+        /// `agent_card` / `get_card()`.
+        fn card(&self) -> &a2a::AgentCard;
+        /// `input_schema` / `output_schema`.
+        fn schemas(&self) -> AgentSchemas;
+        /// `send_message(message, context, request_metadata, extensions)`: the events the
+        /// call produced, as A2A streams them.
+        fn send_message(&self, request: AgentRequest) -> HarnessStream<'_, Result<a2a::StreamResponse, AgentError>>;
+        /// `cancel_task(task_id)`: the task after the stop path.
+        async fn cancel_task(&self, task_id: &TaskId, call: CallContext) -> Result<a2a::Task, AgentError>;
+    }
+}
+
+/// The loop's budgets (R11.4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoopLimits {
+    /// Model calls per task.
+    pub max_iterations: u32,
+    /// Prompt plus completion tokens per task, when set.
+    pub max_total_tokens: Option<u64>,
+    /// Wall clock per task, when set.
+    pub wall_clock: Option<std::time::Duration>,
+}
+
+impl Default for LoopLimits {
+    fn default() -> Self {
+        Self {
+            max_iterations: 50,
+            max_total_tokens: None,
+            wall_clock: None,
+        }
+    }
+}
+
+/// Which limit stopped the loop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Limit {
+    /// `max_iterations`.
+    MaxIterations,
+    /// `max_total_tokens`.
+    MaxTokens,
+    /// `wall_clock`.
+    WallClock,
+}
+
+impl Limit {
+    /// The string-catalog key the degraded sub-state carries.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::MaxIterations => "loop.limit.iterations",
+            Self::MaxTokens => "loop.limit.tokens",
+            Self::WallClock => "loop.limit.wall_clock",
+        }
+    }
+}
+
+/// What a limit does to the task (`[loop] on_limit`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OnLimit {
+    /// `input-required`, degraded, for a person to decide.
+    #[default]
+    InputRequired,
+    /// `failed`.
+    Fail,
+}
+
+/// How a run of the loop ended (R11.4, design.md § Agent and the core loop).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "outcome")]
+pub enum LoopOutcome {
+    /// The task is `completed`.
+    Completed,
+    /// A long-running task delivered and waits for the next turn.
+    AwaitingTurn,
+    /// A suspending tool waits for a participant.
+    AwaitingParticipant {
+        /// The question.
+        ask: String,
+    },
+    /// The task is `canceled`.
+    Canceled,
+    /// A limit stopped the loop.
+    LimitReached {
+        /// Which.
+        limit: Limit,
+    },
+    /// The task is `failed`.
+    Failed(String),
+}
+
+/// What one iteration decided.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "iteration")]
+pub enum IterationOutcome {
+    /// Tools ran; call the model again.
+    Continue,
+    /// A response was delivered; the task's mode decided the state.
+    Delivered,
+    /// A tool suspended the loop.
+    Suspended {
+        /// The question.
+        ask: String,
+    },
+    /// A signal ended the task.
+    Stopped {
+        /// How.
+        outcome: LoopOutcome,
+    },
+}
+
+/// The `task.run` operation: the whole loop (sherma `graph_invoke`).
+#[derive(Debug)]
+pub struct TaskRun;
+
+impl Operation for TaskRun {
+    const POINT: HookPoint = HookPoint::TaskRun;
+    type Input = TaskId;
+    type Output = LoopOutcome;
+    fn identity(input: &TaskId) -> String {
+        input.clone()
+    }
+}
+
+/// The `model.call` operation (sherma `model_call`).
+#[derive(Debug)]
+pub struct ModelCall;
+
+impl Operation for ModelCall {
+    const POINT: HookPoint = HookPoint::ModelCall;
+    type Input = ModelRequest;
+    type Output = ModelTurn;
+    fn attributes(input: &ModelRequest, output: &ModelTurn) -> Vec<(&'static str, String)> {
+        vec![
+            ("messages", input.messages.len().to_string()),
+            ("tool_calls", output.tool_calls.len().to_string()),
+            (
+                "tokens.in",
+                output
+                    .usage
+                    .as_ref()
+                    .map_or_else(String::new, |u| u.input_tokens.to_string()),
+            ),
+        ]
+    }
+}
+
+/// The `response.parse` operation: the model's turn in, its tool calls out.
+#[derive(Debug)]
+pub struct ResponseParse;
+
+impl Operation for ResponseParse {
+    const POINT: HookPoint = HookPoint::ResponseParse;
+    type Input = ModelTurn;
+    type Output = Vec<ToolCall>;
+}
+
+/// What `response.deliver` delivers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Delivery {
+    /// The task.
+    pub task: TaskId,
+    /// The response.
+    pub message: a2a::Message,
+}
+
+/// The `response.deliver` operation (R11.3).
+#[derive(Debug)]
+pub struct ResponseDeliver;
+
+impl Operation for ResponseDeliver {
+    const POINT: HookPoint = HookPoint::ResponseDeliver;
+    type Input = Delivery;
+    type Output = Delivery;
+    fn identity(input: &Delivery) -> String {
+        input.task.clone()
+    }
+}
+
+/// A stop signal for a running task.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Signal {
+    /// `CancelTask`.
+    Cancel(CancelReason),
+    /// The `complete` transition.
+    Complete {
+        /// Who.
+        by: ParticipantId,
+    },
+}
+
+#[derive(Default)]
+struct MailboxInner {
+    queues: BTreeMap<TaskId, VecDeque<InboxEvent>>,
+    signals: BTreeMap<TaskId, Signal>,
+    tokens: BTreeMap<TaskId, CancelToken>,
+    running: BTreeSet<TaskId>,
+}
+
+/// The in-memory inbox of a running loop (R11.5, R20.4): events and stop signals are
+/// queued here and observed at the next loop boundary. The durable modes' inbox and
+/// signals land here too, in process.
+#[derive(Default)]
+pub struct Mailbox {
+    inner: Mutex<MailboxInner>,
+}
+
+impl core::fmt::Debug for Mailbox {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        f.debug_struct("Mailbox")
+            .field("running", &inner.running.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Mailbox {
+    fn lock(&self) -> std::sync::MutexGuard<'_, MailboxInner> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Queues an event for the task's next loop boundary.
+    pub fn deliver(&self, task: &TaskId, event: InboxEvent) {
+        self.lock()
+            .queues
+            .entry(task.clone())
+            .or_default()
+            .push_back(event);
+    }
+
+    /// The queued events, oldest first.
+    #[must_use]
+    pub fn drain(&self, task: &TaskId) -> Vec<InboxEvent> {
+        self.lock()
+            .queues
+            .remove(task)
+            .map(Vec::from)
+            .unwrap_or_default()
+    }
+
+    /// Sends a stop signal and cancels the task's in-flight activities.
+    pub fn signal(&self, task: &TaskId, signal: Signal) {
+        let mut inner = self.lock();
+        if let Some(token) = inner.tokens.get(task) {
+            token.cancel();
+        }
+        inner.signals.insert(task.clone(), signal);
+    }
+
+    /// Takes the pending stop signal, if any.
+    #[must_use]
+    pub fn take_signal(&self, task: &TaskId) -> Option<Signal> {
+        self.lock().signals.remove(task)
+    }
+
+    /// Whether a loop is running the task now.
+    #[must_use]
+    pub fn is_running(&self, task: &TaskId) -> bool {
+        self.lock().running.contains(task)
+    }
+
+    /// The task's cancel token, created on first use.
+    #[must_use]
+    pub fn token(&self, task: &TaskId) -> CancelToken {
+        self.lock().tokens.entry(task.clone()).or_default().clone()
+    }
+
+    fn start(&self, task: &TaskId) -> bool {
+        let mut inner = self.lock();
+        inner.tokens.insert(task.clone(), CancelToken::new());
+        inner.running.insert(task.clone())
+    }
+
+    fn finish(&self, task: &TaskId) {
+        let mut inner = self.lock();
+        inner.running.remove(task);
+        inner.tokens.remove(task);
+    }
+}
+
+/// The local agent: the loop over the registry, the hooks, the host and the store
+/// (R11.6: the same loop runs in process with no service layer).
+pub struct LocalAgent {
+    id: EntityId,
+    card: a2a::AgentCard,
+    registry: Arc<Registry>,
+    dispatcher: Arc<HookDispatcher>,
+    host: Arc<Host>,
+    store: Arc<dyn PersistenceStore>,
+    prompts: Arc<PromptRegistry>,
+    router: Arc<ModelRouter>,
+    executor: ToolExecutor,
+    system_prompt: SystemPrompt,
+    builder: ContextBuilder,
+    compaction: crate::config::CompactionConfig,
+    limits: LoopLimits,
+    on_limit: OnLimit,
+    sub_task_policy: SubTaskPolicy,
+    mailbox: Mailbox,
+    ratios: Mutex<BTreeMap<String, TokenRatio>>,
+}
+
+impl core::fmt::Debug for LocalAgent {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("LocalAgent")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Everything a [`LocalAgent`] is built from.
+#[allow(missing_debug_implementations)]
+pub struct LocalAgentParts {
+    /// The configuration.
+    pub config: Config,
+    /// The registry.
+    pub registry: Arc<Registry>,
+    /// The hooks.
+    pub dispatcher: Arc<HookDispatcher>,
+    /// The platform.
+    pub host: Arc<Host>,
+    /// The store.
+    pub store: Arc<dyn PersistenceStore>,
+    /// The prompts.
+    pub prompts: Arc<PromptRegistry>,
+    /// The model router (`/model`, `/effort`).
+    pub router: Arc<ModelRouter>,
+}
+
+fn history_key(task: &str) -> String {
+    format!("history/{task}")
+}
+
+fn now(host: &Host) -> DateTime<Utc> {
+    host.clock().map_or_else(|_| Utc::now(), |c| c.now())
+}
+
+fn message_event(
+    task: &TaskRecord,
+    attempt: Attempt,
+    ordinal: u32,
+    message: a2a::Message,
+    at: DateTime<Utc>,
+) -> StoredEvent {
+    StoredEvent {
+        id: StoredEvent::event_id(&task.id, attempt, "message", ordinal),
+        seq: 0,
+        at,
+        attempt,
+        visibility: Visibility::All,
+        response: a2a::StreamResponse::Message(message),
+    }
+}
+
+fn status_event(task: &TaskRecord, attempt: Attempt, ordinal: u32) -> StoredEvent {
+    StoredEvent {
+        id: StoredEvent::event_id(&task.id, attempt, "status", ordinal),
+        seq: 0,
+        at: task.updated_at,
+        attempt,
+        visibility: Visibility::All,
+        response: a2a::StreamResponse::StatusUpdate(task.status_update()),
+    }
+}
+
+fn task_meta<'a>(message: &'a a2a::Message, key: &str) -> Option<&'a Value> {
+    message.metadata.as_ref()?.get(TASK_EXT)?.get(key)
+}
+
+impl LocalAgent {
+    /// An agent from its parts; the card is built from `[agent]`.
+    #[must_use]
+    pub fn new(parts: LocalAgentParts) -> Self {
+        let LocalAgentParts {
+            config,
+            registry,
+            dispatcher,
+            host,
+            store,
+            prompts,
+            router,
+        } = parts;
+        let locale = config.locale.clone().unwrap_or_else(|| "en".into());
+        let card = a2a::AgentCard {
+            name: config.agent.name.clone(),
+            description: config.agent.description.clone(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            supported_interfaces: Vec::new(),
+            capabilities: a2a::AgentCapabilities {
+                streaming: Some(true),
+                ..a2a::AgentCapabilities::default()
+            },
+            default_input_modes: vec!["text/plain".into()],
+            default_output_modes: vec!["text/plain".into()],
+            skills: Vec::new(),
+            provider: None,
+            documentation_url: None,
+            icon_url: None,
+            security_schemes: None,
+            security_requirements: None,
+            signatures: None,
+        };
+        let executor = ToolExecutor::new(
+            Arc::clone(&registry),
+            Arc::clone(&dispatcher),
+            Arc::clone(&host),
+        )
+        .with_result_limit(config.tools.max_result_bytes, OversizePolicy::Truncate);
+        let limits = LoopLimits {
+            max_iterations: config.r#loop.max_iterations,
+            max_total_tokens: config.r#loop.max_tokens,
+            wall_clock: config.r#loop.wall_clock.map(Into::into),
+        };
+        let on_limit = if config.r#loop.on_limit == "fail" {
+            OnLimit::Fail
+        } else {
+            OnLimit::InputRequired
+        };
+        Self {
+            id: EntityId::new(config.agent.name.clone()),
+            card,
+            system_prompt: SystemPrompt::new(
+                Arc::clone(&prompts),
+                config.agent.clone(),
+                locale.clone(),
+            ),
+            builder: ContextBuilder::new(
+                ContextTemplate::from_order(&config.context.order),
+                Arc::clone(&prompts),
+                locale,
+            ),
+            compaction: config.context.compaction.clone(),
+            registry,
+            dispatcher,
+            host,
+            store,
+            prompts,
+            router,
+            executor,
+            limits,
+            on_limit,
+            sub_task_policy: SubTaskPolicy::default(),
+            mailbox: Mailbox::default(),
+            ratios: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// The policy for sub-tasks of a task that reached a terminal state (R12.4).
+    #[must_use]
+    pub fn with_sub_task_policy(mut self, policy: SubTaskPolicy) -> Self {
+        self.sub_task_policy = policy;
+        self
+    }
+
+    /// The limits, replacing `[loop]`'s.
+    #[must_use]
+    pub fn with_limits(mut self, limits: LoopLimits, on_limit: OnLimit) -> Self {
+        self.limits = limits;
+        self.on_limit = on_limit;
+        self
+    }
+
+    /// The in-memory inbox.
+    #[must_use]
+    pub fn mailbox(&self) -> &Mailbox {
+        &self.mailbox
+    }
+
+    /// The store.
+    #[must_use]
+    pub fn store(&self) -> &Arc<dyn PersistenceStore> {
+        &self.store
+    }
+
+    fn cx(&self, task: &TaskRecord) -> HookCx {
+        let mut cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
+        cx.task = Some(task.id.clone());
+        cx.context_id = Some(task.context_id.clone());
+        cx
+    }
+
+    async fn load_history(&self, task: &TaskId) -> Result<Vec<Turn>, AgentError> {
+        Ok(match self.store.get_blob(&history_key(task)).await? {
+            Some(bytes) => {
+                serde_json::from_slice(&bytes).map_err(|e| StoreError::Corrupt(e.to_string()))?
+            }
+            None => Vec::new(),
+        })
+    }
+
+    fn history_blob(task: &str, history: &[Turn]) -> BlobWrite {
+        BlobWrite {
+            key: history_key(task),
+            bytes: Bytes::from(serde_json::to_vec(history).unwrap_or_default()),
+        }
+    }
+
+    async fn record(&self, task: &TaskId) -> Result<TaskRecord, AgentError> {
+        self.store
+            .get_task(task)
+            .await?
+            .ok_or_else(|| AgentError::Unsupported(format!("task {task}: not found")))
+    }
+
+    async fn change(
+        &self,
+        task: TaskRecord,
+        transition: Transition,
+    ) -> Result<TaskRecord, AgentError> {
+        let cx = self.cx(&task);
+        let at = now(&self.host);
+        let changed = transition_with_hooks(
+            &self.dispatcher,
+            &cx,
+            StateChange {
+                task,
+                transition,
+                at,
+            },
+        )
+        .await?;
+        Ok(changed.task)
+    }
+
+    /// Creates the task a first message addresses (R20.6: the one implicit creation
+    /// A2A defines) and links it to its parent when the message names one (R12.3).
+    async fn create_task(
+        &self,
+        request: &AgentRequest,
+        text: String,
+        at: DateTime<Utc>,
+    ) -> Result<TaskRecord, AgentError> {
+        let caller = &request.call.caller;
+        let mode = match task_meta(&request.message, "mode").and_then(Value::as_str) {
+            Some("long-running") => TaskMode::LongRunning,
+            _ => TaskMode::OneShot,
+        };
+        let mut roles: BTreeSet<Role> = caller.roles.clone();
+        roles.insert(Role::Reporter);
+        let draft = TaskDraft {
+            id: request.call.task_id.clone(),
+            context_id: request.call.context_id.clone(),
+            name: text.chars().take(60).collect(),
+            r#type: None,
+            goal: text.clone(),
+            description: String::new(),
+            acceptance_criteria: Vec::new(),
+            mode,
+            participants: vec![
+                Participant {
+                    id: caller.id.clone(),
+                    display: caller.id.clone(),
+                    kind: ParticipantKind::Human,
+                    roles,
+                },
+                Participant {
+                    id: self.id.id.to_string(),
+                    display: self.card.name.clone(),
+                    kind: ParticipantKind::Agent(self.id.clone()),
+                    roles: BTreeSet::from([Role::Assignee]),
+                },
+            ],
+            parent_tasks: task_meta(&request.message, "parent")
+                .and_then(Value::as_str)
+                .map(|p| {
+                    vec![crate::harness::core_loop::task::TaskRef {
+                        task: p.to_owned(),
+                        context_id: None,
+                    }]
+                })
+                .unwrap_or_default(),
+            reference_task_ids: request
+                .message
+                .reference_task_ids
+                .clone()
+                .unwrap_or_default(),
+            model: self.router.selection(),
+        };
+        let cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
+        let record = self
+            .dispatcher
+            .run::<crate::harness::core_loop::task::TaskCreate, _, _>(
+                &cx,
+                draft,
+                move |d| async move { Ok(TaskRecord::new(d, at)) },
+            )
+            .await?;
+        let history = vec![Turn::new(HistoryEntry::User { text })];
+        let attempt = Attempt { iteration: 0, n: 1 };
+        let mut commit = TaskCommit::of(record.clone()).with_events([
+            message_event(&record, attempt, 0, request.message.clone(), at),
+            status_event(&record, attempt, 0),
+        ]);
+        commit.blobs.push(Self::history_blob(&record.id, &history));
+        self.store.commit(commit).await?;
+        for parent in &record.parent_tasks {
+            if let Some(mut p) = self.store.get_task(&parent.task).await? {
+                p.link_sub_task(crate::harness::core_loop::task::TaskRef {
+                    task: record.id.clone(),
+                    context_id: Some(record.context_id.clone()),
+                });
+                self.store.commit(TaskCommit::of(p)).await?;
+            }
+        }
+        self.record(&record.id).await
+    }
+
+    /// Creates the task for a first message, or applies a follow-up to an existing one
+    /// (R20.6, R21.5, R21.6). Returns the record and whether the loop should run now.
+    ///
+    /// # Errors
+    ///
+    /// [`AgentError::Unsupported`] for a terminal task or a context mismatch.
+    pub async fn open_task(
+        &self,
+        request: &AgentRequest,
+    ) -> Result<(TaskRecord, bool), AgentError> {
+        let text = request.message.text().unwrap_or_default().to_owned();
+        let at = now(&self.host);
+        let caller = &request.call.caller;
+        match self.store.get_task(&request.call.task_id).await? {
+            None => Ok((self.create_task(request, text, at).await?, true)),
+            Some(record) if record.context_id != request.call.context_id => {
+                Err(AgentError::Unsupported(format!(
+                    "task {} belongs to context {}, not {}",
+                    record.id, record.context_id, request.call.context_id
+                )))
+            }
+            Some(record) if record.is_terminal() => Err(AgentError::Unsupported(format!(
+                "task {} is {:?}; start a new task in the same context with referenceTaskIds",
+                record.id, record.state
+            ))),
+            Some(record)
+                if task_meta(&request.message, "transition").and_then(Value::as_str)
+                    == Some("complete") =>
+            {
+                self.complete(&record.id, &caller.id).await?;
+                Ok((self.record(&record.id).await?, false))
+            }
+            Some(record) if self.mailbox.is_running(&record.id) => {
+                self.mailbox.deliver(
+                    &record.id,
+                    InboxEvent {
+                        id: request.message.message_id.clone(),
+                        target: crate::app_service::inbox::EventTarget::Task(record.id.clone()),
+                        kind: a2a::StreamResponse::Message(request.message.clone()),
+                        status: crate::app_service::inbox::InboxStatus::Received,
+                        sender: caller.clone(),
+                        received_at: at,
+                        delivery: crate::app_service::inbox::DeliveryKind::Interrupt,
+                        extensions: request.extensions.clone(),
+                        traceparent: None,
+                    },
+                );
+                Ok((record, false))
+            }
+            Some(record) => {
+                let mut history = self.load_history(&record.id).await?;
+                history.push(Turn::new(HistoryEntry::User { text }));
+                let attempt = Attempt {
+                    iteration: record.iteration,
+                    n: 1,
+                };
+                let ordinal = u32::try_from(history.len()).unwrap_or(u32::MAX);
+                let record = if record.state == a2a::TaskState::InputRequired {
+                    self.change(record, Transition::Resume).await?
+                } else {
+                    record
+                };
+                let mut commit = TaskCommit::of(record.clone()).with_events([
+                    message_event(&record, attempt, ordinal, request.message.clone(), at),
+                    status_event(&record, attempt, ordinal),
+                ]);
+                commit.blobs.push(Self::history_blob(&record.id, &history));
+                self.store.commit(commit).await?;
+                Ok((self.record(&record.id).await?, true))
+            }
+        }
+    }
+
+    fn ratio_for(&self, model: &str) -> TokenRatio {
+        self.ratios
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(model)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    async fn inputs(
+        &self,
+        record: &TaskRecord,
+        history: Vec<Turn>,
+    ) -> Result<ContextInputs, AgentError> {
+        let cx = self.cx(record);
+        let system_prompt = self
+            .system_prompt
+            .assemble(&self.dispatcher, &cx, &record.participants, &[])
+            .await?;
+        let skills_index = self
+            .registry
+            .list::<Skill>()
+            .iter()
+            .map(|s| s.index_line())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let plan = match &record.plan {
+            Some(id) => self.store.get_plan(id).await?,
+            None => None,
+        };
+        let state = self.store.get_state(&record.id).await?.unwrap_or_default();
+        Ok(ContextInputs {
+            system_prompt,
+            system_extensions: Prompt::default(),
+            skills_index,
+            sub_agent_index: String::new(),
+            task: record.clone(),
+            plan,
+            state,
+            history,
+            tools: self.executor.descriptors(),
+            custom: BTreeMap::new(),
+        })
+    }
+
+    /// One loop body (design.md § Agent and the core loop): the durable activities call
+    /// into it.
+    ///
+    /// # Errors
+    ///
+    /// An infrastructure failure (store, missing fragment); a veto or a model failure is
+    /// a `Stopped { Failed }` outcome, not an error.
+    #[allow(clippy::too_many_lines)]
+    pub async fn run_iteration(
+        &self,
+        task: &TaskId,
+        n: u32,
+    ) -> Result<IterationOutcome, AgentError> {
+        let mut record = self.record(task).await?;
+        if record.state == a2a::TaskState::Submitted {
+            record = self.change(record, Transition::Start).await?;
+            let attempt = Attempt { iteration: n, n: 1 };
+            self.store
+                .commit(
+                    TaskCommit::of(record.clone()).with_events([status_event(&record, attempt, 0)]),
+                )
+                .await?;
+            record = self.record(task).await?;
+        }
+        if record.state != a2a::TaskState::Working {
+            return Ok(IterationOutcome::Stopped {
+                outcome: outcome_of(&record),
+            });
+        }
+        let cx = self.cx(&record);
+        let attempt = Attempt { iteration: n, n: 1 };
+        let mut history = self.load_history(task).await?;
+
+        // Boundary: events that arrived since the last step, then signals (R11.5).
+        for event in self.mailbox.drain(task) {
+            if let a2a::StreamResponse::Message(m) = &event.kind {
+                history.push(Turn::new(HistoryEntry::User {
+                    text: m.text().unwrap_or_default().to_owned(),
+                }));
+            }
+        }
+        if let Some(signal) = self.mailbox.take_signal(task) {
+            return self.stop(record, history, attempt, signal).await;
+        }
+
+        // 1. context.build (with compaction when the estimate is above the threshold).
+        let llm = self.router.current()?;
+        let alias = self.router.selection().model;
+        let mut ratio = self.ratio_for(&alias);
+        let mut inputs = self.inputs(&record, history.clone()).await?;
+        let mut built = self
+            .builder
+            .build_with_hooks(&self.dispatcher, &cx, &inputs, &ratio)
+            .await?;
+        let window = llm.capabilities().max_window_tokens;
+        let compactor = Compactor::new(
+            self.compaction.clone(),
+            self.builder.template().clone(),
+            Arc::clone(&self.prompts),
+            Arc::clone(&llm),
+        );
+        if compactor.needed(&built.estimate, window) {
+            let compacted = compactor
+                .compact(
+                    &self.dispatcher,
+                    &cx,
+                    CompactionRequest {
+                        task,
+                        goal: &record.goal,
+                        history: &history,
+                        estimate: &built.estimate,
+                        window,
+                        ratio: &ratio,
+                    },
+                )
+                .await?;
+            if let Some(summary) = &compacted.summary {
+                self.store
+                    .put_blob(&format!("summary/{task}/{n}"), Bytes::from(summary.clone()))
+                    .await?;
+            }
+            history = compacted.history;
+            inputs.history.clone_from(&history);
+            built = self
+                .builder
+                .build_with_hooks(&self.dispatcher, &cx, &inputs, &ratio)
+                .await?;
+        }
+        let chars = request_chars(&built.request);
+
+        // 2. model.call
+        let request = built.request;
+        let turn = match self
+            .dispatcher
+            .run::<ModelCall, _, _>(&cx, request, move |request| async move {
+                let events = llm
+                    .stream(request)
+                    .await
+                    .map_err(|e| HarnessError::Internal(e.to_string()))?;
+                collect(events, Some(Instant::now()))
+                    .await
+                    .map_err(|e| HarnessError::Internal(e.to_string()))
+            })
+            .await
+        {
+            Ok(turn) => turn,
+            Err(HarnessError::Vetoed(v)) => {
+                let record = self.change(record, Transition::Fail).await?;
+                self.store
+                    .commit(
+                        TaskCommit::of(record.clone())
+                            .with_events([status_event(&record, attempt, 1)]),
+                    )
+                    .await?;
+                return Ok(IterationOutcome::Stopped {
+                    outcome: LoopOutcome::Failed(v.reason),
+                });
+            }
+            Err(e) => return Err(e.into()),
+        };
+        if let Some(usage) = &turn.usage {
+            ratio.learn(chars, usage);
+            self.ratios
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(alias, ratio);
+        }
+        history.push(Turn::new(HistoryEntry::Assistant {
+            text: turn.text.clone(),
+            tool_calls: turn.tool_calls.clone(),
+        }));
+        let mut reply =
+            a2a::Message::new(a2a::Role::Agent, vec![a2a::Part::text(turn.text.clone())]);
+        reply.task_id = Some(task.clone());
+        reply.context_id = Some(record.context_id.clone());
+
+        // 3. response.parse
+        let calls = self
+            .dispatcher
+            .run::<ResponseParse, _, _>(&cx, turn.clone(), |t| async move { Ok(t.tool_calls) })
+            .await?;
+        record.iteration = n;
+
+        if calls.is_empty() {
+            // 4a. response.deliver and the close-or-keep-open policy (R11.3, R21.1, R21.3).
+            let delivery = self
+                .dispatcher
+                .run::<ResponseDeliver, _, _>(
+                    &cx,
+                    Delivery {
+                        task: task.clone(),
+                        message: reply,
+                    },
+                    |d| async move { Ok(d) },
+                )
+                .await?;
+            record.status_message = Some(delivery.message.clone());
+            let record = self.change(record, Transition::Delivered).await?;
+            let mut commit = TaskCommit::of(record.clone()).with_events([
+                message_event(&record, attempt, 0, delivery.message, now(&self.host)),
+                status_event(&record, attempt, 1),
+            ]);
+            commit.blobs.push(Self::history_blob(task, &history));
+            self.store.commit(commit).await?;
+            if record.is_terminal() {
+                self.finish_sub_tasks(&record).await?;
+            }
+            return Ok(IterationOutcome::Delivered);
+        }
+
+        // 4b. tool.execute ×n, results in issue order (R8.2).
+        let caller = record
+            .participants
+            .iter()
+            .find(|p| p.has(Role::Reporter))
+            .map_or_else(
+                || Caller::system(self.id.id.to_string()),
+                |p| Caller {
+                    id: p.id.clone(),
+                    roles: p.roles.clone(),
+                    human: matches!(p.kind, ParticipantKind::Human),
+                    channels: BTreeSet::new(),
+                },
+            );
+        let token = self.mailbox.token(task);
+        let executed = self
+            .executor
+            .execute_all(&cx, task, attempt, &caller, &token, calls)
+            .await;
+        let mut pending: Vec<PendingCall> = Vec::new();
+        for e in executed {
+            match e {
+                Executed::Result { result } => history.push(Turn::new(HistoryEntry::ToolResult {
+                    call_id: result.call_id.clone(),
+                    text: result.render(),
+                })),
+                Executed::Suspended { pending: p } => pending.push(p),
+            }
+        }
+        let mut commit_events = vec![message_event(&record, attempt, 0, reply, now(&self.host))];
+        if let Some(first) = pending.first().cloned() {
+            let ask = match &first.resume_on {
+                ResumeOn::Ask { ask } => ask.clone(),
+                ResumeOn::SubTask { task } => task.clone(),
+            };
+            record.pending_calls.clone_from(&pending);
+            let record = self
+                .change(record, Transition::Ask { ask: ask.clone() })
+                .await?;
+            commit_events.push(status_event(&record, attempt, 1));
+            let mut commit = TaskCommit::of(record.clone()).with_events(commit_events);
+            commit.pending_calls = pending;
+            commit.blobs.push(Self::history_blob(task, &history));
+            self.store.commit(commit).await?;
+            return Ok(IterationOutcome::Suspended { ask });
+        }
+        let mut commit = TaskCommit::of(record.clone()).with_events(commit_events);
+        commit.blobs.push(Self::history_blob(task, &history));
+        self.store.commit(commit).await?;
+        if let Some(signal) = self.mailbox.take_signal(task) {
+            let record = self.record(task).await?;
+            return self.stop(record, history, attempt, signal).await;
+        }
+        Ok(IterationOutcome::Continue)
+    }
+
+    /// The stop path (R21.8, R22.6): no further writes after the terminal commit.
+    async fn stop(
+        &self,
+        record: TaskRecord,
+        history: Vec<Turn>,
+        attempt: Attempt,
+        signal: Signal,
+    ) -> Result<IterationOutcome, AgentError> {
+        let (transition, outcome) = match signal {
+            Signal::Cancel(_) => (Transition::Cancel, LoopOutcome::Canceled),
+            Signal::Complete { .. } => (Transition::Complete, LoopOutcome::Completed),
+        };
+        let record = self.change(record, transition).await?;
+        let mut commit =
+            TaskCommit::of(record.clone()).with_events([status_event(&record, attempt, 9)]);
+        commit.blobs.push(Self::history_blob(&record.id, &history));
+        self.store.commit(commit).await?;
+        self.finish_sub_tasks(&record).await?;
+        Ok(IterationOutcome::Stopped { outcome })
+    }
+
+    /// Applies the sub-task policy when `parent` reached a terminal state (R12.4).
+    async fn finish_sub_tasks(&self, parent: &TaskRecord) -> Result<(), AgentError> {
+        if self.sub_task_policy != SubTaskPolicy::Cancel {
+            return Ok(());
+        }
+        for sub in &parent.sub_tasks {
+            let Some(record) = self.store.get_task(&sub.task).await? else {
+                continue;
+            };
+            if record.is_terminal() {
+                continue;
+            }
+            if self.mailbox.is_running(&record.id) {
+                self.mailbox.signal(
+                    &record.id,
+                    Signal::Cancel(CancelReason::ParentTerminal {
+                        parent: parent.id.clone(),
+                    }),
+                );
+            } else {
+                let record = self.change(record, Transition::Cancel).await?;
+                self.store
+                    .commit(TaskCommit::of(record.clone()).with_events([status_event(
+                        &record,
+                        Attempt {
+                            iteration: record.iteration,
+                            n: 1,
+                        },
+                        9,
+                    )]))
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Runs the loop for `task` to its next waiting point, inside `task.run` (R11.2,
+    /// R11.4).
+    ///
+    /// # Errors
+    ///
+    /// An infrastructure failure; everything the loop decides is a [`LoopOutcome`].
+    pub async fn run(&self, task: &TaskId) -> Result<LoopOutcome, AgentError> {
+        if !self.mailbox.start(task) {
+            return Err(AgentError::Unsupported(format!(
+                "task {task}: already running"
+            )));
+        }
+        let record = self.record(task).await;
+        let result = match record {
+            Ok(record) => {
+                let cx = self.cx(&record);
+                self.dispatcher
+                    .run::<TaskRun, _, _>(&cx, task.clone(), |task| async move {
+                        self.drive(&task)
+                            .await
+                            .map_err(|e| HarnessError::Internal(e.to_string()))
+                    })
+                    .await
+                    .map_err(AgentError::from)
+            }
+            Err(e) => Err(e),
+        };
+        self.mailbox.finish(task);
+        result
+    }
+
+    async fn drive(&self, task: &TaskId) -> Result<LoopOutcome, AgentError> {
+        let started = Instant::now();
+        loop {
+            let record = self.record(task).await?;
+            if record.is_terminal() || record.state == a2a::TaskState::InputRequired {
+                return Ok(outcome_of(&record));
+            }
+            let n = record.iteration + 1;
+            let limit = if n > self.limits.max_iterations {
+                Some(Limit::MaxIterations)
+            } else if self
+                .limits
+                .wall_clock
+                .is_some_and(|w| started.elapsed() > w)
+            {
+                Some(Limit::WallClock)
+            } else {
+                None
+            };
+            if let Some(limit) = limit {
+                return self.limit(record, limit).await;
+            }
+            match self.run_iteration(task, n).await? {
+                IterationOutcome::Continue => {}
+                IterationOutcome::Delivered => return Ok(outcome_of(&self.record(task).await?)),
+                IterationOutcome::Suspended { ask } => {
+                    return Ok(LoopOutcome::AwaitingParticipant { ask });
+                }
+                IterationOutcome::Stopped { outcome } => return Ok(outcome),
+            }
+        }
+    }
+
+    async fn limit(&self, record: TaskRecord, limit: Limit) -> Result<LoopOutcome, AgentError> {
+        let attempt = Attempt {
+            iteration: record.iteration,
+            n: 1,
+        };
+        let transition = match self.on_limit {
+            OnLimit::InputRequired => Transition::Limit {
+                reason: limit.reason().to_owned(),
+            },
+            OnLimit::Fail => Transition::Fail,
+        };
+        let record = self.change(record, transition).await?;
+        self.store
+            .commit(TaskCommit::of(record.clone()).with_events([status_event(&record, attempt, 8)]))
+            .await?;
+        if record.is_terminal() {
+            self.finish_sub_tasks(&record).await?;
+        }
+        Ok(LoopOutcome::LimitReached { limit })
+    }
+
+    /// The `complete` transition by `by` (R21.7–8): a running task stops at its next
+    /// boundary, a waiting one completes now.
+    ///
+    /// # Errors
+    ///
+    /// An illegal move or a store failure.
+    pub async fn complete(
+        &self,
+        task: &TaskId,
+        by: &ParticipantId,
+    ) -> Result<a2a::Task, AgentError> {
+        let record = self.record(task).await?;
+        if self.mailbox.is_running(task) {
+            self.mailbox
+                .signal(task, Signal::Complete { by: by.clone() });
+            return Ok(record.to_a2a(Vec::new()));
+        }
+        let record = self.change(record, Transition::Complete).await?;
+        self.store
+            .commit(TaskCommit::of(record.clone()).with_events([status_event(
+                &record,
+                Attempt {
+                    iteration: record.iteration,
+                    n: 1,
+                },
+                9,
+            )]))
+            .await?;
+        self.finish_sub_tasks(&record).await?;
+        Ok(record.to_a2a(Vec::new()))
+    }
+
+    /// `CancelTask` (R21.8).
+    ///
+    /// # Errors
+    ///
+    /// An illegal move or a store failure.
+    pub async fn cancel(
+        &self,
+        task: &TaskId,
+        reason: CancelReason,
+    ) -> Result<a2a::Task, AgentError> {
+        let record = self.record(task).await?;
+        if self.mailbox.is_running(task) {
+            self.mailbox.signal(task, Signal::Cancel(reason));
+            return Ok(record.to_a2a(Vec::new()));
+        }
+        let record = self.change(record, Transition::Cancel).await?;
+        self.store
+            .commit(TaskCommit::of(record.clone()).with_events([status_event(
+                &record,
+                Attempt {
+                    iteration: record.iteration,
+                    n: 1,
+                },
+                9,
+            )]))
+            .await?;
+        self.finish_sub_tasks(&record).await?;
+        Ok(record.to_a2a(Vec::new()))
+    }
+}
+
+fn outcome_of(record: &TaskRecord) -> LoopOutcome {
+    match record.state {
+        a2a::TaskState::Completed => LoopOutcome::Completed,
+        a2a::TaskState::Canceled => LoopOutcome::Canceled,
+        a2a::TaskState::Failed | a2a::TaskState::Rejected => {
+            LoopOutcome::Failed(format!("{:?}", record.state))
+        }
+        a2a::TaskState::InputRequired => match &record.sub_state {
+            Some(crate::harness::core_loop::task::SubState::AwaitingParticipant { ask }) => {
+                LoopOutcome::AwaitingParticipant { ask: ask.clone() }
+            }
+            _ => LoopOutcome::AwaitingTurn,
+        },
+        _ => LoopOutcome::AwaitingTurn,
+    }
+}
+
+impl Entity for LocalAgent {
+    fn kind(&self) -> EntityKind {
+        EntityKind::Agent
+    }
+    fn entity_id(&self) -> &EntityId {
+        &self.id
+    }
+}
+
+harness_async_trait! {
+    impl Agent for LocalAgent {
+        fn card(&self) -> &a2a::AgentCard {
+            &self.card
+        }
+
+        fn schemas(&self) -> AgentSchemas {
+            AgentSchemas::default()
+        }
+
+        /// Opens or continues the task, runs the loop to its next waiting point, and
+        /// streams the events the call produced from the store's log.
+        fn send_message(&self, request: AgentRequest) -> HarnessStream<'_, Result<a2a::StreamResponse, AgentError>> {
+            let fut = async move {
+                let viewer = request.call.caller.clone();
+                let task = request.call.task_id.clone();
+                let from = self.store.events(&task, 1, usize::MAX, &viewer).await.map_or(1, |e| e.len() as u64 + 1);
+                let result: Result<Vec<a2a::StreamResponse>, AgentError> = async {
+                    let (_, run) = self.open_task(&request).await?;
+                    if run {
+                        self.run(&task).await?;
+                    }
+                    let events = self.store.events(&task, from, usize::MAX, &viewer).await?;
+                    Ok(events.into_iter().map(|e| e.response).collect())
+                }
+                .await;
+                match result {
+                    Ok(events) => events.into_iter().map(Ok).collect::<Vec<_>>(),
+                    Err(e) => vec![Err(e)],
+                }
+            };
+            boxed_stream(futures::StreamExt::flat_map(futures::stream::once(fut), futures::stream::iter))
+        }
+
+        async fn cancel_task(&self, task_id: &TaskId, call: CallContext) -> Result<a2a::Task, AgentError> {
+            self.cancel(task_id, CancelReason::Participant { by: call.caller.id }).await
+        }
+    }
+}
+
+/// A sub-task's plan link helper for the loop and the channels (R12.3).
+#[must_use]
+pub fn sub_task_ref(record: &TaskRecord) -> crate::harness::core_loop::task::TaskRef {
+    crate::harness::core_loop::task::TaskRef {
+        task: record.id.clone(),
+        context_id: Some(record.context_id.clone()),
+    }
+}
+
+/// Plan handle re-export for callers that persist plans with the loop.
+pub type TaskPlan = Plan;
+/// State handle re-export for callers that persist state with the loop.
+pub type TaskState = AgentState;
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::{
+        Agent, AgentRequest, CallContext, Limit, LocalAgent, LocalAgentParts, LoopLimits,
+        LoopOutcome, OnLimit,
+    };
+    use crate::app_service::durable::CancelReason;
+    use crate::app_service::inbox::{DeliveryKind, EventTarget, InboxEvent, InboxStatus};
+    use crate::assets::PromptRegistry;
+    use crate::config::Config;
+    use crate::harness::commands::{ModelRouter, ModelSelection};
+    use crate::harness::core_loop::persistence::MemoryStore;
+    use crate::harness::core_loop::task::{Caller, Role, SubState, TASK_EXT};
+    use crate::harness::hooks::HookDispatcher;
+    use crate::harness::models::llm::testing::RecordedLlm;
+    use crate::harness::models::llm::{Llm, ModelEvent, StopReason};
+    use crate::harness::tools::tests::Fixture;
+    use crate::harness::tools::{Idempotency, Tool, ToolCall};
+    use crate::host::Host;
+    use crate::registry::Registry;
+    use a2a::TaskState;
+    use futures::StreamExt as _;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    pub(crate) fn text_turn(text: &str) -> Vec<ModelEvent> {
+        vec![
+            ModelEvent::TextDelta { text: text.into() },
+            ModelEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]
+    }
+
+    pub(crate) fn tool_turn(id: &str, name: &str, args: serde_json::Value) -> Vec<ModelEvent> {
+        vec![
+            ModelEvent::TextDelta {
+                text: format!("calling {name}"),
+            },
+            ModelEvent::ToolCall {
+                call: ToolCall {
+                    id: id.into(),
+                    name: name.into(),
+                    arguments: args,
+                },
+            },
+            ModelEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ]
+    }
+
+    pub(crate) struct Rig {
+        pub(crate) agent: Arc<LocalAgent>,
+        pub(crate) llm: Arc<RecordedLlm>,
+        pub(crate) write: Arc<Fixture>,
+    }
+
+    pub(crate) fn rig(turns: Vec<Vec<ModelEvent>>) -> Rig {
+        let registry = Arc::new(Registry::new());
+        let llm = Arc::new(RecordedLlm::new("default", turns));
+        let as_llm: Arc<dyn Llm> = llm.clone();
+        registry.register(as_llm).unwrap();
+        let write = Arc::new(Fixture::new(
+            "write",
+            Idempotency::SideEffecting { accepts_key: true },
+        ));
+        for tool in [
+            Arc::new(Fixture::new("echo", Idempotency::Idempotent)),
+            Arc::new(Fixture::new("ask", Idempotency::Idempotent)),
+            Arc::clone(&write),
+        ] {
+            let tool: Arc<dyn Tool> = tool;
+            registry.register(tool).unwrap();
+        }
+        let router = Arc::new(ModelRouter::new(
+            Arc::clone(&registry),
+            ModelSelection {
+                model: "default".into(),
+                effort: None,
+            },
+        ));
+        let agent = LocalAgent::new(LocalAgentParts {
+            config: Config::default(),
+            registry,
+            dispatcher: Arc::new(HookDispatcher::new()),
+            host: Arc::new(Host::testing()),
+            store: Arc::new(MemoryStore::new()),
+            prompts: Arc::new(PromptRegistry::builtin()),
+            router,
+        });
+        Rig {
+            agent: Arc::new(agent),
+            llm,
+            write,
+        }
+    }
+
+    pub(crate) fn request(task: &str, text: &str, long_running: bool) -> AgentRequest {
+        let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text(text)]);
+        message.task_id = Some(task.into());
+        message.context_id = Some("ctx-1".into());
+        if long_running {
+            message.metadata = Some(HashMap::from([(
+                TASK_EXT.to_owned(),
+                json!({ "mode": "long-running" }),
+            )]));
+        }
+        AgentRequest {
+            message,
+            call: CallContext {
+                task_id: task.into(),
+                context_id: "ctx-1".into(),
+                stored_task: None,
+                caller: Caller::human("u1", [Role::Admin]),
+                service_params: std::collections::BTreeMap::default(),
+            },
+            metadata: None,
+            extensions: vec![],
+        }
+    }
+
+    async fn send(agent: &LocalAgent, req: AgentRequest) -> Vec<a2a::StreamResponse> {
+        agent
+            .send_message(req)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .map(|r| r.expect("event"))
+            .collect()
+    }
+
+    /// Scenario: A long-running task stays in input-required across three turns
+    ///     Given a long-running task
+    ///     When three messages arrive in turn, each answered without tool calls
+    ///     Then after each the task is input-required, awaiting the next turn, with the same id
+    ///     And the third model call saw the whole prior conversation
+    #[tokio::test]
+    async fn a_long_running_task_stays_in_input_required_across_three_turns() {
+        let r = rig(vec![text_turn("one"), text_turn("two"), text_turn("three")]);
+        for (i, text) in ["first", "second", "third"].iter().enumerate() {
+            let events = send(&r.agent, request("t1", text, true)).await;
+            assert!(
+                events.iter().any(
+                    |e| matches!(e, a2a::StreamResponse::Message(m) if m.role == a2a::Role::Agent)
+                ),
+                "turn {i}: the reply is streamed"
+            );
+            let record = r
+                .agent
+                .store()
+                .get_task(&"t1".into())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(record.state, TaskState::InputRequired, "turn {i}");
+            assert_eq!(record.sub_state, Some(SubState::AwaitingNextTurn));
+            assert_eq!(record.iteration as usize, i + 1);
+        }
+        let third = &r.llm.requests()[2];
+        let all: String = third
+            .messages
+            .iter()
+            .flat_map(|m| m.parts.iter())
+            .map(|p| match p {
+                crate::harness::models::llm::ContentPart::Text { text } => text.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        assert!(
+            all.contains("first")
+                && all.contains("one")
+                && all.contains("second")
+                && all.contains("two")
+                && all.contains("third"),
+            "{all}"
+        );
+        // A one-shot task closes on delivery (R21.1).
+        let r = rig(vec![text_turn("done")]);
+        send(&r.agent, request("t2", "hi", false)).await;
+        assert_eq!(
+            r.agent
+                .store()
+                .get_task(&"t2".into())
+                .await
+                .unwrap()
+                .unwrap()
+                .state,
+            TaskState::Completed
+        );
+        // A follow-up on a terminal task is refused (R21.6).
+        let err = r
+            .agent
+            .send_message(request("t2", "more", false))
+            .collect::<Vec<_>>()
+            .await
+            .remove(0)
+            .unwrap_err();
+        assert!(matches!(err, super::AgentError::Unsupported(_)), "{err}");
+    }
+
+    /// Scenario: Completing a working task stops in-flight activities and ends completed
+    #[tokio::test]
+    async fn completing_a_working_task_stops_in_flight_activities_and_ends_completed() {
+        let r = rig(vec![
+            tool_turn("c1", "echo", json!({ "text": "slow", "ms": 400 })),
+            text_turn("never"),
+        ]);
+        let agent = Arc::clone(&r.agent);
+        let handle = tokio::spawn(async move { send(&agent, request("t3", "go", true)).await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(r.agent.mailbox().is_running(&"t3".into()));
+        let token = r.agent.mailbox().token(&"t3".into());
+        let wire = r
+            .agent
+            .complete(&"t3".into(), &"u1".to_owned())
+            .await
+            .unwrap();
+        assert_eq!(
+            wire.status.state,
+            TaskState::Working,
+            "the stop lands at the boundary"
+        );
+        assert!(token.is_cancelled(), "in-flight activities are told");
+        handle.await.unwrap();
+        let record = r
+            .agent
+            .store()
+            .get_task(&"t3".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.state, TaskState::Completed);
+        assert_eq!(r.llm.attempts(), 1, "no second model call after complete");
+        assert!(!r.agent.mailbox().is_running(&"t3".into()));
+    }
+
+    /// Scenario: A task whose parent completes is canceled by the default policy
+    #[tokio::test]
+    async fn a_task_whose_parent_completes_is_canceled_by_the_default_policy() {
+        let r = rig(vec![text_turn("parent"), text_turn("child")]);
+        send(&r.agent, request("parent", "plan it", true)).await;
+        let mut child = request("child", "do a step", true);
+        child
+            .message
+            .metadata
+            .as_mut()
+            .unwrap()
+            .get_mut(TASK_EXT)
+            .unwrap()["parent"] = json!("parent");
+        send(&r.agent, child).await;
+        let parent = r
+            .agent
+            .store()
+            .get_task(&"parent".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            parent
+                .sub_tasks
+                .iter()
+                .map(|s| s.task.as_str())
+                .collect::<Vec<_>>(),
+            ["child"]
+        );
+        assert_eq!(
+            r.agent
+                .store()
+                .get_task(&"child".into())
+                .await
+                .unwrap()
+                .unwrap()
+                .parent_tasks[0]
+                .task,
+            "parent"
+        );
+        let wire = r
+            .agent
+            .complete(&"parent".into(), &"u1".to_owned())
+            .await
+            .unwrap();
+        assert_eq!(wire.status.state, TaskState::Completed);
+        assert_eq!(
+            r.agent
+                .store()
+                .get_task(&"child".into())
+                .await
+                .unwrap()
+                .unwrap()
+                .state,
+            TaskState::Canceled
+        );
+    }
+
+    /// Scenario: An inbox event for a running task is applied at the next loop boundary
+    #[tokio::test]
+    async fn an_inbox_event_for_a_running_task_is_applied_at_the_next_loop_boundary() {
+        let r = rig(vec![
+            tool_turn("c1", "echo", json!({ "text": "slow", "ms": 300 })),
+            text_turn("done"),
+        ]);
+        let agent = Arc::clone(&r.agent);
+        let handle = tokio::spawn(async move { send(&agent, request("t4", "start", true)).await });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let note = a2a::Message::new(
+            a2a::Role::User,
+            vec![a2a::Part::text("also mention the weather")],
+        );
+        r.agent.mailbox().deliver(
+            &"t4".into(),
+            InboxEvent {
+                id: "in-1".into(),
+                target: EventTarget::Task("t4".into()),
+                kind: a2a::StreamResponse::Message(note),
+                status: InboxStatus::Received,
+                sender: Caller::human("u1", [Role::Admin]),
+                received_at: chrono::Utc::now(),
+                delivery: DeliveryKind::Interrupt,
+                extensions: vec![],
+                traceparent: None,
+            },
+        );
+        handle.await.unwrap();
+        let requests = r.llm.requests();
+        assert_eq!(requests.len(), 2);
+        let second: String = requests[1]
+            .messages
+            .iter()
+            .flat_map(|m| m.parts.iter())
+            .map(|p| match p {
+                crate::harness::models::llm::ContentPart::Text { text } => text.clone(),
+                _ => String::new(),
+            })
+            .collect();
+        assert!(
+            second.contains("[user-message]\nalso mention the weather"),
+            "{second}"
+        );
+        assert!(!requests[0].messages.iter().any(|m| m.parts.iter().any(|p| matches!(p, crate::harness::models::llm::ContentPart::Text { text } if text.contains("weather")))));
+    }
+
+    #[tokio::test]
+    async fn limits_stop_the_loop_with_a_typed_outcome_and_suspending_tools_wait() {
+        let r = rig(vec![
+            tool_turn("c1", "echo", json!({ "text": "a" })),
+            tool_turn("c2", "echo", json!({ "text": "b" })),
+            tool_turn("c3", "echo", json!({ "text": "c" })),
+        ]);
+        let agent = Arc::try_unwrap(r.agent).ok().unwrap().with_limits(
+            LoopLimits {
+                max_iterations: 2,
+                max_total_tokens: None,
+                wall_clock: None,
+            },
+            OnLimit::InputRequired,
+        );
+        let (_, run) = agent.open_task(&request("t5", "loop", true)).await.unwrap();
+        assert!(run);
+        assert_eq!(
+            agent.run(&"t5".into()).await.unwrap(),
+            LoopOutcome::LimitReached {
+                limit: Limit::MaxIterations
+            }
+        );
+        let record = agent.store().get_task(&"t5".into()).await.unwrap().unwrap();
+        assert_eq!(record.state, TaskState::InputRequired);
+        assert_eq!(
+            record.sub_state,
+            Some(SubState::Degraded {
+                reason: "loop.limit.iterations".into()
+            })
+        );
+        assert_eq!(r.llm.attempts(), 2);
+
+        let r = rig(vec![tool_turn("c1", "ask", json!({ "text": "q-1" }))]);
+        let events = send(&r.agent, request("t6", "ask them", true)).await;
+        let record = r
+            .agent
+            .store()
+            .get_task(&"t6".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            record.sub_state,
+            Some(SubState::AwaitingParticipant { ask: "q-1".into() })
+        );
+        assert_eq!(record.pending_calls[0].tool, "ask");
+        assert!(events.iter().any(|e| matches!(e, a2a::StreamResponse::StatusUpdate(u) if u.status.state == TaskState::InputRequired)));
+        let wire = r
+            .agent
+            .cancel(&"t6".into(), CancelReason::Participant { by: "u1".into() })
+            .await
+            .unwrap();
+        assert_eq!(wire.status.state, TaskState::Canceled);
+        assert_eq!(r.write.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+}

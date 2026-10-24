@@ -390,6 +390,12 @@ pub enum Transition {
     Cancel,
     /// A non-retryable error or a limit: `submitted | working → failed`.
     Fail,
+    /// A loop limit under the `input-required` policy: `working → input-required`,
+    /// degraded with `reason` (a string-catalog key) so a person can decide (R11.4).
+    Limit {
+        /// The catalog key of the limit.
+        reason: String,
+    },
     /// A sub-state change while `working` (paused, degraded, compacting, delegated), or
     /// `None` to clear it.
     SubState(Option<SubState>),
@@ -407,6 +413,7 @@ impl Transition {
             Self::Complete => "complete",
             Self::Cancel => "cancel",
             Self::Fail => "fail",
+            Self::Limit { .. } => "limit",
             Self::SubState(_) => "sub-state",
         }
     }
@@ -508,6 +515,12 @@ impl TaskRecord {
                 Some((Canceled, None))
             }
             (Transition::Fail, Working | Submitted) => Some((Failed, None)),
+            (Transition::Limit { reason }, Working) => Some((
+                InputRequired,
+                Some(SubState::Degraded {
+                    reason: reason.clone(),
+                }),
+            )),
             (Transition::SubState(sub), Working) => Some((Working, sub.clone())),
             _ => None,
         }
@@ -841,6 +854,17 @@ pub(crate) mod tests {
                 TaskState::Working,
                 Some(SubState::Paused),
             ),
+            (
+                TaskState::Working,
+                TaskMode::OneShot,
+                Transition::Limit {
+                    reason: "loop.limit".into(),
+                },
+                TaskState::InputRequired,
+                Some(SubState::Degraded {
+                    reason: "loop.limit".into(),
+                }),
+            ),
         ];
         for (from, mode, transition, to, sub) in legal {
             let mut task = TaskRecord::new(draft("t", *mode), at(0));
@@ -876,6 +900,10 @@ pub(crate) mod tests {
             (TaskState::InputRequired, Transition::Start),
             (TaskState::InputRequired, Transition::Delivered),
             (TaskState::InputRequired, Transition::Fail),
+            (
+                TaskState::InputRequired,
+                Transition::Limit { reason: "x".into() },
+            ),
             (
                 TaskState::InputRequired,
                 Transition::SubState(Some(SubState::Paused)),

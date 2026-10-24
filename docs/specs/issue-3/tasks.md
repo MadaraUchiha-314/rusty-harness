@@ -220,7 +220,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `compaction::tests` (threshold, pinned); T2 — `Scenario: Compaction keeps the pinned
     positions verbatim`; T8 — `abuse_injected_instructions_in_tool_result_change_no_
     policy_config_or_role`
-- [ ] 17. The agent and the core loop: `Agent` trait (sherma mapping), `AgentRequest`,
+- [x] 17. The agent and the core loop: `Agent` trait (sherma mapping), `AgentRequest`,
   `CallContext`, `LocalAgent::run_iteration` with the four hookable steps, `LoopLimits`
   and `LoopOutcome`, inbox drain at the loop boundary (in-memory mailbox for now),
   suspending tools handled through `PendingCall`, one-shot vs long-running close policy,

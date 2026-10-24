@@ -91,7 +91,7 @@ abuse cases are tests like any other (`reference/security.md`).
     construction on wasm32` (`wasm-pack test --node`); T8 — `abuse_secret_resolver_never_
     displays_a_value` (the `Secret<T>` type's `Debug`/`Display` print `[redacted]`, no
     `Serialize` impl compiles: a `trybuild` compile-fail case)
-- [ ] 5. Hook dispatcher: `Operation`, `HookPoint` catalogue (every row of the design's
+- [x] 5. Hook dispatcher: `Operation`, `HookPoint` catalogue (every row of the design's
   table), `PreHook`/`GuardHook`/`InHook`/`PostHook`, `HookOrder`, `FailurePolicy`,
   `HookDispatcher::run` with the pre → guard → in → post stages, target-identity check
   for `in` hooks, `Veto`, and the per-point default policies. 🔒 boundary 3.

@@ -56,6 +56,21 @@ pub enum HarnessError {
         /// The transition that was asked for.
         to: &'static str,
     },
+    /// A `pre` or `guard` hook said no (R4.2).
+    #[error("vetoed by {}: {}", .0.by, .0.reason)]
+    Vetoed(crate::harness::hooks::Veto),
+    /// A hook failed under a fail-closed policy, or an `in` hook moved the target (R4.6).
+    #[error("hook at {point}/{phase:?} failed ({policy:?}): {source}")]
+    Hook {
+        /// The catalogue point.
+        point: crate::harness::hooks::HookPoint,
+        /// The stage that failed.
+        phase: crate::harness::hooks::Phase,
+        /// What the hook reported.
+        source: crate::harness::hooks::HookError,
+        /// The policy that turned it into a failure.
+        policy: crate::harness::hooks::FailurePolicy,
+    },
     /// A failure with no more specific variant yet; never the answer to a caller's input.
     #[error("internal: {0}")]
     Internal(String),
@@ -76,6 +91,12 @@ impl HarnessError {
             Self::IllegalTransition { from, to } => a2a::A2AError::unsupported_operation(format!(
                 "task cannot move from {from:?} to {to}"
             )),
+            Self::Vetoed(veto) => {
+                a2a::A2AError::unsupported_operation(format!("vetoed: {}", veto.reason))
+            }
+            Self::Hook { point, phase, .. } => {
+                a2a::A2AError::internal(format!("hook failure at {point}/{phase:?}"))
+            }
             Self::Internal(msg) => a2a::A2AError::internal(msg.clone()),
         }
     }

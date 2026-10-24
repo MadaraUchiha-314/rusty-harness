@@ -5,13 +5,17 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.92"
 license = "Apache-2.0"
 repository = "https://github.com/MadaraUchiha-314/rusty-harness"
 homepage = "https://madarauchiha-314.github.io/rusty-harness/"
 authors = ["MadaraUchiha-314"]
 
 [workspace.dependencies]
+# The official A2A protocol crates (protocol 1.0; crates.io names end in -lf, imported as `a2a`, `a2a_client`, `a2a_server`).
+a2a-lf = "0.4.2"
+# ids: v7 for tasks, messages and events; v5 for deterministic ids (idempotency keys, outbound contextIds).
+uuid = { version = "1.29", features = ["v4", "v5", "v7", "serde"] }
 rusty_harness = { path = "crates/rusty-harness", version = "0.1.0", default-features = false }
 gloo-timers = { version = "0.4", features = ["futures"] }
 pyo3 = { version = "0.29", features = ["abi3-py310"] }

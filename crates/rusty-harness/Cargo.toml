@@ -18,13 +18,37 @@ default = []
 rt-tokio = ["dep:tokio", "tokio/rt", "tokio/time"]
 # Browser / JS runtime: `spawn_local` and JS timers. Only compiled for wasm32.
 rt-wasm = ["dep:wasm-bindgen-futures", "dep:gloo-timers"]
+# The feature table of docs/specs/issue-3/design.md § Cargo features. Each feature gains
+# its dependencies in the milestone that implements it; an empty feature is a declared
+# seam, not a capability.
+# The A2A server, the inbox route and the HTTP bindings (native only).
+server = ["rt-tokio"]
+# Tools over the official MCP Rust SDK (native only; the browser uses a host transport).
+mcp = ["rt-tokio"]
+# Durable execution on the official Temporal Rust SDK (native only).
+durable-temporal = ["rt-tokio"]
+# `embedded` durable mode: the SDK's ephemeral dev server (development only).
+durable-embedded = ["durable-temporal"]
+# The gRPC binding of the A2A server.
+a2a-grpc = ["server"]
+# The terminal renderer.
+tui = ["rt-tokio"]
+# Microphone and speaker host capabilities.
+audio = ["rt-tokio"]
+# The `rusty-harness` binary: everything a user installs.
+cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio"]
 
 [dependencies]
+a2a-lf = { workspace = true }   # its lib name is `a2a`
 tokio = { workspace = true, optional = true }
+uuid = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, optional = true }
 wasm-bindgen-futures = { workspace = true, optional = true }
+# Feature unification: `uuid/js` makes the official `a2a` types crate build for the browser
+# (design.md T2, D5) — uuid needs a JS randomness source there.
+uuid = { workspace = true, features = ["js"] }
 
 # Native-only: tests and doctests run under tokio behind `rt-tokio`.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

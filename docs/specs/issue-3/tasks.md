@@ -53,7 +53,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M1 — Foundations (PR 1: `loop/issue-3-m1-foundations`)
 
-- [ ] 1. Workspace baseline for the epic: raise MSRV to 1.92 (T7 in `design.md`, D3),
+- [x] 1. Workspace baseline for the epic: raise MSRV to 1.92 (T7 in `design.md`, D3),
   add the Cargo features table (`server`, `mcp`, `durable-temporal`, `durable-embedded`,
   `a2a-grpc`, `tui`, `audio`, `cli`), the `[dependencies]` the design justifies for M1
   (`a2a-lf`, `serde`, `serde_json`, `toml`, `schemars`, `thiserror`, `async-trait`,

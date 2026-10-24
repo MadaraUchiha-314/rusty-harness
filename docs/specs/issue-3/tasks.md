@@ -248,7 +248,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `Scenario: A sub-agent whose card fails validation is never shown to the model`; T3 —
     `contract_a2a_extension_schemas` (snapshot of the six schemas); T8 — `abuse_agent_
     call_to_an_unregistered_agent_is_refused`
-- [ ] 19. M2 pull request: SDK usable from Rust in-process (`HarnessBuilder`), capability
+- [x] 19. M2 pull request: SDK usable from Rust in-process (`HarnessBuilder`), capability
   docs for models, plugins, skills, prompts, tools, loop, task, channels; `docs/guide/`
   "Embed the SDK" and "Write a plugin" pages; `evidence/pull-requests.md` row.
   - _Depends on:_ 18

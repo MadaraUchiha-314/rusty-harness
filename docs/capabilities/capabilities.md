@@ -9,3 +9,11 @@ behaviour. Add one line per capability doc here.
 | [Hooks on the whole lifecycle](hooks.md) | pre, guard, in and post stages on 40 catalogue points, local or remote |
 | [Configuration](config.md) | one typed `Config` from file, environment and code; credentials by reference |
 | [Prompts and strings as assets](assets.md) | prompts are markdown files, strings come from one catalog per locale |
+| [Models, LLM and System One](models.md) | one `Llm` over every provider, retried and modality-checked; `/model` switches the next call |
+| [Agent plugins](plugins.md) | a plugin directory contributes skills, servers, hooks, commands and prompts, all or nothing |
+| [Skills](skills.md) | `SKILL.md` metadata at startup, body on activation, resources on demand |
+| [Tools and MCP](tools.md) | concurrent calls in issue order, policed by role, sized before the context; MCP under `rmcp` |
+| [Tasks, plans, state and persistence](task.md) | one A2A-aligned record, a plan DAG, schema-checked state, an atomic commit journal |
+| [The core loop](loop.md) | sherma's agent in A2A types, four hookable steps, limits, context positions and compaction |
+| [Sub-agents, participants and channels](channels.md) | every sub-agent over A2A through one tool; asks through owned channels |
+| [Commands and the system prompt](commands.md) | `/commands` from people only; the prompt is a plan of fragments |

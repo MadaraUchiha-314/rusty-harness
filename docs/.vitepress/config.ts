@@ -25,6 +25,8 @@ export default defineConfig({
         items: [
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "Async model", link: "/guide/async-model" },
+          { text: "Embed the SDK", link: "/guide/embed-the-sdk" },
+          { text: "Write a plugin", link: "/guide/write-a-plugin" },
         ],
       },
       {

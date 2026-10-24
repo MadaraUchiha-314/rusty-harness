@@ -208,7 +208,7 @@ abuse cases are tests like any other (`reference/security.md`).
     policy`, `Scenario: A pre hook veto stops tool execution and the model is told`
     (fixture stdio MCP server, a tiny Rust test binary); T8 — `abuse_denied_tool_call_is_
     not_executed_and_model_receives_a_tool_error`
-- [ ] 16. Context window manager and compaction: `Position`, `ContextTemplate` with the
+- [x] 16. Context window manager and compaction: `Position`, `ContextTemplate` with the
   default order and stable prefix, `ContextBuilder` (every `DataRole` into the untrusted
   positions, `prompts/system/untrusted-content.md` framing), `TokenEstimate` from usage +
   learned ratio, `context.build` hooks; `Compactor` with the 0.75 threshold, the

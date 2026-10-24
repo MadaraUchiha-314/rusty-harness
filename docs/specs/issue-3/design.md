@@ -312,8 +312,8 @@ pub enum EntityKind { Prompt, Skill, Tool, Llm, SystemOne, Hook, Plugin, Command
 pub enum Placement { Local, Remote(RemoteEndpoint) }                              // R1.3–4
 pub enum RemoteEndpoint { A2a { card_url: Url }, Mcp { server: EntityId }, Http { base_url: Url } }
 
-pub trait Entity: Send + Sync + 'static {
-    const KIND: EntityKind;
+pub trait Entity: Send + Sync + 'static {          // dyn-compatible: no associated consts or generics
+    fn kind(&self) -> EntityKind;
     fn entity_id(&self) -> &EntityId;
     fn placement(&self) -> Placement { Placement::Local }
 }
@@ -450,7 +450,7 @@ the default failure policy is `FailClosed` for `pre` on the rows marked 🔒 (R4
 | `prompt.assemble` | `PromptPlan` → `Prompt` | R7.3 |
 | `context.build` | `ContextRequest` → `ModelRequest` | R15.5 |
 | `context.compact` | `CompactionPlan` → `CompactionResult` | R16.3, veto allowed |
-| `model.create` | `ModelConfig` → `Arc<dyn Llm>` | sherma `model_create` |
+| `model.create` | `ModelConfig` → `EntityId` (the model registered by the `in` chain) | sherma `model_create`; outputs stay serializable |
 | `model.call` | `ModelRequest` → `ModelTurn` | sherma `model_call` |
 | `response.parse` | `ModelTurn` → `Vec<ToolCall>` | the "extract tool calls" step |
 | `tool.execute` 🔒 | `ToolCall` → `ToolResult` | sherma `tool_call`; policy lives in the guard stage |
@@ -522,7 +522,7 @@ markdown fragment, and impossible to show a person text that is not a catalog en
 ```rust
 pub struct PromptFragment { pub id: EntityId /* id = file stem, version = front matter */, pub source: &'static str /* crate-relative path */,
                             pub body: Cow<'static, str>, pub placeholders: &'static [&'static str], pub locale: LanguageTag }
-impl Entity for PromptFragment { const KIND: EntityKind = EntityKind::Prompt; … }
+impl Entity for PromptFragment { fn kind(&self) -> EntityKind { EntityKind::Prompt } … }
 
 pub struct Prompt { segments: Vec<PromptSegment> }                 // the ONLY type `Llm` accepts as instructions
 enum PromptSegment { Fragment { id: EntityId, rendered: String }, Data { role: DataRole, text: String } }

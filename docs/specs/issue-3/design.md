@@ -767,7 +767,9 @@ pub struct TaskRecord {                       // the harness's task; projected t
     pub description: String, pub acceptance_criteria: Vec<String>, pub mode: TaskMode /* OneShot | LongRunning */,
     pub state: TaskState /* a2a */, pub sub_state: Option<SubState>, pub participants: Vec<Participant>,
     pub sub_tasks: Vec<TaskRef>, pub parent_tasks: Vec<TaskRef>, pub plan: Option<PlanId>, pub model: ModelSelection,
-    pub created_at: DateTime<Utc>, pub updated_at: DateTime<Utc>, pub iteration: Iteration, pub reference_task_ids: Vec<TaskId> }
+    pub created_at: DateTime<Utc>, pub updated_at: DateTime<Utc>, pub iteration: Iteration, pub reference_task_ids: Vec<TaskId>,
+    pub status_message: Option<a2a::Message>, pub artifacts: Vec<a2a::Artifact>, pub history_len: u64, pub applied_events: Vec<EventId>,
+    pub pending_calls: Vec<PendingCall>, pub version: Version }
 pub struct Participant { pub id: ParticipantId, pub display: String, pub kind: ParticipantKind /* Human | Agent(EntityId) | System */, pub roles: BTreeSet<Role> }
 pub enum Role { Assignee, Reporter, Watcher, Admin }
 pub enum SubState { AwaitingNextTurn, AwaitingParticipant { ask: AskId }, Paused, Degraded { reason: StringKey }, Compacting, Delegated { task: TaskId } }
@@ -777,7 +779,13 @@ pub enum SubTaskPolicy { Cancel, Detach, Wait }   // applied when the parent goe
 Projection to the wire (R12.2): `a2a::Task { id, context_id, status: { state, message,
 timestamp }, artifacts, history, metadata }` with the `task/v1` extension's URI as the
 `metadata` key holding the `TaskRecord` fields A2A lacks, and `status.message.metadata`
-holding the sub-state.
+holding the sub-state. The store's `TaskStore` implementation for the SDK is a **fold**:
+`get` = `TaskRecord` → `a2a::Task` with `status.message` and `artifacts` from the record
+and `history` = the `Message` events of the task's log (bounded by `history_len`);
+`create`/`update` from the SDK's handler become commits that update the record. One
+journal therefore holds what the SDK writes and what the harness writes, and after a
+restart `get_task` returns the full A2A task and the loop resumes with the full prior
+context (R12.2, R14.4, R21.5).
 No value is ever added to `TaskState` (R21.4).
 
 ```mermaid

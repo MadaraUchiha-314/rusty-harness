@@ -12,12 +12,16 @@ workItem: issue-3
 
 ## Spec explainer
 
+<!-- markdownlint-disable MD034 -- the gate parses a bare URL from the Location row -->
 | Field | Value |
 |---|---|
 | Depth | deep |
-| Location | <https://claude.ai/artifact/5mQ1GX58ddgNNrvmzXYWxw> (tabs "Spec explainer" and "Spec quiz") |
+| Location | https://claude.ai/artifact/5mQ1GX58ddgNNrvmzXYWxw |
 | Published as | spec-chain artifact tab |
 | Questions | 5 |
+<!-- markdownlint-enable MD034 -->
+
+The page is the artifact's "Spec explainer" and "Spec quiz" tabs.
 
 Depth is `deep` because the work item introduces a new subsystem (the whole harness),
 changes public contracts in three languages and sits at risk tier 4. The page covers the

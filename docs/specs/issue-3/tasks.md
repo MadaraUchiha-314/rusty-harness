@@ -130,7 +130,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `assets_locale_falls_back_per_key_and_en_missing_key_fails_build` (fixture
     `tests/fixtures/strings/xx.json`), `assets_placeholder_sets_match_en`,
     `assets_no_raw_prompt_literals`; T6 — `snapshot_rendered_default_prompts`
-- [ ] 9. Observability base: `o11y::TracingHooks` registering `in` (span around `next`)
+- [x] 9. Observability base: `o11y::TracingHooks` registering `in` (span around `next`)
   and `pre` hooks on every catalogue point, span attributes per operation, the
   `redact` layer dropping `Secret` fields and truncating content above `debug`, OTLP
   export behind `[o11y]`, `LogSink` routing on `wasm32`, persisted `traceparent` on the

@@ -271,6 +271,12 @@ pub trait Operation: 'static {
     /// What it produces.
     type Output: Serialize + DeserializeOwned + Clone + MaybeSend + 'static;
 
+    /// Attributes worth a trace span, from the input and output (token counts, bytes,
+    /// a tool name). Empty by default.
+    fn attributes(_input: &Self::Input, _output: &Self::Output) -> Vec<(&'static str, String)> {
+        Vec::new()
+    }
+
     /// The identity fields of an input (a tool name, an agent id, a store key): what a
     /// guard approved and what an `in` hook must not move. Empty when the operation has
     /// no target.
@@ -713,7 +719,10 @@ impl HookDispatcher {
         for (id, hook) in pres {
             match hook.pre(cx, input.clone()).await {
                 Ok(PreOutcome::Continue(next)) => input = next,
-                Ok(PreOutcome::Veto(veto)) => return Err(HarnessError::Vetoed(veto)),
+                Ok(PreOutcome::Veto(veto)) => {
+                    tracing::info!(point = point.name(), hook = %id, reason = %veto.reason, "pre hook vetoed");
+                    return Err(HarnessError::Vetoed(veto));
+                }
                 Err(source) => match policy {
                     FailurePolicy::FailClosed => {
                         return Err(HarnessError::Hook {
@@ -730,10 +739,13 @@ impl HookDispatcher {
             }
         }
 
-        for (_, guard) in guards {
+        for (id, guard) in guards {
             match guard.guard(cx, &input).await {
                 Ok(GuardOutcome::Allow) => {}
-                Ok(GuardOutcome::Deny(veto)) => return Err(HarnessError::Vetoed(veto)),
+                Ok(GuardOutcome::Deny(veto)) => {
+                    tracing::info!(point = point.name(), hook = %id, reason = %veto.reason, "guard denied");
+                    return Err(HarnessError::Vetoed(veto));
+                }
                 Err(source) => {
                     return Err(HarnessError::Hook {
                         point,

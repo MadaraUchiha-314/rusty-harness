@@ -101,7 +101,7 @@ abuse cases are tests like any other (`reference/security.md`).
     hook veto stops tool execution and the model is told` (completed in task 15),
     `Scenario: A pre hook that rewrites a tool call after approval is re-checked by the
     guard`; T8 — `abuse_missing_guard_policy_denies`
-- [ ] 6. Remote hooks: `hooks::remote` implementing the four traits over JSON-RPC 2.0
+- [x] 6. Remote hooks: `hooks::remote` implementing the four traits over JSON-RPC 2.0
   (`hook.<phase>.<point>`) and as an MCP tool call, with the serde forms of every
   operation's input and output; sherma's twenty points mapped in a doc table that a test
   checks against the catalogue.

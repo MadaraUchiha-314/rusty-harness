@@ -1051,10 +1051,17 @@ detected by the heartbeat timeout and the activity re-dispatched; a crash of the
 worker replays from history on the next worker with no repeated side effect, by
 construction of the table above. Cancel (R22.6): `CancelTask` → `cancel` signal → the
 workflow cancels in-flight activities through their cancellation tokens (heartbeating
-tools observe `ctx.cancel`) → `set_state(canceled)` → return. Streaming back: the
-activities append `StreamResponse`s to the task's event log inside the same store
-transaction as their result; the server tails the log (in-process broadcast first, store
-tail on resubscribe). Workflow payloads are store keys and small summaries (ids, usage,
+tools observe `ctx.cancel`) → `set_state(canceled)` → return. Streaming back follows the
+**attempt protocol**: every activity attempt has an `Attempt` id (`(iteration, n)`), and
+its partial events (text deltas, tool progress, audio chunks) are committed
+incrementally, each tagged with that attempt; the attempt's final commit carries the
+result and closes it. A retry begins by committing a `TaskStatusUpdateEvent` whose
+`task/v1` metadata is `{ retracted: [<attempt>] }`, and renderers drop everything they
+showed for a retracted attempt before rendering the new one (the web store and the TUI
+key partial output by attempt; audio chunks carry `attempt` in `voice/v1`). The server
+tails the log (in-process broadcast first, store tail on resubscribe), so a late
+subscriber replays retractions in order and converges on the same view.
+Workflow payloads are store keys and small summaries (ids, usage,
 finish reason), so histories stay far below Temporal's payload limits.
 
 Modes (R22.1, R22.7): `durable::temporal::TemporalExecution` (`remote`: `Connection::connect(ConnectionOptions::new(url).api_key(secret))`,
@@ -1127,7 +1134,8 @@ behind `/model`, `Suggestion` chips, `Confirmation` for complete/cancel. The A2A
 `resubscribeTask`, `cancelTask`) and nothing else talks HTTP (R26.2). A2UI parts render
 through `@a2ui/react` 0.14 (`A2uiSurface` from `/v0_9`, `basicCatalog`) (R25.4). State is
 one store per task: the event stream reduces into `messages`, `tools`, `artifacts`,
-`status`; reconnects use `resubscribeTask`. Voice: the button captures microphone audio
+`status`, keyed by attempt so a `retracted` status update drops a failed attempt's partial
+output; reconnects use `resubscribeTask`. Voice: the button captures microphone audio
 with `MediaRecorder` and sends it as audio parts; the harness runs the `Voice` session
 and streams audio artifacts back, played with `AudioContext` (R26.4, R28.6). Command
 tokens are highlighted from the `commands/v1` metadata (R26.5). Strings come from the
@@ -1238,12 +1246,12 @@ with `schemars`, checked in, contract-tested) and a page on the docs site.
 
 | URI (`…/ext/`) | Where | Payload (schema summary) |
 |---|---|---|
-| `task/v1` | `Task.metadata`, first `Message.metadata`, `TaskStatus.message.metadata` | `{ name, type?, goal, description, acceptance_criteria[], mode: "one-shot" \| "long-running", sub_tasks[], parent_tasks[], reference_task_ids[], transition?: "complete" \| "pause" \| "resume", sub_state?: { kind, ask?, task?, reason? } }` |
+| `task/v1` | `Task.metadata`, first `Message.metadata`, `TaskStatus.message.metadata` | `{ name, type?, goal, description, acceptance_criteria[], mode: "one-shot" \| "long-running", sub_tasks[], parent_tasks[], reference_task_ids[], transition?: "complete" \| "pause" \| "resume", sub_state?: { kind, ask?, task?, reason? }, attempt?, retracted?: [attempt] }` |
 | `participants/v1` | `Task.metadata` | `{ participants: [{ id, display, kind, roles[] }] }`; a message's `metadata.participant` names the sender when the caller acts for one |
 | `plan/v1` | artifact `application/vnd.rusty-harness.plan+json`, `TaskStatus.message.metadata` | `{ id, version, steps: [{ id, name, description, status, output?, linked_tasks[] }], edges: [[from, to]] }` |
 | `channels/v1` | `TaskStatus.message.metadata` (ask), `Message.metadata` (reply) | `{ channel, ask, to: [participant], question_kind: "text" \| "a2ui", reply_to?: ask }` |
 | `commands/v1` | card `params`, `Message.metadata` | card: `{ commands: [{ name, description_key, roles[] }] }`; message: `{ tokens: [{ start, end, name }] , result?: { name, outcome } }` |
-| `voice/v1` | audio `Part.metadata` | `{ seq, format: "pcm16@24k" \| "opus", final: bool, session }` |
+| `voice/v1` | audio `Part.metadata` | `{ seq, attempt, format: "pcm16@24k" \| "opus", final: bool, session }` |
 
 A2UI rides on its own extension (`https://a2ui.org/a2a-extension/a2ui/v0.9.1`), unchanged.
 

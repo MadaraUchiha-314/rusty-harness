@@ -806,7 +806,7 @@ impl AgentState { pub fn set<T: Serialize>(&mut self, key: StateKey, v: T) -> Re
 
 pub trait PersistenceStore: Entity [dyn] {                                           // R14.2
     async fn put_task(&self, t: &TaskRecord) -> Result<Version>;  async fn get_task(&self, id: &TaskId) -> Result<Option<TaskRecord>>;
-    async fn list_tasks(&self, q: TaskQuery) -> Result<Page<TaskRecord>>;
+    async fn list_tasks(&self, q: TaskQuery /* carries the caller's ParticipantId; the store applies it */) -> Result<Page<TaskRecord>>;
     async fn append_event(&self, task: &TaskId, e: &StoredEvent) -> Result<Seq>;  fn tail_events(&self, task: &TaskId, from: Seq) -> BoxStream<'_, Result<StoredEvent>>;
     async fn put_state(&self, task: &TaskId, s: &AgentState) -> Result<()>;      async fn get_state(&self, task: &TaskId) -> Result<Option<AgentState>>;
     async fn put_blob(&self, key: &BlobKey, bytes: Bytes) -> Result<()>;          async fn get_blob(&self, key: &BlobKey) -> Result<Option<Bytes>>;   // contexts, model turns, summaries
@@ -905,7 +905,7 @@ flowchart LR
   R[request] --> V["check_a2a_version (SDK): A2A-Version ≥ 1.0 else UnsupportedVersion"]
   V --> A["auth: RequestAuthorizer → Caller (bearer / api key, constant-time)"]
   A --> X["protocol_gap::ExtensionNegotiator: parse A2A-Extensions ∩ advertised → active set, echo header"]
-  X --> P["participant guard: task-scoped ops require Caller ∈ participants else TaskNotFound"]
+  X --> P["participant guard: task-scoped ops require Caller ∈ participants else TaskNotFound;\nListTasks filtered by membership"]
   P --> L["rate limit per Caller (token bucket)"]
   L --> H["DefaultRequestHandler (SDK) → HarnessExecutor → Inbox / event log"]
 ```
@@ -1334,7 +1334,10 @@ lifting.**
   participant guard: `GetTask`, `SubscribeToTask`, `CancelTask`, follow-up `SendMessage`,
   push-config operations and `/inbox` posts require `Caller.participant ∈ task.participants`
   (admins may act on any role), otherwise `TaskNotFoundError` without reading the task
-  body (abuse 2). Commands check `CommandDescriptor.roles` against the sender's roles in
+  body (abuse 2). `ListTasks` is filtered, not guarded: the handler sets
+  `TaskQuery.participant = Caller.participant` before the store sees the query, so a
+  non-participant gets an empty page and can enumerate nothing (abuse 2).
+  Commands check `CommandDescriptor.roles` against the sender's roles in
   the `command.invoke` pre hook (abuse 10). Sub-agents are called only if registered
   (`a2a.send` pre hook, `RegistryError::NotFound` → refused; abuse 5).
 - **Input validation & injection surfaces:** every ingress is enumerated:
@@ -1388,7 +1391,7 @@ lifting.**
 | # | Abuse case (requirements) | Mechanism | Negative test (Gherkin scenario title) |
 |---|---|---|---|
 | 1 | request without credentials | `RequestAuthorizer` before any store read; loopback-only bind without a scheme | *Unauthenticated SendMessage is rejected before any task is created* |
-| 2 | caller addresses another's task | participant guard → `TaskNotFoundError` | *A non-participant gets TaskNotFound for GetTask, SubscribeToTask and CancelTask* |
+| 2 | caller addresses another's task | participant guard → `TaskNotFoundError` | *A non-participant gets TaskNotFound for GetTask, SubscribeToTask and CancelTask, and an empty page from ListTasks* |
 | 3 | injected instructions in content | `DataRole` positions + untrusted framing; roles in `TaskRecord`; commands from humans only | *A tool result that says "ignore your system prompt" changes no policy, config or role* |
 | 4 | tool call denied by policy | `tool.execute` pre hook, `FailClosed`, `ToolResult::Error(Denied)` to the model | *A denied tool call is not executed and the model receives a tool error* |
 | 5 | outbound call to unregistered agent | `a2a.send` pre: registry lookup | *agent.call to an unregistered agent is refused* |

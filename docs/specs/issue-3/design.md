@@ -635,10 +635,18 @@ pub trait Tool: Entity [dyn] {
 }
 pub enum Idempotency { Idempotent, SideEffecting { accepts_key: bool } }     // drives durable retry (R22.4)
 pub struct ToolCx { pub task: TaskId, pub call_id: CallId, pub idempotency_key: IdempotencyKey, pub caller: Caller, pub host: Arc<Host>, pub cancel: CancellationToken }
+pub enum ToolOutput { Value(ToolResult), Suspend { pending: PendingCall /* ask id or sub-task id, resume condition */ } }   // suspending tools
 pub struct ToolExecutor;  // runs `tool.execute` per call; `join_all` over the model's calls; results returned in issue order (R8.2)
 pub trait MemoryProvider: Entity [dyn] { /* typed seam, no methods implemented in this work item */ }   // S2
 pub trait SandboxProvider: Entity [dyn] { async fn run(&self, spec: SandboxSpec) -> Result<SandboxOutput, ToolError>; } // S2 seam
 ```
+
+**Suspending tools** (`participant.ask`, `participant.delegate`, `agent.call { wait:
+true }`) return `ToolOutput::Suspend` immediately: the executor records the `PendingCall`
+in the commit, the iteration ends with `LoopOutcome::AwaitingParticipant`, the task goes
+to `input-required`, and when the reply event is applied the loop supplies it as that
+call's `ToolResult` at the start of the next iteration. No activity ever waits for a
+human or a remote agent, so no tool timeout applies to the wait (R18.2, R22.2).
 
 `tools::mcp` wraps `rmcp` 3.x: `McpServer` (an entity per configured server; transports
 `stdio` via `ProcessSpawner`, `streamable-http` via `HttpClient`; on `wasm32` the host's
@@ -920,7 +928,7 @@ sequenceDiagram
   H-->>S: TaskStatusUpdateEvent(status.message = question parts, metadata channels/v1{channel, ask, to})
   S->>H: SendMessage(taskId, contextId, parts = answer, metadata channels/v1{channel, ask})
   H->>H: inbox event → channel reply → resume loop
-  H-->>M: tool result = the answer
+  H-->>M: next iteration: the pending call resolves to the answer as its tool result
 ```
 
 `Channel { id, task, members: BTreeSet<ParticipantId>, created_by, open: bool }` is owned
@@ -1052,7 +1060,7 @@ flowchart TB
 | `execute_tool` | tool's own | `Idempotent`: yes. `SideEffecting { accepts_key: true }`: yes, key `(task, n, call_id)` in `ToolCx`. `accepts_key: false`: **one attempt**, then a `tool.execute` post hook decides (default: surface to the model as failed) | key passed in `ToolCx.idempotency_key` |
 | `send_a2a` | may create a remote task | yes, by reconciliation: before sending, the activity commits an **intent** `outbound/<task>/<n>/<call>` holding the `messageId` (`uuid::v5`) and a deterministic `contextId = uuid::v5(intent)`; on every attempt it first calls the peer's `ListTasks` filtered by that `contextId` and adopts the task it finds, and only sends when none exists; the peer's task id is committed as soon as the first `Task` event arrives | intent record + `contextId` reconciliation; `messageId` reuse is a courtesy to peers that dedupe, not the guarantee |
 | `set_state` / `persist` | one `commit` | yes | deterministic event ids; `commit` skips ids it has |
-| `ask_participant` | sends a channel question | yes | ask id |
+| `execute_tool` for a suspending tool | commits the pending call and the question | yes | ask id; the wait is the workflow's signal wait, not an activity |
 
 Timeouts (R22.5): `build_context` 30 s; `call_model` start-to-close 10 min, heartbeat
 30 s; `execute_tool` 5 min default (a `ToolDescriptor` may raise it), heartbeat 15 s;

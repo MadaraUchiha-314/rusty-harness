@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Work item:** [#3](https://github.com/MadaraUchiha-314/rusty-harness/issues/3)
-- **Design:** [`docs/specs/issue-3/design.md`](../specs/issue-3/design.md) § Trade-offs (T1, T2);
+- **Design:** [`docs/specs/issue-3/design.md`][design] § Trade-offs (T1, T2);
   requirements S9, R19.5, R19.9, Q2
 
 ## Decision
@@ -29,3 +29,5 @@ Two consequences are accepted:
 
 The same-named community crate `a2a-rs` (not official); waiting for upstream browser
 support before shipping the WASM build; forking the client crate.
+
+[design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

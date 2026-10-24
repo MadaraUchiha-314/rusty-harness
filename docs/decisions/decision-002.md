@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Work item:** [#3](https://github.com/MadaraUchiha-314/rusty-harness/issues/3)
-- **Design:** [`docs/specs/issue-3/design.md`](../specs/issue-3/design.md) § Trade-offs (T7),
+- **Design:** [`docs/specs/issue-3/design.md`][design] § Trade-offs (T7),
   open question D3
 
 ## Decision
@@ -18,3 +18,5 @@ builds on 1.92.
 Isolating Temporal in a crate with its own MSRV would keep 1.88 for the core at the cost
 of a second MSRV to document, test and explain, for a feature most users of the binary
 turn on.
+
+[design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

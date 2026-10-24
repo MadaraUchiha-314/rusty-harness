@@ -1188,7 +1188,10 @@ are the visual contract (R26.7).
 
 ### TUI renderer and CLI (R27)
 
-`interaction::renderer::tui` on ratatui 0.30 + crossterm 0.29 + tui-markdown; layout per
+`interaction::renderer::tui` on ratatui 0.30 + crossterm 0.29 + tui-markdown +
+`ratatui-image` (image artifacts through the kitty, iTerm2 and sixel graphics protocols,
+half-block fallback; a terminal with no graphics support shows the artifact name and alt
+text, R28.2); layout per
 the prototype: header (task, state, sub-state), conversation, plan strip, composer,
 key hints. It is an `A2AClient` from `a2a-client-lf` against the in-process server's
 loopback URL by default or `--url` (R27.3). Push-to-talk (R27.5, Q7): with the kitty
@@ -1573,7 +1576,7 @@ them (`decision-002` onwards); the table is the index.
 | `tracing`, `tracing-subscriber`, `tracing-opentelemetry` 0.34, `opentelemetry-otlp` 0.33 | R24.2 OTLP export; std has no tracing | core / `rt-tokio` |
 | `zeroize`, `keyring` | `Secret<T>` wiping; OS keyring resolver | core / `rt-tokio` |
 | `tokio-tungstenite` | WebSocket for Realtime and transcription | `rt-tokio` |
-| `ratatui` 0.30, `crossterm` 0.29, `tui-markdown` | the TUI (R27) | `tui` |
+| `ratatui` 0.30, `crossterm` 0.29, `tui-markdown`, `ratatui-image` | the TUI (R27), image artifacts in the terminal (R28.2) | `tui` |
 | `clap` 4 | the CLI (R27.1) | `cli` |
 | `cpal` | microphone and speaker (R28.6) | `audio` |
 | `wasm-bindgen`, `web-sys`, `js-sys` (exist) + `gloo-net`-free `fetch` via `web-sys` | host capabilities on wasm | `rt-wasm` |

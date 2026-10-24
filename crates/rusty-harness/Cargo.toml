@@ -24,6 +24,10 @@ rt-tokio = [
   "tokio/io-util",
   "dep:reqwest",
   "dep:getrandom",
+  "dep:tracing-opentelemetry",
+  "dep:opentelemetry",
+  "dep:opentelemetry-otlp",
+  "dep:opentelemetry_sdk",
 ]
 # Browser / JS runtime: `spawn_local` and JS timers. Only compiled for wasm32.
 rt-wasm = ["dep:wasm-bindgen-futures", "dep:gloo-timers"]

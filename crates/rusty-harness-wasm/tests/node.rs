@@ -23,6 +23,9 @@ fn an_unavailable_capability_fails_at_construction_on_wasm32() {
     use rusty_harness::host::Host;
     use rusty_harness::{Capability, HarnessError};
     let host = Host::builder().build();
-    assert!(matches!(host.fs(), Err(HarnessError::Unsupported(Capability::FileSystem))));
+    assert!(matches!(
+        host.fs(),
+        Err(HarnessError::Unsupported(Capability::FileSystem))
+    ));
     assert!(host.supplied().is_empty());
 }

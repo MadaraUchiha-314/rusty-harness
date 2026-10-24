@@ -149,7 +149,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M2 — Harness core, in-process (PR 2: `loop/issue-3-m2-harness`)
 
-- [ ] 11. Models: `Llm`, `SystemOne`, `ModelRequest`/`ModelEvent`, the `openai` thin
+- [x] 11. Models: `Llm`, `SystemOne`, `ModelRequest`/`ModelEvent`, the `openai` thin
   client (streaming, tool calls, images, `base_url` for OpenRouter and Ollama, automatic
   prefix caching) and the `anthropic` thin client (`cache_control` breakpoints), retry
   under `RetryConfig`, usage and latency on the span, the `http` System One provider, a

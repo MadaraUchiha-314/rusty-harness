@@ -1,0 +1,64 @@
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "cache_control": {
+            "type": "ephemeral"
+          },
+          "text": "hi",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "hello",
+          "type": "text"
+        },
+        {
+          "id": "toolu_1",
+          "input": {
+            "a": 1
+          },
+          "name": "add",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "42",
+          "tool_use_id": "toolu_1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-fable-5-1",
+  "stream": true,
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "[task-field]\nbe brief\n[/task-field]",
+      "type": "text"
+    }
+  ],
+  "tools": [
+    {
+      "description": "adds",
+      "input_schema": {
+        "type": "object"
+      },
+      "name": "add"
+    }
+  ]
+}

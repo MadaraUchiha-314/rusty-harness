@@ -187,3 +187,21 @@ macro_rules! harness_async_trait {
         $($item)*
     };
 }
+
+/// Boxes a stream as a [`HarnessStream`]: `Send` natively, local on `wasm32`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn boxed_stream<'a, S>(stream: S) -> HarnessStream<'a, S::Item>
+where
+    S: futures::Stream + Send + 'a,
+{
+    Box::pin(stream)
+}
+
+/// Boxes a stream as a [`HarnessStream`]: `Send` natively, local on `wasm32`.
+#[cfg(target_arch = "wasm32")]
+pub fn boxed_stream<'a, S>(stream: S) -> HarnessStream<'a, S::Item>
+where
+    S: futures::Stream + 'a,
+{
+    Box::pin(stream)
+}

@@ -25,7 +25,7 @@ pub mod runtime;
 pub mod self_improvement;
 
 pub use error::{Capability, HarnessError};
-pub use runtime::{MaybeSend, Runtime};
+pub use runtime::{MaybeSend, MaybeSync, Runtime};
 
 /// Returns a greeting from the harness.
 ///

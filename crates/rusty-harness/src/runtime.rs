@@ -28,6 +28,22 @@ pub trait MaybeSend {}
 #[cfg(target_arch = "wasm32")]
 impl<T: ?Sized> MaybeSend for T {}
 
+/// `Sync` on native targets, nothing on `wasm32`: the twin of [`MaybeSend`] for shared
+/// references across the registry and the hook dispatcher.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSync: Sync {}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Sync + ?Sized> MaybeSync for T {}
+
+/// `Sync` on native targets, nothing on `wasm32`: the twin of [`MaybeSend`] for shared
+/// references across the registry and the hook dispatcher.
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSync {}
+
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> MaybeSync for T {}
+
 /// The capabilities the harness needs from an async runtime.
 pub trait Runtime {
     /// Runs `future` in the background, detached from the caller.

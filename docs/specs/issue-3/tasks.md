@@ -71,7 +71,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R2.1–2, R3.1, R1.6, R20.6
   - _Test:_ T3 — `contract_module_tree_matches_design` (parses the tree block of
     `design.md` and compares it with `src/`); T16 — `cargo doc` with `-D warnings`
-- [ ] 3. Registry and entities: `EntityId`, `EntityKind`, `Placement`, the
+- [x] 3. Registry and entities: `EntityId`, `EntityKind`, `Placement`, the
   dyn-compatible `Entity` trait, `Registry` with `register`/`replace`/`get`/`latest`,
   `Provenance`, `RegistryError::{NotFound, Conflict}`.
   - _Depends on:_ 2

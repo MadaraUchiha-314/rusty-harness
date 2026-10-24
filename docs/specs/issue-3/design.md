@@ -283,8 +283,15 @@ as today.
 **Every public interface the implementation may introduce is inventoried here (R3.5);
 a pull request that adds one not listed here links a design change first.** Signatures
 are Rust, edition 2024, `async fn` in traits; traits that must be object-safe behind
-`Arc<dyn …>` are marked `[dyn]` and use `async_trait` (already in the dependency tree
-through the A2A SDK). Bounds use `MaybeSend` everywhere a future crosses an API.
+`Arc<dyn …>` are marked `[dyn]` and use `#[harness_async_trait]`, which expands to
+`async_trait` natively and `async_trait(?Send)` on `wasm32`. Nothing in the crate names
+`Send` directly: `MaybeSend`/`MaybeSync` (the existing seam, empty on `wasm32`) bound
+every trait and the two aliases every stream and future use,
+`HarnessStream<'a, T> = Pin<Box<dyn Stream<Item = T> + MaybeSend + 'a>>` and
+`HarnessFuture<'a, T> = Pin<Box<dyn Future<Output = T> + MaybeSend + 'a>>`, so browser
+`fetch`, WebSocket and JS-callback futures, which are `!Send`, satisfy every contract
+(R29.1–2). Where this document writes `BoxStream`/`BoxFuture` in *our* signatures it
+means these aliases; the SDK's own signatures are quoted as the SDK spells them.
 
 ### Six types to learn first
 
@@ -312,7 +319,7 @@ pub enum EntityKind { Prompt, Skill, Tool, Llm, SystemOne, Hook, Plugin, Command
 pub enum Placement { Local, Remote(RemoteEndpoint) }                              // R1.3–4
 pub enum RemoteEndpoint { A2a { card_url: Url }, Mcp { server: EntityId }, Http { base_url: Url } }
 
-pub trait Entity: Send + Sync + 'static {          // dyn-compatible: no associated consts or generics
+pub trait Entity: MaybeSend + MaybeSync + 'static {          // dyn-compatible: no associated consts or generics
     fn kind(&self) -> EntityKind;
     fn entity_id(&self) -> &EntityId;
     fn placement(&self) -> Placement { Placement::Local }
@@ -394,9 +401,9 @@ set (R4.8), which is the proof that the catalogue is sufficient.
 
 ```rust
 pub trait Operation: 'static {                     // one per catalogue entry
-    const POINT: HookPoint;                         // e.g. HookPoint::ToolExecute
-    type Input: Serialize + DeserializeOwned + Clone + Send;
-    type Output: Serialize + DeserializeOwned + Send;
+    const POINT: HookPoint;                         // e.g. HookPoint::ToolExecute (a marker type, never behind dyn)
+    type Input: Serialize + DeserializeOwned + Clone + MaybeSend;
+    type Output: Serialize + DeserializeOwned + MaybeSend;
 }
 pub enum PreOutcome<I> { Continue(I), Veto(Veto) }   // R4.2
 pub struct Veto { pub reason: StringKey, pub detail: Option<String>, pub by: EntityId }
@@ -414,7 +421,7 @@ pub struct HookDispatcher;
 impl HookDispatcher {
     pub fn register<O: Operation>(&self, phase: Phase /* Pre | Guard | In | Post */, hook: Arc<dyn …>, order: HookOrder) -> EntityId;   // R4.5, R4.9
     pub async fn run<O: Operation>(&self, cx: &HookCx, input: O::Input,
-                                   default: impl FnOnce(O::Input) -> BoxFuture<'_, Result<O::Output>>) -> Result<O::Output, HarnessError>;
+                                   default: impl FnOnce(O::Input) -> HarnessFuture<'_, Result<O::Output>>) -> Result<O::Output, HarnessError>;
 }
 pub struct HookOrder { pub priority: i32 /* lower runs first, default 0 */, pub after: Vec<EntityId> }   // then registration order
 pub enum FailurePolicy { FailClosed, LogAndContinue }                                                   // R4.6, per point, configurable
@@ -646,13 +653,13 @@ returned to the model (R8.3). `tool.result.size` applies the configured
 ```rust
 pub trait Llm: Entity [dyn] {
     fn capabilities(&self) -> &ModelCapabilities;     // modalities, tools, caching, max window, effort levels
-    fn stream(&self, req: ModelRequest) -> BoxStream<'_, Result<ModelEvent, ModelError>>;   // text delta, tool call delta, usage, stop
+    fn stream(&self, req: ModelRequest) -> HarnessStream<'_, Result<ModelEvent, ModelError>>;   // text delta, tool call delta, usage, stop
 }
 pub struct ModelRequest { pub instructions: Prompt, pub messages: Vec<ContextMessage>, pub tools: Vec<ToolDescriptor>,
                           pub effort: Option<Effort>, pub cache_hints: Vec<CacheBreakpoint>, pub max_output_tokens: Option<u32> }
 pub trait SystemOne: Entity [dyn] { async fn judge(&self, q: Judgement) -> Result<Verdict, ModelError>; }  // classify / score / route (Q4)
-pub trait SpeechToText: Entity [dyn] { fn transcribe(&self, audio: AudioStream) -> BoxStream<'_, Result<TranscriptEvent, ModelError>>; }
-pub trait TextToSpeech: Entity [dyn] { fn synthesise(&self, text: TextStream, voice: VoiceId) -> BoxStream<'_, Result<AudioChunk, ModelError>>; }
+pub trait SpeechToText: Entity [dyn] { fn transcribe(&self, audio: AudioStream) -> HarnessStream<'_, Result<TranscriptEvent, ModelError>>; }
+pub trait TextToSpeech: Entity [dyn] { fn synthesise(&self, text: TextStream, voice: VoiceId) -> HarnessStream<'_, Result<AudioChunk, ModelError>>; }
 pub trait Voice: Entity [dyn] { async fn session(&self, cfg: VoiceSessionConfig) -> Result<Box<dyn VoiceSession>, ModelError>; } // speech↔speech + tools
 ```
 
@@ -697,7 +704,7 @@ pub struct CallContext { pub task_id: TaskId, pub context_id: ContextId, pub sto
 pub trait Agent: Entity [dyn] {
     fn card(&self) -> &a2a::AgentCard;                                                           // get_card / agent_card
     fn schemas(&self) -> AgentSchemas;                                                            // input_schema / output_schema (JSON Schema)
-    fn send_message(&self, req: AgentRequest) -> BoxStream<'_, Result<a2a::StreamResponse, AgentError>>;   // send_message
+    fn send_message(&self, req: AgentRequest) -> HarnessStream<'_, Result<a2a::StreamResponse, AgentError>>;   // send_message
     async fn cancel_task(&self, task_id: &TaskId, call: CallContext) -> Result<a2a::Task, AgentError>;      // cancel_task
 }
 ```
@@ -817,7 +824,7 @@ pub trait PersistenceStore: Entity [dyn] {                                      
     async fn commit(&self, c: TaskCommit) -> Result<CommitSeq>;        // the ONLY write path for task state: atomic, idempotent on event ids
     async fn get_task(&self, id: &TaskId) -> Result<Option<TaskRecord>>;
     async fn list_tasks(&self, q: TaskQuery /* carries the caller's ParticipantId; the store applies it */) -> Result<Page<TaskRecord>>;
-    fn tail_events(&self, task: &TaskId, from: Seq, viewer: &Caller) -> BoxStream<'_, Result<StoredEvent>>;   // per-subscriber projection
+    fn tail_events(&self, task: &TaskId, from: Seq, viewer: &Caller) -> HarnessStream<'_, Result<StoredEvent>>;   // per-subscriber projection
     async fn put_state(&self, task: &TaskId, s: &AgentState) -> Result<()>;      async fn get_state(&self, task: &TaskId) -> Result<Option<AgentState>>;
     async fn put_blob(&self, key: &BlobKey, bytes: Bytes) -> Result<()>;          async fn get_blob(&self, key: &BlobKey) -> Result<Option<Bytes>>;   // contexts, model turns, summaries
     async fn put_inbox(&self, e: &InboxEvent) -> Result<EventRef>;               async fn pending_inbox(&self, task: &TaskId) -> Result<Vec<InboxEvent>>;

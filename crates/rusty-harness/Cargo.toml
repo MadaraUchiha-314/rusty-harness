@@ -78,6 +78,10 @@ uuid = { workspace = true, features = ["js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
 
+[build-dependencies]
+# build.rs reads strings/en.json to generate the StringKey constants (R33).
+serde_json = { workspace = true }
+
 [package.metadata.docs.rs]
 all-features = true
 

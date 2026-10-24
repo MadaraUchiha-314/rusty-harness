@@ -140,7 +140,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `o11y::tests` (span per point, nesting); T8 —
     `abuse_canary_credential_appears_nowhere_observable` (first leg: logs and traces;
     extended in tasks 26 and 34)
-- [ ] 10. M1 pull request: `evidence/pull-requests.md` row, `docs/architecture/`
+- [x] 10. M1 pull request: `evidence/pull-requests.md` row, `docs/architecture/`
   section for the cross-cutting modules, `docs/capabilities/` docs for registry, hooks,
   config, assets; CI green on native, MSRV and `wasm32`.
   - _Depends on:_ 6, 8, 9

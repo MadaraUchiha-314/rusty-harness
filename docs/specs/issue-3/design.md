@@ -1038,7 +1038,7 @@ flowchart TB
 | `build_context` | writes the request blob `ctx/<task>/<n>` | yes | overwrite by key |
 | `call_model` | provider usage only | yes; completed result replays from history (R22.4) | none needed; a crash *during* it is a fresh call |
 | `execute_tool` | tool's own | `Idempotent`: yes. `SideEffecting { accepts_key: true }`: yes, key `(task, n, call_id)` in `ToolCx`. `accepts_key: false`: **one attempt**, then a `tool.execute` post hook decides (default: surface to the model as failed) | key passed in `ToolCx.idempotency_key` |
-| `send_a2a` | may create a remote task | yes: A2A `messageId` is `uuid::v5(task, n, call_id)`; the remote task id is written to heartbeat details, so a retry resumes with `GetTask` instead of resending | messageId reuse |
+| `send_a2a` | may create a remote task | yes, by reconciliation: before sending, the activity commits an **intent** `outbound/<task>/<n>/<call>` holding the `messageId` (`uuid::v5`) and a deterministic `contextId = uuid::v5(intent)`; on every attempt it first calls the peer's `ListTasks` filtered by that `contextId` and adopts the task it finds, and only sends when none exists; the peer's task id is committed as soon as the first `Task` event arrives | intent record + `contextId` reconciliation; `messageId` reuse is a courtesy to peers that dedupe, not the guarantee |
 | `set_state` / `persist` | one `commit` | yes | deterministic event ids; `commit` skips ids it has |
 | `ask_participant` | sends a channel question | yes | ask id |
 
@@ -1256,7 +1256,7 @@ A2UI rides on its own extension (`https://a2ui.org/a2a-extension/a2ui/v0.9.1`), 
 | event log | `events/<task_id>/<seq>` | `StoredEvent { seq, at, response: a2a::StreamResponse, final_for_turn }` |
 | state | `state/<task_id>` | `AgentState` |
 | plan | `plans/<plan_id>` | `Plan` |
-| blob | `ctx/<task>/<n>`, `turn/<task>/<n>`, `summary/<task>/<n>`, `tool/<task>/<n>/<call>` | bytes (JSON), the payloads activities reference |
+| blob | `ctx/<task>/<n>`, `turn/<task>/<n>`, `summary/<task>/<n>`, `tool/<task>/<n>/<call>`, `outbound/<task>/<n>/<call>` | bytes (JSON), the payloads activities reference; outbound intents |
 | inbox | `inbox/<event_id>` | `InboxEvent` with its `status` |
 | liveness | `liveness/<worker_id>` | `Liveness` |
 

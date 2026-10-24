@@ -109,6 +109,10 @@ pub enum AgentError {
     /// The model.
     #[error("model: {0}")]
     Model(String),
+    /// The task is not visible to the caller (a non-member of a channel, a
+    /// non-participant): `TaskNotFound` on the wire (abuse 2).
+    #[error("task {0}: not found")]
+    NotFound(TaskId),
 }
 
 impl AgentError {
@@ -120,6 +124,7 @@ impl AgentError {
             Self::Store(e) => a2a::A2AError::internal(e.to_string()),
             Self::Unsupported(m) => a2a::A2AError::unsupported_operation(m.clone()),
             Self::Model(m) => a2a::A2AError::internal(m.clone()),
+            Self::NotFound(t) => a2a::A2AError::task_not_found(t),
         }
     }
 }
@@ -784,28 +789,105 @@ impl LocalAgent {
                 );
                 Ok((record, false))
             }
-            Some(record) => {
-                let mut history = self.load_history(&record.id).await?;
-                history.push(Turn::new(HistoryEntry::User { text }));
-                let attempt = Attempt {
-                    iteration: record.iteration,
-                    n: 1,
-                };
-                let ordinal = u32::try_from(history.len()).unwrap_or(u32::MAX);
-                let record = if record.state == a2a::TaskState::InputRequired {
-                    self.change(record, Transition::Resume).await?
-                } else {
-                    record
-                };
-                let mut commit = TaskCommit::of(record.clone()).with_events([
-                    message_event(&record, attempt, ordinal, request.message.clone(), at),
-                    status_event(&record, attempt, ordinal),
-                ]);
-                commit.blobs.push(Self::history_blob(&record.id, &history));
-                self.store.commit(commit).await?;
-                Ok((self.record(&record.id).await?, true))
-            }
+            Some(record) => self.continue_task(request, record, text, at).await,
         }
+    }
+
+    /// A follow-up on an open task (R21.5): a channel reply resolves the pending call it
+    /// answers, after a membership check (R18.5, abuse 2); any other message is the next
+    /// turn.
+    async fn continue_task(
+        &self,
+        request: &AgentRequest,
+        mut record: TaskRecord,
+        text: String,
+        at: DateTime<Utc>,
+    ) -> Result<(TaskRecord, bool), AgentError> {
+        let caller = &request.call.caller;
+        let mut history = self.load_history(&record.id).await?;
+        let mut visibility = Visibility::All;
+        let meta = crate::harness::channels::ChannelsMeta::of(&request.message);
+        let resolved = match &meta {
+            Some(meta) => {
+                let channel =
+                    crate::harness::channels::Channel::load(self.store.as_ref(), &meta.channel)
+                        .await?;
+                match channel {
+                    Some(c) if c.task == record.id && c.admits(&caller.id) => {
+                        visibility = Visibility::Members(c.id.clone());
+                        let ask = meta.reply_to.clone().unwrap_or_else(|| meta.ask.clone());
+                        record.pending_calls.iter().position(
+                            |p| matches!(&p.resume_on, ResumeOn::Ask { ask: a } if *a == ask),
+                        )
+                    }
+                    _ => return Err(AgentError::NotFound(record.id.clone())),
+                }
+            }
+            // A plain message while a participant is awaited answers the oldest ask.
+            None if matches!(
+                record.sub_state,
+                Some(crate::harness::core_loop::task::SubState::AwaitingParticipant { .. })
+            ) =>
+            {
+                record
+                    .pending_calls
+                    .iter()
+                    .position(|p| matches!(p.resume_on, ResumeOn::Ask { .. }))
+            }
+            None => None,
+        };
+        match resolved {
+            Some(i) => {
+                let pending = record.pending_calls.remove(i);
+                history.push(Turn::new(HistoryEntry::ToolResult {
+                    call_id: pending.call_id,
+                    text: text.clone(),
+                }));
+            }
+            None => history.push(Turn::new(HistoryEntry::User { text })),
+        }
+        let attempt = Attempt {
+            iteration: record.iteration,
+            n: 1,
+        };
+        let ordinal = u32::try_from(history.len()).unwrap_or(u32::MAX);
+        let record = if record.state == a2a::TaskState::InputRequired {
+            self.change(record, Transition::Resume).await?
+        } else {
+            record
+        };
+        let mut inbound = message_event(&record, attempt, ordinal, request.message.clone(), at);
+        inbound.visibility = visibility;
+        let mut commit = TaskCommit::of(record.clone())
+            .with_events([inbound, status_event(&record, attempt, ordinal)]);
+        commit.pending_calls.clone_from(&record.pending_calls);
+        commit.blobs.push(Self::history_blob(&record.id, &history));
+        self.store.commit(commit).await?;
+        Ok((self.record(&record.id).await?, true))
+    }
+
+    /// One line per registered sub-agent (R17.2); the harness itself is not listed.
+    fn sub_agent_index(&self) -> String {
+        self.registry
+            .list::<dyn Agent>()
+            .iter()
+            .filter(|a| a.entity_id() != &self.id)
+            .map(|a| {
+                let card = a.card();
+                let skills: Vec<&str> = card.skills.iter().map(|s| s.name.as_str()).collect();
+                if skills.is_empty() {
+                    format!("- {}: {}", a.entity_id().id, card.description)
+                } else {
+                    format!(
+                        "- {}: {} (skills: {})",
+                        a.entity_id().id,
+                        card.description,
+                        skills.join(", ")
+                    )
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn ratio_for(&self, model: &str) -> TokenRatio {
@@ -843,7 +925,7 @@ impl LocalAgent {
             system_prompt,
             system_extensions: Prompt::default(),
             skills_index,
-            sub_agent_index: String::new(),
+            sub_agent_index: self.sub_agent_index(),
             task: record.clone(),
             plan,
             state,
@@ -1043,15 +1125,29 @@ impl LocalAgent {
             .execute_all(&cx, task, attempt, &caller, &token, calls)
             .await;
         let mut pending: Vec<PendingCall> = Vec::new();
+        let mut question: Option<a2a::Message> = None;
         for e in executed {
             match e {
                 Executed::Result { result } => history.push(Turn::new(HistoryEntry::ToolResult {
                     call_id: result.call_id.clone(),
                     text: result.render(),
                 })),
-                Executed::Suspended { pending: p } => pending.push(p),
+                Executed::Suspended {
+                    pending: p,
+                    message,
+                } => {
+                    if let Some(m) = message {
+                        question = Some(*m);
+                    }
+                    pending.push(p);
+                }
             }
         }
+        // A tool may have linked a sub-task on the record meanwhile (`agent.call`,
+        // `participant.delegate`): take its links and version, keep this iteration's changes.
+        let fresh = self.record(task).await?;
+        record.version = fresh.version;
+        record.sub_tasks = fresh.sub_tasks;
         let mut commit_events = vec![message_event(&record, attempt, 0, reply, now(&self.host))];
         if let Some(first) = pending.first().cloned() {
             let ask = match &first.resume_on {
@@ -1059,10 +1155,35 @@ impl LocalAgent {
                 ResumeOn::SubTask { task } => task.clone(),
             };
             record.pending_calls.clone_from(&pending);
+            let channel = question
+                .as_ref()
+                .and_then(crate::harness::channels::ChannelsMeta::of);
+            record.status_message = question;
             let record = self
                 .change(record, Transition::Ask { ask: ask.clone() })
                 .await?;
-            commit_events.push(status_event(&record, attempt, 1));
+            match channel.and_then(|c| (!c.to.is_empty()).then_some(c)) {
+                // A question for some participants: members see it, the rest see the
+                // state change only (R18.5, abuse 2).
+                Some(meta) => {
+                    let stub = crate::harness::channels::Channel {
+                        id: meta.channel.clone(),
+                        task: record.id.clone(),
+                        members: meta.to.iter().cloned().collect(),
+                        created_by: self.id.id.to_string(),
+                        open: true,
+                    };
+                    let mut redacted = status_event(&record, attempt, 1);
+                    redacted.response = a2a::StreamResponse::StatusUpdate(
+                        crate::harness::channels::redacted_status(&record, &stub),
+                    );
+                    commit_events.push(redacted);
+                    let mut full = status_event(&record, attempt, 2);
+                    full.visibility = Visibility::Members(meta.channel.clone());
+                    commit_events.push(full);
+                }
+                None => commit_events.push(status_event(&record, attempt, 1)),
+            }
             let mut commit = TaskCommit::of(record.clone()).with_events(commit_events);
             commit.pending_calls = pending;
             commit.blobs.push(Self::history_blob(task, &history));
@@ -1324,14 +1445,19 @@ harness_async_trait! {
         /// streams the events the call produced from the store's log.
         fn send_message(&self, request: AgentRequest) -> HarnessStream<'_, Result<a2a::StreamResponse, AgentError>> {
             let fut = async move {
-                let viewer = request.call.caller.clone();
                 let task = request.call.task_id.clone();
+                let caller = request.call.caller.clone();
+                let viewer = caller.clone();
                 let from = self.store.events(&task, 1, usize::MAX, &viewer).await.map_or(1, |e| e.len() as u64 + 1);
                 let result: Result<Vec<a2a::StreamResponse>, AgentError> = async {
                     let (_, run) = self.open_task(&request).await?;
                     if run {
                         self.run(&task).await?;
                     }
+                    // The viewer sees the channels it is a member of (R18.5), including
+                    // one the run just opened.
+                    let channels = crate::harness::channels::Channel::memberships(self.store.as_ref(), &task, &caller.id).await?;
+                    let viewer = caller.clone().in_channels(channels);
                     let events = self.store.events(&task, from, usize::MAX, &viewer).await?;
                     Ok(events.into_iter().map(|e| e.response).collect())
                 }

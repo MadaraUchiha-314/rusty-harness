@@ -32,6 +32,7 @@ allow = [
   "MIT",
   "MIT-0",
   "Unicode-3.0",
+  "Zlib", # foldhash, via the official A2A client crate
 ]
 # Permissive licences pulled in by pyo3-stub-gen -> rustpython-parser, scoped to them.
 exceptions = [

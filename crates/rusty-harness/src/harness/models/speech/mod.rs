@@ -105,3 +105,21 @@ harness_async_trait! {
         async fn session(&self, config: VoiceSessionConfig) -> Result<Box<dyn VoiceSession>, ModelError>;
     }
 }
+
+/// The `voice/v1` extension payload on an audio part (design.md § A2A extensions).
+#[derive(
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct VoiceMeta {
+    /// The chunk's position in its attempt.
+    pub seq: u64,
+    /// The attempt that produced it (retracted attempts are dropped by renderers).
+    pub attempt: crate::harness::core_loop::task::Attempt,
+    /// `pcm16@24k` or `opus`.
+    pub format: String,
+    /// Whether this is the last chunk of the utterance.
+    #[serde(rename = "final")]
+    pub is_final: bool,
+    /// The voice session.
+    pub session: String,
+}

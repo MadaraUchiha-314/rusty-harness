@@ -19,7 +19,9 @@ pub type PlanId = String;
 pub type StepId = String;
 
 /// Where a step is.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum StepStatus {
     /// Not started.
@@ -36,7 +38,7 @@ pub enum StepStatus {
 }
 
 /// What a step produced (R13.3).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct StepOutput {
     /// A short summary for the plan view and the context window.
     pub summary: String,
@@ -46,7 +48,7 @@ pub struct StepOutput {
 }
 
 /// One step (R13.1).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Step {
     /// Unique within the plan.
     pub id: StepId,
@@ -116,7 +118,7 @@ pub enum PlanError {
 }
 
 /// The plan (R13.1): a DAG of steps for one task.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Plan {
     /// The plan's id.
     pub id: PlanId,

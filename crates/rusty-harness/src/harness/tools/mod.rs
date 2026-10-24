@@ -187,6 +187,9 @@ pub enum ToolOutput {
     Suspend {
         /// What it waits for.
         pending: PendingCall,
+        /// The status message to show while waiting (a channel's question), if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<Box<a2a::Message>>,
     },
 }
 
@@ -265,6 +268,9 @@ pub enum Executed {
     Suspended {
         /// The pending call.
         pending: PendingCall,
+        /// The status message to show while waiting, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<Box<a2a::Message>>,
     },
 }
 
@@ -526,7 +532,9 @@ impl ToolExecutor {
             Ok(Ok(ToolOutput::Value { value })) => {
                 self.sized(cx, ToolResult::ok(&call, value)).await
             }
-            Ok(Ok(ToolOutput::Suspend { pending })) => Executed::Suspended { pending },
+            Ok(Ok(ToolOutput::Suspend { pending, message })) => {
+                Executed::Suspended { pending, message }
+            }
             Ok(Err(error)) => self.sized(cx, ToolResult::error(&call, error)).await,
             Err(HarnessError::Vetoed(veto)) => {
                 let error = ToolError::Denied {
@@ -879,7 +887,7 @@ pub(crate) mod tests {
                         self.writes.fetch_add(1, Ordering::SeqCst);
                         Ok(ToolOutput::Value { value: json!({ "written": text }) })
                     }
-                    "ask" => Ok(ToolOutput::Suspend { pending: PendingCall { call_id: "pending".into(), tool: "ask".into(), resume_on: ResumeOn::Ask { ask: text } } }),
+                    "ask" => Ok(ToolOutput::Suspend { pending: PendingCall { call_id: "pending".into(), tool: "ask".into(), resume_on: ResumeOn::Ask { ask: text } }, message: None }),
                     "fail" => Err(ToolError::Failed { tool: "fail".into(), reason: text }),
                     _ => {
                         let repeat = usize::try_from(input["repeat"].as_u64().unwrap_or(1)).unwrap();
@@ -1032,7 +1040,7 @@ pub(crate) mod tests {
             })
         );
         assert!(
-            matches!(&out[3], Executed::Suspended { pending } if pending.resume_on == ResumeOn::Ask { ask: "q1".into() })
+            matches!(&out[3], Executed::Suspended { pending, .. } if pending.resume_on == ResumeOn::Ask { ask: "q1".into() })
         );
     }
 

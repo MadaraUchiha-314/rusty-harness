@@ -22,11 +22,15 @@ use crate::runtime::{MaybeSend, MaybeSync};
 /// `version` is `None` for the kinds the design declares unversioned (surfaces,
 /// renderers, channels, built-in hooks and commands) and for a registration that did not
 /// state one.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, schemars::JsonSchema,
+)]
 pub struct EntityId {
     /// The name the entity is registered under, unique within its kind.
+    #[schemars(with = "String")]
     pub id: Arc<str>,
     /// The version, when the kind is versioned.
+    #[schemars(with = "Option<String>")]
     pub version: Option<semver::Version>,
 }
 

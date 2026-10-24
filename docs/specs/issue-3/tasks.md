@@ -234,7 +234,7 @@ abuse cases are tests like any other (`reference/security.md`).
     policy`, `Scenario: An inbox event for a running task is applied at the next loop
     boundary`; T13 — `chaos_restart_in_none_mode_resumes_from_the_last_persisted_
     iteration`; T3 — `contract_agent_trait_matches_sherma_shape` (doc-table check)
-- [ ] 18. Sub-agents, loopback, participants and channels: `RemoteAgent` over
+- [x] 18. Sub-agents, loopback, participants and channels: `RemoteAgent` over
   `a2a-client-lf` (card fetch and validation at startup), `LoopbackAgent` with the
   in-memory `Transport`, the `agent.call` tool, `Channel` and the `participant.ask` /
   `participant.delegate` suspending tools, `prompts/sub-agent/brief.md`, the

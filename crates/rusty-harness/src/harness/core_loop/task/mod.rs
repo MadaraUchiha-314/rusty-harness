@@ -38,7 +38,19 @@ pub const PARTICIPANTS_EXT: &str =
     "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/participants/v1";
 
 /// A participant's role on a task (R12.1).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum Role {
     /// Does the work.
@@ -73,7 +85,7 @@ impl Role {
 }
 
 /// What kind of thing a participant is.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "kebab-case")]
 pub enum ParticipantKind {
     /// A person.
@@ -85,7 +97,7 @@ pub enum ParticipantKind {
 }
 
 /// A person, agent or system on a task, with its roles (R12.1).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Participant {
     /// Stable id (the authenticated caller's id for a person).
     pub id: ParticipantId,
@@ -173,7 +185,9 @@ impl Caller {
 }
 
 /// Whether a task closes after one response or stays open across turns (R21.1).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum TaskMode {
     /// Completed once a response is delivered.
@@ -184,7 +198,7 @@ pub enum TaskMode {
 }
 
 /// A condition A2A's state enum cannot express, carried on the status metadata (R21.4).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum SubState {
     /// A long-running task delivered a response and waits for the next message.
@@ -225,7 +239,7 @@ pub enum SubTaskPolicy {
 }
 
 /// A reference to another task.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskRef {
     /// The task.
     pub task: TaskId,
@@ -239,7 +253,18 @@ pub type Iteration = u32;
 
 /// One attempt of an activity: `(iteration, n)` (design.md § attempt protocol).
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    schemars::JsonSchema,
 )]
 pub struct Attempt {
     /// The loop iteration.
@@ -420,7 +445,7 @@ impl Transition {
 }
 
 /// The record's extension payload (`task/v1`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct TaskMeta {
     /// Short name.
     pub name: String,
@@ -447,7 +472,7 @@ pub struct TaskMeta {
 }
 
 /// The `participants/v1` payload.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ParticipantsMeta {
     /// Everyone on the task.
     pub participants: Vec<Participant>,
@@ -648,6 +673,71 @@ impl TaskRecord {
         if !self.sub_tasks.iter().any(|t| t.task == task.task) {
             self.sub_tasks.push(task);
         }
+    }
+}
+
+/// The six rusty-harness A2A extensions (design.md § A2A extensions, Q12): their URIs and
+/// the JSON schema of each payload, generated from the Rust types and checked in under
+/// `specs/a2a-ext/<name>.v1.schema.json` (contract test `contract_a2a_extension_schemas`).
+pub mod ext {
+    use schemars::{Schema, schema_for};
+
+    /// One extension: its short name, URI and payload schema.
+    #[derive(Clone, Debug)]
+    pub struct Extension {
+        /// `task`, `participants`, `plan`, `channels`, `commands`, `voice`.
+        pub name: &'static str,
+        /// The URI advertised in the card and used as the metadata key.
+        pub uri: String,
+        /// The payload schema.
+        pub schema: Schema,
+    }
+
+    fn uri(name: &str) -> String {
+        format!("{}{name}/v1", super::EXT_PREFIX)
+    }
+
+    /// Every extension, in the card's order.
+    #[must_use]
+    pub fn all() -> Vec<Extension> {
+        vec![
+            Extension {
+                name: "task",
+                uri: uri("task"),
+                schema: schema_for!(super::TaskMeta),
+            },
+            Extension {
+                name: "participants",
+                uri: uri("participants"),
+                schema: schema_for!(super::ParticipantsMeta),
+            },
+            Extension {
+                name: "plan",
+                uri: uri("plan"),
+                schema: schema_for!(crate::harness::core_loop::plan::Plan),
+            },
+            Extension {
+                name: "channels",
+                uri: uri("channels"),
+                schema: schema_for!(crate::harness::channels::ChannelsMeta),
+            },
+            Extension {
+                name: "commands",
+                uri: uri("commands"),
+                schema: schema_for!(crate::harness::commands::CommandsMeta),
+            },
+            Extension {
+                name: "voice",
+                uri: uri("voice"),
+                schema: schema_for!(crate::harness::models::speech::VoiceMeta),
+            },
+        ]
+    }
+
+    /// The URIs, for the card's `capabilities.extensions`.
+    #[must_use]
+    pub fn uris() -> Vec<String> {
+        all().into_iter().map(|e| e.uri).collect()
     }
 }
 

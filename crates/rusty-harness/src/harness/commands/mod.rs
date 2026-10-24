@@ -114,6 +114,78 @@ fn keys_by_name(name: &str) -> Option<StringKey> {
     .find(|k| k.as_str() == name)
 }
 
+/// One command as the `commands/v1` card payload lists it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommandEntry {
+    /// The name after the slash.
+    pub name: String,
+    /// The catalog key of its description, or the plugin's text.
+    pub description_key: String,
+    /// Roles that may invoke it; empty means every participant.
+    pub roles: Vec<Role>,
+}
+
+/// A command token in a message (`commands/v1` message payload), for highlighting.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommandToken {
+    /// Byte offset of the slash.
+    pub start: usize,
+    /// Byte offset past the token.
+    pub end: usize,
+    /// The command.
+    pub name: String,
+}
+
+/// What a command did, on the message that invoked it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommandOutcome {
+    /// The command.
+    pub name: String,
+    /// `done`, `exit`, `unknown` or `failed`.
+    pub outcome: String,
+}
+
+/// The `commands/v1` extension payload: the card form lists the commands, the message
+/// form marks tokens and the outcome (design.md § A2A extensions).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommandsMeta {
+    /// Card: the registered commands.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<CommandEntry>,
+    /// Message: the command tokens.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tokens: Vec<CommandToken>,
+    /// Message: what the command did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<CommandOutcome>,
+}
+
+impl CommandsMeta {
+    /// The card payload for every registered command.
+    #[must_use]
+    pub fn card(registry: &Registry) -> Self {
+        Self {
+            commands: registry
+                .list::<dyn Command>()
+                .iter()
+                .map(|c| {
+                    let d = c.descriptor();
+                    CommandEntry {
+                        name: d.name.clone(),
+                        description_key: match &d.description {
+                            CommandDescription::Key(k) => k.as_str().to_owned(),
+                            CommandDescription::Plugin(t) => t.clone(),
+                        },
+                        roles: d.roles.iter().copied().collect(),
+                    }
+                })
+                .collect(),
+            tokens: Vec::new(),
+            result: None,
+        }
+    }
+}
+
 /// What a command did (R10.4).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "outcome")]

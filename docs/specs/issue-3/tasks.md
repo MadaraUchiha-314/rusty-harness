@@ -110,7 +110,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: Remote hooks over JSON-RPC and MCP see the same typed
     context as local hooks` (a mock JSON-RPC server in the test); T3 —
     `contract_hook_catalogue_covers_sherma_points`
-- [ ] 7. Configuration: `Config` and its sections with `deny_unknown_fields`,
+- [x] 7. Configuration: `Config` and its sections with `deny_unknown_fields`,
   `Config::load` (defaults ← file ← `RH__` env ← code), `Config::schema` published as
   `rusty-harness.schema.json`, `Config::write_default` with commented defaults,
   `SecretRef` parsing (`env:`, `keyring:`, `file:`) that refuses literals. 🔒 boundary 6.

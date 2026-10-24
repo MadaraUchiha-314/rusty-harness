@@ -29,10 +29,28 @@ pub enum SecretRef {
     File(PathBuf),
 }
 
-/// A reference that does not parse (design.md § Security design: fail closed).
+/// A reference that does not parse (design.md § Security design: fail closed). Carries
+/// nothing: the offending text may be a real credential, so it is never echoed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("not a credential reference: {0:?} (expected env:NAME, keyring:SERVICE/USER or file:PATH)")]
-pub struct InvalidSecretRef(String);
+#[error(
+    "not a credential reference (expected env:NAME, keyring:SERVICE/USER or file:PATH); the value is not shown"
+)]
+pub struct InvalidSecretRef;
+
+impl schemars::JsonSchema for SecretRef {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "SecretRef".into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "format": "secret-ref",
+            "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/]+/.+|file:.+)$",
+            "description": "A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value."
+        })
+    }
+}
 
 impl FromStr for SecretRef {
     type Err = InvalidSecretRef;
@@ -59,7 +77,7 @@ impl FromStr for SecretRef {
         {
             return Ok(Self::File(PathBuf::from(path)));
         }
-        Err(InvalidSecretRef(s.to_owned()))
+        Err(InvalidSecretRef)
     }
 }
 

@@ -2,8 +2,8 @@
 type: design
 phase: design
 workItem: issue-3
-status: draft
-approvedBy: []
+status: approved
+approvedBy: ["MadaraUchiha-314"]
 overrides: {}
 ---
 
@@ -1623,3 +1623,9 @@ phase selection); each states the default this design assumes.
 > comments (issue-109). Append-only and attributed: an approval never silently
 > discards a reviewer's suggestions, and the feedback travels with the document
 > it concerns rather than living in a side-channel tracker.
+
+### 2026-10-24 — approved
+
+**@MadaraUchiha-314** wrote:
+
+approved

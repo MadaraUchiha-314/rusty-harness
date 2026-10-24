@@ -46,8 +46,8 @@ jobs:
         toolchain: [stable, msrv]
     env:
       # Overrides rust-toolchain.toml, so the MSRV leg really builds on the MSRV.
-      # Keep 1.88 in sync with `rust-version` in Cargo.toml.
-      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain == 'msrv' && '1.88' || 'stable' }}
+      # Keep 1.92 in sync with `rust-version` in Cargo.toml (decision-002).
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain == 'msrv' && '1.92' || 'stable' }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master

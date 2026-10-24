@@ -53,7 +53,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M1 — Foundations (PR 1: `loop/issue-3-m1-foundations`)
 
-- [ ] 1. Workspace baseline for the epic: raise MSRV to 1.92 (T7 in `design.md`, D3),
+- [x] 1. Workspace baseline for the epic: raise MSRV to 1.92 (T7 in `design.md`, D3),
   add the Cargo features table (`server`, `mcp`, `durable-temporal`, `durable-embedded`,
   `a2a-grpc`, `tui`, `audio`, `cli`), the `[dependencies]` the design justifies for M1
   (`a2a-lf`, `serde`, `serde_json`, `toml`, `schemars`, `thiserror`, `async-trait`,
@@ -64,14 +64,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T16 — `cargo check --all-targets --all-features`, `cargo deny check`; T12 —
     the wasm32 `cargo check` with `uuid/js` unification proves `a2a-lf` builds there (D5)
     (red→green: the check fails before the feature, passes after)
-- [ ] 2. Module tree and error taxonomy: every module of `design.md` §Module tree as a
+- [x] 2. Module tree and error taxonomy: every module of `design.md` §Module tree as a
   file with a doc comment (self-improvement placeholders included), `error.rs` with
   `HarnessError` and the A2A error mapping, `#![deny(missing_docs)]`.
   - _Depends on:_ 1
   - _Requirements:_ R2.1–2, R3.1, R1.6, R20.6
   - _Test:_ T3 — `contract_module_tree_matches_design` (parses the tree block of
     `design.md` and compares it with `src/`); T16 — `cargo doc` with `-D warnings`
-- [ ] 3. Registry and entities: `EntityId`, `EntityKind`, `Placement`, the
+- [x] 3. Registry and entities: `EntityId`, `EntityKind`, `Placement`, the
   dyn-compatible `Entity` trait, `Registry` with `register`/`replace`/`get`/`latest`,
   `Provenance`, `RegistryError::{NotFound, Conflict}`.
   - _Depends on:_ 2
@@ -79,7 +79,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `registry::tests` (register, duplicate rejected, replace, not-found
     names kind and entry); T2 — `Scenario: A registered default is replaced by a plugin
     without a code change` (completed in task 12)
-- [ ] 4. Host capabilities: the `Host` builder and the capability traits (`HttpClient`,
+- [x] 4. Host capabilities: the `Host` builder and the capability traits (`HttpClient`,
   `WebSocketClient`, `Clock`, `Rng`, `SecretResolver`, `FileSystem`, `ProcessSpawner`,
   `McpTransport`, `Microphone`, `Speaker`, `LogSink`), the `MaybeSync` seam and the
   `HarnessStream`/`HarnessFuture` aliases and `#[harness_async_trait]`, native defaults
@@ -91,7 +91,7 @@ abuse cases are tests like any other (`reference/security.md`).
     construction on wasm32` (`wasm-pack test --node`); T8 — `abuse_secret_resolver_never_
     displays_a_value` (the `Secret<T>` type's `Debug`/`Display` print `[redacted]`, no
     `Serialize` impl compiles: a `trybuild` compile-fail case)
-- [ ] 5. Hook dispatcher: `Operation`, `HookPoint` catalogue (every row of the design's
+- [x] 5. Hook dispatcher: `Operation`, `HookPoint` catalogue (every row of the design's
   table), `PreHook`/`GuardHook`/`InHook`/`PostHook`, `HookOrder`, `FailurePolicy`,
   `HookDispatcher::run` with the pre → guard → in → post stages, target-identity check
   for `in` hooks, `Veto`, and the per-point default policies. 🔒 boundary 3.
@@ -101,7 +101,7 @@ abuse cases are tests like any other (`reference/security.md`).
     hook veto stops tool execution and the model is told` (completed in task 15),
     `Scenario: A pre hook that rewrites a tool call after approval is re-checked by the
     guard`; T8 — `abuse_missing_guard_policy_denies`
-- [ ] 6. Remote hooks: `hooks::remote` implementing the four traits over JSON-RPC 2.0
+- [x] 6. Remote hooks: `hooks::remote` implementing the four traits over JSON-RPC 2.0
   (`hook.<phase>.<point>`) and as an MCP tool call, with the serde forms of every
   operation's input and output; sherma's twenty points mapped in a doc table that a test
   checks against the catalogue.
@@ -110,7 +110,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: Remote hooks over JSON-RPC and MCP see the same typed
     context as local hooks` (a mock JSON-RPC server in the test); T3 —
     `contract_hook_catalogue_covers_sherma_points`
-- [ ] 7. Configuration: `Config` and its sections with `deny_unknown_fields`,
+- [x] 7. Configuration: `Config` and its sections with `deny_unknown_fields`,
   `Config::load` (defaults ← file ← `RH__` env ← code), `Config::schema` published as
   `rusty-harness.schema.json`, `Config::write_default` with commented defaults,
   `SecretRef` parsing (`env:`, `keyring:`, `file:`) that refuses literals. 🔒 boundary 6.
@@ -118,7 +118,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R27.2, R30.4, Q9, fail-closed list
   - _Test:_ T1 — `config::tests` (precedence, env mapping); T6 — `snapshot_config_schema`,
     `snapshot_default_config_toml`; T8 — `abuse_literal_credential_in_config_is_refused`
-- [ ] 8. Assets: `PromptFragment` registry generated by `build.rs` from `prompts/*.md`
+- [x] 8. Assets: `PromptFragment` registry generated by `build.rs` from `prompts/*.md`
   (front matter, `{{name}}` placeholders, locale variants), `Prompt` with only
   `fragment`/`data`/`then` constructors and `provenance`, the `Catalog` built from
   `strings/en.json` with generated `StringKey` constants and the ICU MessageFormat
@@ -130,7 +130,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `assets_locale_falls_back_per_key_and_en_missing_key_fails_build` (fixture
     `tests/fixtures/strings/xx.json`), `assets_placeholder_sets_match_en`,
     `assets_no_raw_prompt_literals`; T6 — `snapshot_rendered_default_prompts`
-- [ ] 9. Observability base: `o11y::TracingHooks` registering `in` (span around `next`)
+- [x] 9. Observability base: `o11y::TracingHooks` registering `in` (span around `next`)
   and `pre` hooks on every catalogue point, span attributes per operation, the
   `redact` layer dropping `Secret` fields and truncating content above `debug`, OTLP
   export behind `[o11y]`, `LogSink` routing on `wasm32`, persisted `traceparent` on the
@@ -140,7 +140,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `o11y::tests` (span per point, nesting); T8 —
     `abuse_canary_credential_appears_nowhere_observable` (first leg: logs and traces;
     extended in tasks 26 and 34)
-- [ ] 10. M1 pull request: `evidence/pull-requests.md` row, `docs/architecture/`
+- [x] 10. M1 pull request: `evidence/pull-requests.md` row, `docs/architecture/`
   section for the cross-cutting modules, `docs/capabilities/` docs for registry, hooks,
   config, assets; CI green on native, MSRV and `wasm32`.
   - _Depends on:_ 6, 8, 9

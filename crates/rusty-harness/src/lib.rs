@@ -11,11 +11,21 @@
 //! assert_eq!(greeting, "Hello from rusty-harness!");
 //! # });
 //! ```
-#![warn(missing_docs)]
+#![deny(missing_docs)]
 
+pub mod app_service;
+pub mod assets;
+pub mod config;
+pub mod error;
+pub mod harness;
+pub mod host;
+pub mod interaction;
+pub mod registry;
 pub mod runtime;
+pub mod self_improvement;
 
-pub use runtime::{MaybeSend, Runtime};
+pub use error::{Capability, HarnessError};
+pub use runtime::{HarnessFuture, HarnessStream, MaybeSend, MaybeSync, Runtime};
 
 /// Returns a greeting from the harness.
 ///

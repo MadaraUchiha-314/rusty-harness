@@ -118,6 +118,8 @@ of scope by the issue itself ("whole section is TBD, not for now").
 | **Participant** | A person, agent or system attached to a task in a role (assignee, reporter, watcher, admin). |
 | **Channel** | A harness-managed conversation with one or more participants, used for inputs that are smaller than a task. |
 | **Hook** | A registered function the harness calls at a named lifecycle point, before, during or after an operation, that may observe or change the operation's outcome. |
+| **Prompt fragment** | A piece of text the harness itself authors for a model request (the default system prompt, a compaction instruction, a sub-agent brief, a tool-use preamble), kept as one markdown file and registered as a core entity. Run-time data that fills a fragment's placeholders is not a fragment. |
+| **String catalog** | The one JSON file per locale that holds every user-facing string of every package; code refers to strings by key. |
 | **A2A** | The Agent2Agent protocol (<https://a2a-protocol.org>), the harness's only wire protocol for agent invocation. |
 | **MCP** | The Model Context Protocol, the harness's protocol for tools. |
 | **SDK mode / CLI mode** | Using rusty-harness as a library from Rust, Python or TypeScript, versus running the installed binary. |
@@ -142,7 +144,9 @@ requirements gate at the cost of an edit; after it, at the cost of a design chan
 
 Grouped by layer, in the diagram's order: foundations and the harness layer first (what
 everything else is built from), then the core loop, then the app service layer, then the
-interaction layer, then packaging, quality and the demo.
+interaction layer, then packaging, quality and the demo. One cross-cutting requirement
+closes the list ([R33](#requirement-33--prompts-and-strings-as-assets)), added at the
+requirements gate on the approver's review.
 
 ### Foundations
 
@@ -348,6 +352,10 @@ override, extend or template so that the harness's voice is mine, not the harnes
    ([R15](#requirement-15--context-window-manager)).
 3. WHEN the system prompt is assembled THEN the system SHALL run the prompt-assembly hook
    points so a hook can rewrite it.
+4. WHEN the default system prompt, or any fragment the harness appends to it, is
+   defined THEN it SHALL be a markdown file registered as a prompt fragment
+   ([R33](#requirement-33--prompts-and-strings-as-assets)), never a string literal in
+   code.
 
 ### Requirement 8 — Tools and MCP
 
@@ -913,6 +921,10 @@ one UI.
 5. WHEN a renderer supports MCP Apps (<https://modelcontextprotocol.io/extensions/apps/overview>)
    THEN it MAY render tool UIs through them; the design SHALL leave the renderer interface
    open to it without requiring it in this work item.
+6. WHEN a renderer shows text the harness authored for a person (labels, prompts for
+   input, status and error messages, command descriptions) THEN that text SHALL come
+   from the string catalog in the renderer's locale
+   ([R33](#requirement-33--prompts-and-strings-as-assets)).
 
 ### Requirement 26 — Web renderer
 
@@ -966,6 +978,9 @@ compromising the SDK, so that trying the harness takes one command.
 6. WHEN a message contains a registered command THEN the TUI SHALL highlight it.
 7. WHEN the SDK is used instead of the CLI THEN every capability the CLI exposes SHALL
    be reachable from Rust, Python and TypeScript code with the same configuration model.
+8. WHEN the CLI prints help, usage, progress or an error for a person THEN the text
+   SHALL come from the string catalog, and the locale SHALL be the configured one, then
+   `LANG`, then `en` ([R33](#requirement-33--prompts-and-strings-as-assets)).
 
 ### Requirement 28 — Multi-modal input and output
 
@@ -1094,6 +1109,68 @@ end to end so that I can accept the issue.
    `OPENAI_API_KEY` or the operator's keyring; no Anthropic credential is required.
 6. WHEN the demo runs THEN the verification evidence SHALL include a screen recording of
    both renderers, the trace of the task, and the Temporal workflow history.
+
+### Cross-cutting
+
+### Requirement 33 — Prompts and strings as assets
+
+**User story:** As a maintainer, I want every prompt the harness sends to a model to be a
+markdown file, and every string a person reads to come from one JSON catalog per locale,
+so that prompts can be reviewed, versioned and tuned without touching code, and the
+product can be internationalized and localized without a rewrite.
+
+Added at the requirements gate on the approver's review of the pull request carrying
+this file.
+
+#### Acceptance criteria (EARS)
+
+1. WHEN the harness authors text for a model request (the default system prompt, a
+   prompt extension, a compaction instruction, a sub-agent brief, a tool-use preamble,
+   a System One query, any other fragment) THEN that text SHALL exist as one markdown
+   file under a `prompts/` tree of the crate or package that owns it, with front matter
+   carrying its id and version, and SHALL be registered as a core entity
+   ([R1](#requirement-1--core-entities-interfaces-and-the-registry)).
+2. WHEN a prompt fragment needs run-time values (the user's message, tool results, task
+   state, participants, the date) THEN the markdown file SHALL carry named placeholders
+   and the values SHALL be data filled at assembly time; such data is not a fragment and
+   has no file of its own.
+3. WHEN a model request is assembled ([R15](#requirement-15--context-window-manager))
+   THEN the LLM interface ([R9](#requirement-9--models-llm-and-system-one)) SHALL accept
+   only prompts built from registered fragments, each carrying its source path and
+   version, and the trace of the request ([R24](#requirement-24--observability)) SHALL
+   record the fragment ids and versions it was built from.
+4. WHEN a prompt fragment comes from a skill or plugin
+   ([R5](#requirement-5--agent-plugins), [R6](#requirement-6--skills)) THEN its markdown
+   file in the skill or plugin SHALL be its source; WHEN a hook rewrites a prompt
+   ([R4](#requirement-4--hooks-on-the-whole-lifecycle)) THEN the text it supplies SHALL
+   be the hook author's responsibility, and hooks shipped in this repository SHALL obey
+   criterion 1.
+5. WHEN the repository's tests run THEN a contract test
+   ([R31](#requirement-31--testing)) SHALL resolve every registered prompt fragment to
+   an existing markdown file, and a lint SHALL fail when source code in the core crate,
+   the Python package or the TypeScript packages passes a string literal where a prompt
+   fragment is expected.
+6. WHEN a string is shown to a person by any surface or package (TUI, CLI help and
+   errors, web renderer, command descriptions, A2A status and error messages meant for
+   a human) THEN it SHALL come from one JSON catalog per locale at `strings/<locale>.json`
+   in the repository, with `en` as the source of truth; code SHALL refer to a string by
+   key, never by its text.
+7. WHEN the Rust crate, the Python package and the web package are built THEN each SHALL
+   use the same catalog files (embedded in the binary, imported by the web package), so
+   that one catalog serves every package.
+8. WHEN a locale is selected THEN the precedence SHALL be the configured `locale`, then
+   the environment (`LANG` on native, `Accept-Language` on the web), then `en`; IF a key
+   is missing in the selected locale THEN the system SHALL fall back to `en`; IF a key is
+   missing in `en` THEN the repository's tests SHALL fail.
+9. WHEN a string needs interpolation or a plural form THEN the catalog entry SHALL use
+   the placeholder format the design fixes ([Open questions](#open-questions) Q18), and
+   a contract test SHALL check that every locale's entry uses the same placeholders as
+   `en`.
+10. WHILE the harness runs, developer-facing text (log lines, Rust error `Display`
+    output, doc comments, trace attributes) SHALL NOT be localized and is outside the
+    catalog; prompt fragments are not catalog strings either, and WHEN a fragment is
+    localized THEN the variant SHALL be a sibling markdown file `<name>.<locale>.md`
+    selected by the same locale precedence.
 
 ## Non-functional requirements
 
@@ -1253,6 +1330,8 @@ at phase selection).
 | Q15 | OpenAI's standalone speech models (`tts-1`, `gpt-4o-mini-tts`) are announced for shutdown on 2027-01-06 with Realtime as the migration path, and the issue prefers direct voice when available. Ship Realtime (speech to speech) as the primary voice path and the transcription and speech endpoints as the fallback for providers without a realtime mode? | Yes; `Voice`, `SpeechToText` and `TextToSpeech` are three interfaces, and the demo uses Realtime. | R28 |
 | Q16 | Neither OpenAI nor Anthropic publishes an official Rust SDK. For OpenAI, use the maintained community crate `async-openai` (with its `wasm` fork) or a thin client of our own over the HTTP API? For Anthropic, a community crate or our own client? | Our own thin typed clients over each provider's HTTP API, behind the `LLM` interface, so one code path builds for native and `wasm32`; revisit when an official SDK appears. | R9 |
 | Q17 | Hooks and commands are not part of the portable Agent Plugins specification. Carry them in rusty-harness's client namespace inside a plugin (as the specification intends for client-specific content), knowing other harnesses will ignore them? | Yes, namespace `dev.rusty-harness` (manifest `extensions` key and directory). | R5 |
+| Q18 | Placeholder and plural format for the string catalog: a subset of ICU MessageFormat (`{name}`, `{count, plural, …}`), for which JavaScript support is mature (`@formatjs`) while Rust support is thinner (ICU4X's MessageFormat 2 is experimental), or plain `{name}` placeholders only? | ICU MessageFormat subset small enough to parse in the crate itself, parsed once at build time; the same parser checks the locales against `en`. | R33 |
+| Q19 | Should this work item ship a second locale as proof of the mechanism, or only the `en` catalog with the fallback and the tests? | Only `en` plus the mechanism and tests; a second locale is a follow-up issue. | R33 |
 
 ## Review comments
 

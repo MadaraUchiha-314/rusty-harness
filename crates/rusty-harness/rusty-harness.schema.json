@@ -629,10 +629,10 @@
       "additionalProperties": false
     },
     "SecretRef": {
-      "description": "A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.",
+      "description": "A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.",
       "type": "string",
       "format": "secret-ref",
-      "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/]+/.+|file:.+)$"
+      "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/=,]+/.+|keyring:[^=,]+=[^,]+(,[^=,]+=[^,]+)*|file:.+)$"
     },
     "SecuritySchemeConfig": {
       "description": "`[server.security]`.",

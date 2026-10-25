@@ -1,6 +1,7 @@
 # rusty-harness configuration. Written on first run with every default; edit what you need.
 # Precedence: code overrides > RH__SECTION__KEY environment variables > this file > defaults.
-# Credentials are references only (env:NAME, keyring:SERVICE/USER, file:PATH), never values.
+# Credentials are references only (env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,…,
+# file:PATH with ~/ for home), never values.
 # Schema: https://madarauchiha-314.github.io/rusty-harness/rusty-harness.schema.json
 
 [agent]

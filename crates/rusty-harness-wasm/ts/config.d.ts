@@ -4,7 +4,7 @@
 
 
 /**
- * A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.
+ * A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.
  */
 export type SecretRef = string
 /**
@@ -21,7 +21,7 @@ export type OpenAiApi = ("responses" | "chat-completions")
 export type SecuritySchemeConfig = ({
 scheme: "bearer"
 /**
- * A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.
+ * A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.
  */
 token: string
 } | {
@@ -30,7 +30,7 @@ token: string
  */
 header: string
 /**
- * A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.
+ * A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.
  */
 key: string
 scheme: "api-key"
@@ -254,7 +254,7 @@ export interface ModelConfig {
  */
 api?: (OpenAiApi | null)
 /**
- * A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.
+ * A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.
  */
 api_key: string
 /**

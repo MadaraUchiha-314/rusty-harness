@@ -29,7 +29,7 @@ Give it a model before the first conversation. Credentials are references, never
 [models.default]
 provider = "openai"            # openai | anthropic
 model = "gpt-6.1"
-api_key = "env:OPENAI_API_KEY" # env:NAME, keyring:SERVICE/USER or file:PATH
+api_key = "env:OPENAI_API_KEY" # env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH
 ```
 
 Every reference is resolved at startup; one that does not resolve stops the process with

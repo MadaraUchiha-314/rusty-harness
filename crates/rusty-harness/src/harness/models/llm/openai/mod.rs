@@ -1,9 +1,11 @@
 //! The `OpenAI` client over the provider's HTTP API; a configurable base URL serves
 //! `OpenAI`-compatible providers (R9.3).
 //!
-//! Chat Completions with streaming, tool calling, image and audio input and
-//! `reasoning_effort`; prompt caching is automatic on `OpenAI`'s side, which the context
-//! builder's stable prefix serves.
+//! Two wires behind one client: the Responses API for `OpenAI`'s own models, where Chat
+//! Completions refuses function tools with reasoning, and Chat Completions for
+//! `OpenAI`-compatible servers ([`OpenAiApi`]). Both stream, call tools, take image and
+//! audio input and set the reasoning effort; prompt caching is automatic on `OpenAI`'s
+//! side, which the context builder's stable prefix serves.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -14,12 +16,14 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+pub mod responses;
+
 use super::sse;
 use super::{
     ContentPart, EventStream, Llm, MessageRole, Modality, ModelCapabilities, ModelError,
     ModelEvent, ModelRequest, StopReason, Usage, WireNames, check_modalities, retry_after,
 };
-use crate::config::ModelConfig;
+use crate::config::{ModelConfig, OpenAiApi};
 use crate::harness::tools::ToolCall;
 use crate::harness_async_trait;
 use crate::host::{Host, HttpClient, HttpRequest, Secret};
@@ -28,10 +32,11 @@ use crate::registry::{Entity, EntityId, EntityKind, Placement, RemoteEndpoint};
 /// The default base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
-/// A model served through `OpenAI`'s Chat Completions API.
+/// A model served through `OpenAI`'s Responses or Chat Completions API.
 pub struct OpenAiLlm {
     id: EntityId,
     model: String,
+    api: OpenAiApi,
     base_url: url::Url,
     api_key: Secret<String>,
     http: Arc<dyn HttpClient>,
@@ -44,6 +49,7 @@ impl core::fmt::Debug for OpenAiLlm {
             .field("id", &self.id)
             .field("model", &self.model)
             .field("base_url", &self.base_url)
+            .field("api", &self.api)
             .finish_non_exhaustive()
     }
 }
@@ -84,7 +90,19 @@ impl OpenAiLlm {
             },
             Ok,
         )?;
-        Ok(Self::new(alias, &config.model, base_url, api_key, http))
+        let api = config.api.unwrap_or(if config.base_url.is_none() {
+            OpenAiApi::Responses
+        } else {
+            OpenAiApi::ChatCompletions
+        });
+        Ok(Self::new(alias, &config.model, base_url, api_key, http).with_api(api))
+    }
+
+    /// Uses `api` as the wire.
+    #[must_use]
+    pub fn with_api(mut self, api: OpenAiApi) -> Self {
+        self.api = api;
+        self
     }
 
     /// Builds the client from its parts.
@@ -99,6 +117,7 @@ impl OpenAiLlm {
         Self {
             id: EntityId::new(alias),
             model: model.to_owned(),
+            api: OpenAiApi::ChatCompletions,
             base_url,
             api_key,
             http,
@@ -120,7 +139,8 @@ impl OpenAiLlm {
         }
     }
 
-    /// The Chat Completions request body for `request` (snapshot-tested).
+    /// The Chat Completions request body for `request` (snapshot-tested); the Responses
+    /// body is [`responses::body`].
     #[must_use]
     pub fn body(&self, request: &ModelRequest) -> Value {
         let names = WireNames::new(&request.tools);
@@ -164,9 +184,21 @@ impl OpenAiLlm {
         body
     }
 
+    /// The request body for `request` on this model's wire.
+    fn wire_body(&self, request: &ModelRequest) -> Value {
+        match self.api {
+            OpenAiApi::Responses => responses::body(&self.model, request),
+            OpenAiApi::ChatCompletions => self.body(request),
+        }
+    }
+
     fn endpoint(&self) -> url::Url {
         let mut url = self.base_url.clone();
-        let path = format!("{}/chat/completions", url.path().trim_end_matches('/'));
+        let resource = match self.api {
+            OpenAiApi::Responses => "responses",
+            OpenAiApi::ChatCompletions => "chat/completions",
+        };
+        let path = format!("{}/{resource}", url.path().trim_end_matches('/'));
         url.set_path(&path);
         url
     }
@@ -411,7 +443,7 @@ harness_async_trait! {
             let auth = http::HeaderValue::from_str(&format!("Bearer {}", self.api_key.expose()))
                 .map_err(|_| ModelError::NonRetryable { status: None, message: "credential is not a valid header value".into() })?;
             http_request.headers.insert(http::header::AUTHORIZATION, auth);
-            http_request.body = Bytes::from(serde_json::to_vec(&self.body(&request)).map_err(|e| ModelError::Decode(e.to_string()))?);
+            http_request.body = Bytes::from(serde_json::to_vec(&self.wire_body(&request)).map_err(|e| ModelError::Decode(e.to_string()))?);
             let response = self
                 .http
                 .send_streaming(http_request)
@@ -428,7 +460,11 @@ harness_async_trait! {
                 }
                 return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).replace(self.api_key.expose(), "[redacted]"), retry_after(&response.headers)));
             }
-            Ok(WireNames::new(&request.tools).restore(decode(response.body)))
+            let events = match self.api {
+                OpenAiApi::Responses => responses::decode(response.body),
+                OpenAiApi::ChatCompletions => decode(response.body),
+            };
+            Ok(WireNames::new(&request.tools).restore(events))
         }
     }
 }

@@ -343,6 +343,9 @@ class LoopConfig(typing.TypedDict):
 
 class ModelConfig(typing.TypedDict):
     r"""`[models.<alias>]`."""
+    api: typing_extensions.NotRequired[OpenAiApi | None]
+    r"""`openai` only: the wire. `responses` on `OpenAI`'s own endpoint and
+`chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent."""
     api_key: SecretRef
     r"""The credential, by reference."""
     base_url: typing_extensions.NotRequired[builtins.str | None]
@@ -366,6 +369,8 @@ class O11yConfig(typing.TypedDict):
     r"""The log level."""
     otlp_endpoint: typing_extensions.NotRequired[builtins.str | None]
     r"""The OTLP endpoint; no export when absent (R24.2)."""
+
+OpenAiApi = typing.Literal["responses"] | typing.Literal["chat-completions"]
 
 OversizePolicyConfig = typing.Literal["truncate"] | typing.Literal["summarise"]
 

@@ -113,6 +113,20 @@ pub struct ModelConfig {
     /// Retry policy for retryable provider errors (R9.6).
     #[serde(default)]
     pub retry: RetryConfig,
+    /// `openai` only: the wire. `responses` on `OpenAI`'s own endpoint and
+    /// `chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.
+    #[serde(default)]
+    pub api: Option<OpenAiApi>,
+}
+
+/// Which `OpenAI` API a model is reached through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OpenAiApi {
+    /// `POST /responses`: function tools with reasoning on current models.
+    Responses,
+    /// `POST /chat/completions`: what `OpenAI`-compatible servers implement.
+    ChatCompletions,
 }
 
 /// `[system_one.<alias>]`.

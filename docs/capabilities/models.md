@@ -7,8 +7,9 @@
 
 The loop talks to a model through one trait, `Llm::stream(ModelRequest)`, which yields
 text deltas, complete tool calls, usage and a stop reason. Two thin clients implement it
-over each provider's HTTP API (OpenAI Chat Completions and anything compatible through
-`base_url`; Anthropic Messages with cache breakpoints), both built for native and
+over each provider's HTTP API (OpenAI's Responses API for OpenAI itself, Chat Completions
+for anything compatible through `base_url`, chosen by `[models.<alias>] api`; Anthropic
+Messages with cache breakpoints), both built for native and
 `wasm32` from the same code (Q16). `Retrying` wraps any model with the configured
 backoff on retryable failures; `ModelRouter` resolves the alias the task's selection
 names, so a command can switch models between calls without a restart.
@@ -52,6 +53,12 @@ flowchart LR
   selection; nothing restarts.
 - WHEN the context builder places a cache breakpoint THEN the Anthropic client SHALL set
   `cache_control` there and the OpenAI client SHALL keep the prefix stable.
+- WHEN a request offers tools THEN each client SHALL send names the provider accepts
+  (`^[a-zA-Z0-9_-]{1,64}$`: `agent.call` goes out as `agent_call`) and SHALL map the
+  model's tool calls back to the harness's names.
+- WHEN an `openai` model has no `base_url` THEN it SHALL be reached through the Responses
+  API (function tools with reasoning, `store: false`); with a `base_url` it SHALL use Chat
+  Completions, unless `api` says otherwise.
 - WHEN a System One judgement is needed THEN the system SHALL ask the configured HTTP
   classifier or, absent one, the LLM on the `system-one/classify` fragment.
 - WHEN a provider refuses with a body that echoes the credential THEN the error SHALL
@@ -66,6 +73,7 @@ flowchart LR
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
+| issue-3 (M7, task 45) | The OpenAI Responses wire and `api`; provider-safe tool names; usage and the cache hit rate measured live | PR #13 |
 | issue-3 (M6, task 40) | Spoken turns: transcription before the model, synthesis of the reply | PR #12 |
 | issue-3 (M6, task 39) | OpenAI `Voice`, `SpeechToText`, `TextToSpeech`; the native WebSocket; the harness-side relay and `voice/v1` parts | PR #12 |
 | issue-3 (M6, task 38) | Image and audio parts from messages into the context; the up-front modality refusal | PR #12 |

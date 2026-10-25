@@ -433,6 +433,18 @@
       "description": "`[models.<alias>]`.",
       "type": "object",
       "properties": {
+        "api": {
+          "description": "`openai` only: the wire. `responses` on `OpenAI`'s own endpoint and\n`chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAiApi"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "api_key": {
           "description": "The credential, by reference.",
           "$ref": "#/$defs/SecretRef"
@@ -507,6 +519,21 @@
         }
       },
       "additionalProperties": false
+    },
+    "OpenAiApi": {
+      "description": "Which `OpenAI` API a model is reached through.",
+      "oneOf": [
+        {
+          "description": "`POST /responses`: function tools with reasoning on current models.",
+          "type": "string",
+          "const": "responses"
+        },
+        {
+          "description": "`POST /chat/completions`: what `OpenAI`-compatible servers implement.",
+          "type": "string",
+          "const": "chat-completions"
+        }
+      ]
     },
     "OversizePolicyConfig": {
       "description": "`[tools] oversize`.",

@@ -12,6 +12,10 @@ export type SecretRef = string
  */
 export type Duration = string
 /**
+ * Which `OpenAI` API a model is reached through.
+ */
+export type OpenAiApi = ("responses" | "chat-completions")
+/**
  * `[server.security]`.
  */
 export type SecuritySchemeConfig = ({
@@ -244,6 +248,11 @@ wall_clock?: (Duration | null)
  * `[models.<alias>]`.
  */
 export interface ModelConfig {
+/**
+ * `openai` only: the wire. `responses` on `OpenAI`'s own endpoint and
+ * `chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.
+ */
+api?: (OpenAiApi | null)
 /**
  * A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.
  */

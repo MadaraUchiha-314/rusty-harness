@@ -10,10 +10,11 @@ import {
 } from "rusty-harness";
 import { configDeclarations } from "../scripts/types";
 
+// The Responses API's stream, the wire for OpenAI's own endpoint.
 const sse = [
-  'data: {"choices":[{"delta":{"content":"Hello from "}}]}\n\n',
-  'data: {"choices":[{"delta":{"content":"TypeScript."},"finish_reason":"stop"}]}\n\n',
-  "data: [DONE]\n\n",
+  'data: {"type":"response.output_text.delta","delta":"Hello from "}\n\n',
+  'data: {"type":"response.output_text.delta","delta":"TypeScript."}\n\n',
+  'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":4}}}\n\n',
 ].join("");
 
 const config: Config = {
@@ -69,7 +70,7 @@ describe("Harness", () => {
     expect(events.map(text).join("")).toContain("Hello from TypeScript.");
     const task = await harness.getTask("t1");
     expect(task.status.state).toBe("TASK_STATE_COMPLETED");
-    expect(calls).toEqual(["https://api.openai.com/v1/chat/completions"]);
+    expect(calls).toEqual(["https://api.openai.com/v1/responses"]);
 
     const replay: StreamResponse[] = [];
     for await (const event of harness.subscribe("t1")) replay.push(event);

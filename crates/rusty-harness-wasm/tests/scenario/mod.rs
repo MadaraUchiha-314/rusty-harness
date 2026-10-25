@@ -4,12 +4,13 @@ use js_sys::{Function, Reflect};
 use wasm_bindgen::{JsCast as _, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
-/// A host whose `fetch` answers every model call with one scripted OpenAI stream.
+/// A host whose `fetch` answers every model call with one scripted `OpenAI` Responses
+/// stream (the wire for `OpenAI`'s own endpoint).
 const HOST: &str = r#"
 const sse =
-  'data: {"choices":[{"delta":{"content":"Hello from "}}]}\n\n' +
-  'data: {"choices":[{"delta":{"content":"the browser."},"finish_reason":"stop"}]}\n\n' +
-  'data: [DONE]\n\n';
+  'data: {"type":"response.output_text.delta","delta":"Hello from "}\n\n' +
+  'data: {"type":"response.output_text.delta","delta":"the browser."}\n\n' +
+  'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":4}}}\n\n';
 const host = {
   calls: [],
   allowOrigins: ["https://api.openai.com"],
@@ -82,7 +83,7 @@ pub(crate) async fn the_wasm_build_runs_a_task_against_a_mocked_host() {
     );
     let calls = json(&Reflect::get(&host, &"calls".into()).unwrap());
     assert!(
-        calls.contains("https://api.openai.com/v1/chat/completions"),
+        calls.contains("https://api.openai.com/v1/responses"),
         "{calls}"
     );
     assert!(calls.contains("Bearer sk-test"), "{calls}");

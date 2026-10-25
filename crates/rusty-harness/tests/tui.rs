@@ -722,3 +722,170 @@ fn an_image_artifact_renders_in_a_graphics_capable_terminal_and_degrades_to_alt_
     );
     assert_eq!(frame.painted, 0, "{}", frame.text);
 }
+
+#[test]
+fn a_remote_card_supplies_the_commands_and_the_model_aliases() {
+    use rusty_harness::interaction::renderer::tui::card_commands;
+    // The snapshot of the card the server builds from the default configuration.
+    let snapshot = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots/agent_card.json"),
+    )
+    .unwrap();
+    let card: a2a::AgentCard = serde_json::from_str(&snapshot).unwrap();
+    let (commands, models) = card_commands(&card);
+    assert!(commands.contains(&"model".to_owned()), "{commands:?}");
+    assert!(commands.contains(&"effort".to_owned()), "{commands:?}");
+    assert_eq!(models, ["default"]);
+    let mut app = App::new(TuiOptions {
+        models: Vec::new(),
+        commands: Vec::new(),
+        ..options()
+    });
+    app.adopt_card(&card);
+    assert_eq!(app.options().agent, card.name);
+    assert_eq!(app.options().commands, commands);
+    assert_eq!(
+        app.options()
+            .models
+            .iter()
+            .map(|m| m.alias.as_str())
+            .collect::<Vec<_>>(),
+        ["default"]
+    );
+    let mut bare = card;
+    bare.capabilities.extensions = None;
+    assert_eq!(card_commands(&bare), (Vec::new(), Vec::new()));
+}
+
+/// The TUI as an A2A client of a running harness, headless: the same transport the
+/// binary uses, the stream reduced by `App`.
+#[cfg(feature = "server")]
+mod on_one_harness {
+    use std::sync::Arc;
+
+    use futures::StreamExt as _;
+    use rusty_harness::app_service::a2a_server::serve;
+    use rusty_harness::config::Config;
+    use rusty_harness::harness::a2a_client::AgentTransport as _;
+    use rusty_harness::harness::a2a_client::official::{OfficialTransport, fetch_card};
+    use rusty_harness::harness::models::llm::testing::RecordedLlm;
+    use rusty_harness::harness::models::llm::{ModelEvent, StopReason};
+    use rusty_harness::harness::tools::ToolCall;
+    use rusty_harness::host::Host;
+    use rusty_harness::interaction::renderer::tui::{App, Outgoing};
+    use rusty_harness::{Harness, HarnessBuilder};
+    use serde_json::json;
+
+    use super::{at, audience_form, key, options, type_text};
+    use crossterm::event::KeyCode;
+
+    fn text(t: &str) -> Vec<ModelEvent> {
+        vec![
+            ModelEvent::TextDelta { text: t.into() },
+            ModelEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]
+    }
+
+    async fn harness(turns: Vec<Vec<ModelEvent>>) -> Harness {
+        let mut config = Config::default();
+        config.server.bind = "127.0.0.1:0".into();
+        HarnessBuilder::new(config)
+            .host(Host::testing())
+            .llm(Arc::new(RecordedLlm::new("default", turns)))
+            .build()
+            .await
+            .expect("builds")
+    }
+
+    /// Sends `outgoing` through the official client and feeds every event to `app`.
+    async fn drive(app: &mut App, transport: &OfficialTransport, outgoing: Vec<Outgoing>) {
+        for out in outgoing {
+            let Outgoing::Send(message) = out else {
+                panic!("{out:?}")
+            };
+            let request = a2a::SendMessageRequest {
+                message: *message,
+                configuration: None,
+                metadata: None,
+                tenant: None,
+            };
+            let mut stream = transport
+                .send_streaming_message(request, Vec::new())
+                .await
+                .expect("stream");
+            while let Some(item) = stream.next().await {
+                app.apply(item.expect("event"), at(12, 30));
+            }
+        }
+    }
+
+    /// Scenario: An A2UI ask renders in the web renderer and the TUI (the TUI leg)
+    ///     Given a harness whose model asks an A2UI question on a channel, then answers
+    ///     When the TUI sends a message through the official A2A client
+    ///     Then the ask renders as a form and the form's answer resumes the task
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_a2ui_ask_renders_in_the_tui_on_one_harness() {
+        let ask = vec![
+            ModelEvent::ToolCall {
+                call: ToolCall {
+                    id: "c1".into(),
+                    name: "participant.ask".into(),
+                    arguments: json!({
+                        "to": ["operator"],
+                        "kind": "a2ui",
+                        "question": audience_form(),
+                    }),
+                },
+            },
+            ModelEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ];
+        let h = harness(vec![ask, text("Drafting for customers.")]).await;
+        let server = serve(&h, None).await.expect("binds");
+        let base: url::Url = format!("http://{}/", server.addr).parse().unwrap();
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let server_task = tokio::spawn(server.run(async move {
+            let _ = stopped.await;
+        }));
+
+        // The client side is a real host: the testing host's HTTP client reaches nothing.
+        let client_host = Host::native();
+        let card = fetch_card(&client_host, &base).await.expect("card");
+        let mut app = App::new(options());
+        app.adopt_card(&card);
+        let transport = OfficialTransport::from_card(&card, None, Vec::new()).expect("transport");
+
+        type_text(&mut app, "Draft release notes for Q4.", at(12, 30));
+        let out = app.key(key(KeyCode::Enter), at(12, 30));
+        drive(&mut app, &transport, out).await;
+        let (text, _) = super::render(&mut app, super::Theme::color());
+        assert!(text.contains("a2ui · basic catalog"), "{text}");
+        assert!(
+            text.contains("Which audience are these notes for?"),
+            "{text}"
+        );
+        assert!(
+            text.contains("◐ input-required awaiting participant"),
+            "{text}"
+        );
+
+        // Answer: the choice picker is focused first; tab twice to "Send answer".
+        app.key(key(KeyCode::Tab), at(12, 31));
+        app.key(key(KeyCode::Tab), at(12, 31));
+        let out = app.key(key(KeyCode::Enter), at(12, 31));
+        assert_eq!(out.len(), 1, "one reply on the channel: {out:?}");
+        drive(&mut app, &transport, out).await;
+        let (text, _) = super::render(&mut app, super::Theme::color());
+        assert!(text.contains("Drafting for customers."), "{text}");
+        assert!(
+            text.contains("◐ input-required awaiting next turn"),
+            "{text}"
+        );
+
+        let _ = stop.send(());
+        let _ = server_task.await;
+    }
+}

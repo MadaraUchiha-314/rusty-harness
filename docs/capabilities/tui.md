@@ -21,9 +21,9 @@ Controls (R27.4, R21.7): `enter` sends; `^c` opens the complete confirmation, wh
 sends the task extension's `transition: complete` message, `n` keeps the task open and
 `x` cancels instead; `^x` sends `CancelTask`; `^d` leaves. A message after a terminal
 task starts a new task in the same context with `referenceTaskIds` naming the old one.
-`/model` with the in-process harness opens a picker over the configured aliases (their
-tool, vision and voice traits read from the registry); against a remote harness, whose
-models are not known here, `/model <alias>` is sent as typed. A registered command at the
+`/model` opens a picker over the configured aliases (their tool, vision and voice traits
+read from the registry in-process; against a remote harness the aliases and the
+command names come from the card's `commands/v1` entry). A registered command at the
 start of a line is highlighted in the composer and in sent messages (R27.6).
 
 An A2UI ask (`channels/v1`, `kind: a2ui`) renders as a form in a rounded box: text by
@@ -77,5 +77,6 @@ monochrome theme: the same glyphs, modifiers only.
 | Work item | What changed | Links |
 |-----------|--------------|-------|
 | issue-3 (M5, task 34) | The TUI: layout per the prototype, A2A client of the loopback or `--url`, controls, `/model` picker, command highlighting, native A2UI forms, images with the alt-text fallback, `NO_COLOR` | PR #11 |
+| issue-3 (M5, task 37) | A remote card supplies the agent name, the commands and the model aliases; the one-harness A2UI scenario (`tests/tui.rs::on_one_harness`) | PR #11 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

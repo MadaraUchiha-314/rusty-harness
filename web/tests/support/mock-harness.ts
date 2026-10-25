@@ -298,8 +298,31 @@ export function artifactEvent(): Json {
   };
 }
 
+/** The prototype's A2UI messages (the same form task 33 snapshots). */
+export function a2uiMessages(): Json[] {
+  return a2uiAskParts().messages;
+}
+
 /** The A2UI ask of the prototype (the same form task 33 snapshots). */
 export function a2uiAsk(): Json {
+  const { messages } = a2uiAskParts();
+  return agentMessage("msg_ask", "", {
+    parts: [
+      {
+        text: "Which audience are these notes for?\nCustomers / Internal engineering / Both, two sections\nSomething else\nSend answer · Skip",
+        metadata: { alternativeFor: A2UI_MEDIA_TYPE },
+      },
+      { data: messages, mediaType: A2UI_MEDIA_TYPE, metadata: { mimeType: A2UI_MEDIA_TYPE } },
+    ],
+    extensions: [A2UI_EXT],
+    metadata: {
+      [CHANNELS_EXT]: { channel: "ch-7f3a", ask: "ch-7f3a", to: ["you"], question_kind: "a2ui" },
+      [A2UI_EXT]: {},
+    },
+  });
+}
+
+function a2uiAskParts(): { messages: Json[] } {
   const components = [
     {
       id: "root",
@@ -364,20 +387,7 @@ export function a2uiAsk(): Json {
       updateDataModel: { surfaceId: "ask-ch-7f3a", value: { audience: ["customers"], other: "" } },
     },
   ];
-  return agentMessage("msg_ask", "", {
-    parts: [
-      {
-        text: "Which audience are these notes for?\nCustomers / Internal engineering / Both, two sections\nSomething else\nSend answer · Skip",
-        metadata: { alternativeFor: A2UI_MEDIA_TYPE },
-      },
-      { data: messages, mediaType: A2UI_MEDIA_TYPE, metadata: { mimeType: A2UI_MEDIA_TYPE } },
-    ],
-    extensions: [A2UI_EXT],
-    metadata: {
-      [CHANNELS_EXT]: { channel: "ch-7f3a", ask: "ch-7f3a", to: ["you"], question_kind: "a2ui" },
-      [A2UI_EXT]: {},
-    },
-  });
+  return { messages };
 }
 
 /** The scenarios, one per prototype state the wire can produce. */

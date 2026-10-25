@@ -14,7 +14,7 @@ pub mod form;
 pub mod run;
 pub mod view;
 
-pub use app::{App, Footer, Incoming, ModelEntry, ModelTrait, Outgoing, TuiOptions};
+pub use app::{App, Footer, Incoming, ModelEntry, ModelTrait, Outgoing, TuiOptions, card_commands};
 pub use run::{TuiError, run};
 pub use view::Theme;
 

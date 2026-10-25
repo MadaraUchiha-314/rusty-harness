@@ -127,6 +127,7 @@
       "description": "The A2A server.",
       "$ref": "#/$defs/ServerConfig",
       "default": {
+        "allow_origins": [],
         "bind": "127.0.0.1:7474",
         "bindings": ["jsonrpc", "rest"],
         "limits": {
@@ -647,6 +648,14 @@
       "description": "`[server]`.",
       "type": "object",
       "properties": {
+        "allow_origins": {
+          "description": "Browser origins allowed to call the server (CORS, R25.1): a surface served from\nanother origin, such as the web renderer's dev server. Empty allows any origin\nwhile the server is loopback-only and none otherwise (fail-closed).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
         "bind": {
           "description": "The socket to bind. Without a security scheme only a loopback address is accepted.",
           "type": "string",

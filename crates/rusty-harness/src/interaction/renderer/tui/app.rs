@@ -281,6 +281,29 @@ impl App {
         &self.opts
     }
 
+    /// Fills what the options left empty from the harness's agent card: its name, the
+    /// registered commands and the model aliases its `commands/v1` entry lists (a remote
+    /// harness, R27.3).
+    pub fn adopt_card(&mut self, card: &a2a::AgentCard) {
+        if !card.name.is_empty() {
+            self.opts.agent.clone_from(&card.name);
+        }
+        let (commands, models) = card_commands(card);
+        if !commands.is_empty() {
+            self.opts.commands = commands;
+        }
+        if self.opts.models.is_empty() {
+            self.opts.models = models
+                .into_iter()
+                .map(|alias| ModelEntry {
+                    label: alias.clone(),
+                    alias,
+                    traits: Vec::new(),
+                })
+                .collect();
+        }
+    }
+
     /// The string `key` in the TUI's locale.
     #[must_use]
     pub fn text(&self, key: StringKey) -> String {
@@ -723,6 +746,8 @@ impl App {
             tokens,
         });
         let message = self.user_message(vec![a2a::Part::text(text)], HashMap::new());
+        // The harness echoes the message in the task's history; it is shown once.
+        self.seen_messages.insert(message.message_id.clone());
         self.busy = true;
         vec![Outgoing::Send(Box::new(message))]
     }
@@ -800,6 +825,7 @@ impl App {
             );
         }
         let message = self.user_message(vec![part], extra);
+        self.seen_messages.insert(message.message_id.clone());
         self.mode = Mode::Chat;
         self.busy = true;
         vec![Outgoing::Send(Box::new(message))]
@@ -878,4 +904,36 @@ impl App {
     pub fn trait_label(&self, t: ModelTrait) -> String {
         self.text(t.key())
     }
+}
+
+/// The command names and the model aliases a card's `commands/v1` extension lists.
+#[must_use]
+pub fn card_commands(card: &a2a::AgentCard) -> (Vec<String>, Vec<String>) {
+    let Some(params) = card
+        .capabilities
+        .extensions
+        .iter()
+        .flatten()
+        .find(|e| e.uri.ends_with("/commands/v1"))
+        .and_then(|e| e.params.as_ref())
+    else {
+        return (Vec::new(), Vec::new());
+    };
+    let names = |key: &str| -> Vec<String> {
+        params
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| {
+                        v.as_str()
+                            .or_else(|| v.get("name").and_then(Value::as_str))
+                            .map(str::to_owned)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    (names("commands"), names("models"))
 }

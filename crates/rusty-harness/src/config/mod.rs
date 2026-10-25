@@ -169,6 +169,11 @@ pub struct ServerConfig {
     pub limits: LimitsConfig,
     /// Push notifications (abuse 9).
     pub push: PushConfig,
+    /// Browser origins allowed to call the server (CORS, R25.1): a surface served from
+    /// another origin, such as the web renderer's dev server. Empty allows any origin
+    /// while the server is loopback-only and none otherwise (fail-closed).
+    #[serde(default)]
+    pub allow_origins: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -180,6 +185,7 @@ impl Default for ServerConfig {
             security: None,
             limits: LimitsConfig::default(),
             push: PushConfig::default(),
+            allow_origins: Vec::new(),
         }
     }
 }

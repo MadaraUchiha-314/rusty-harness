@@ -81,8 +81,8 @@
     "pushNotifications": false,
     "streaming": true
   },
-  "defaultInputModes": ["text/plain"],
-  "defaultOutputModes": ["text/plain"],
+  "defaultInputModes": ["text/plain", "application/a2ui+json"],
+  "defaultOutputModes": ["text/plain", "application/a2ui+json"],
   "description": "An agent served by rusty-harness.",
   "name": "rusty-harness",
   "skills": [],

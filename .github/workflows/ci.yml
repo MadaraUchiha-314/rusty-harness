@@ -124,6 +124,8 @@ jobs:
     container: mcr.microsoft.com/playwright:v1.64.1-noble
     steps:
       - uses: actions/checkout@v7
+      - name: unzip for setup-bun (the Playwright image ships without it)
+        run: apt-get update -qq && apt-get install -y -qq unzip > /dev/null
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bunx tsc --noEmit -p web
@@ -160,6 +162,11 @@ jobs:
       - run: cargo build -p rusty_harness --features cli --bin rusty-harness
       - name: the official TypeScript SDK drives the binary
         run: bun run --cwd web test:contract
+      - run: bunx --cwd web playwright install --with-deps chromium
+      - name: the web renderer against the binary (an A2UI ask round trip)
+        run: bun run --cwd web test:e2e
+        env:
+          CI: "1"
 
   python-lint:
     name: Python lint

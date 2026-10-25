@@ -418,7 +418,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R26.7, NFR accessibility, abuse 11
   - _Test:_ T5 — `test:visual`; T9 — `test:a11y`; T8 — `test:bundle-scan`
     (`abuse_npm_bundle_contains_no_provider_key_pattern`)
-- [ ] 37. M5 pull request: the TUI and web both on one harness (R32.1 rehearsal), the
+- [x] 37. M5 pull request: the TUI and web both on one harness (R32.1 rehearsal), the
   A2UI ask rendered in both, `docs/guide/` "Run the TUI" page, capability docs for
   surfaces, TUI and web; `evidence/pull-requests.md` row.
   - _Depends on:_ 34, 36

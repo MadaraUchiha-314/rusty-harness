@@ -78,6 +78,9 @@ through `intl-messageformat` (R33.7, R25.6).
   in both themes and walks the keyboard flow (T9), `bun run --cwd web test:bundle-scan`
   refuses a provider key pattern or a provider host in the built bundles (T8, abuse 11).
   `bun run --cwd web capture` records the multi-turn flow as the evidence GIF.
+  `bun run --cwd web test:e2e` boots the real binary with a scripted model and
+  round-trips an A2UI ask through the page (T2, `An A2UI ask renders in the web renderer
+  and the TUI`; the TUI leg is `tests/tui.rs::on_one_harness`).
 - Not yet on the wire, so not yet rendered from the stream: tool-call progress and
   streamed text deltas; the `Tool` composition (`src/components/app/tool-card.tsx`) is
   shown from the test-only fixtures page for the `tool` and `denied` stills. Voice
@@ -89,5 +92,6 @@ through `intl-messageformat` (R33.7, R25.6).
 |-----------|--------------|-------|
 | issue-3 (M5, task 35) | The web renderer package: AI Elements copied in, the SDK client, the per-task store, A2UI through `@a2ui/react`, the composer with the palette, the task panel, strings from `en.json` | PR #11 |
 | issue-3 (M5, task 36) | The visual contract on Playwright against a scripted mock, axe at AA in both themes, the keyboard flow, the bundle scan, the capture script | PR #11 |
+| issue-3 (M5, task 37) | The end-to-end leg against the real binary (`test:e2e`) | PR #11 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

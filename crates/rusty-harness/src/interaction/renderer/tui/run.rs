@@ -34,6 +34,7 @@ pub enum TuiError {
 /// When the card cannot be fetched or the terminal cannot be set up.
 pub async fn run(mut app: App, url: &url::Url, host: &Host) -> Result<(), TuiError> {
     let card = fetch_card(host, url).await?;
+    app.adopt_card(&card);
     let extensions: Vec<String> = card
         .capabilities
         .extensions

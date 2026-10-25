@@ -625,8 +625,17 @@ impl LocalAgent {
                 streaming: Some(true),
                 ..a2a::AgentCapabilities::default()
             },
-            default_input_modes: vec!["text/plain".into()],
-            default_output_modes: vec!["text/plain".into()],
+            // Text both ways, and A2UI (R25.4): the ask's data part out, the client
+            // action's data part back; the SDK refuses a part whose media type the
+            // card does not list.
+            default_input_modes: vec![
+                "text/plain".into(),
+                crate::interaction::renderer::a2ui::MEDIA_TYPE.into(),
+            ],
+            default_output_modes: vec![
+                "text/plain".into(),
+                crate::interaction::renderer::a2ui::MEDIA_TYPE.into(),
+            ],
             skills: Vec::new(),
             provider: None,
             documentation_url: None,

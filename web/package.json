@@ -16,7 +16,8 @@
     "test:visual:update": "playwright test --project visual --project phone --update-snapshots",
     "test:a11y": "playwright test --project a11y",
     "capture": "PW_VIDEO=1 bun scripts/capture.ts",
-    "test:visual:container": "bash scripts/visual-in-container.sh"
+    "test:visual:container": "bash scripts/visual-in-container.sh",
+    "test:e2e": "playwright test --project e2e"
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.3.0",

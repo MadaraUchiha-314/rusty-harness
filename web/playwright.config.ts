@@ -5,7 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
 // the Playwright container image CI runs in (`bun run test:visual:update`).
 export default defineConfig({
   testDir: "tests",
-  testMatch: /(visual|a11y)\/.*\.spec\.ts/,
+  testMatch: /(visual|a11y|e2e)\/.*\.spec\.ts/,
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
@@ -36,6 +36,13 @@ export default defineConfig({
       name: "phone",
       testMatch: /visual\/phone\.spec\.ts/,
       use: { ...devices["Pixel 7"], viewport: { width: 420, height: 860 } },
+    },
+    {
+      // Against the real binary (built first: `cargo build -p rusty_harness --features cli`).
+      name: "e2e",
+      testMatch: /e2e\/.*\.spec\.ts/,
+      timeout: 120_000,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
     },
     {
       name: "a11y",

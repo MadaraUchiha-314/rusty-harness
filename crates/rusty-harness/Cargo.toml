@@ -36,7 +36,14 @@ rt-wasm = ["dep:wasm-bindgen-futures", "dep:gloo-timers"]
 # its dependencies in the milestone that implements it; an empty feature is a declared
 # seam, not a capability.
 # The A2A server, the inbox route and the HTTP bindings (native only).
-server = ["rt-tokio"]
+server = [
+  "rt-tokio",
+  "dep:a2a-server-lf",
+  "dep:axum",
+  "tokio/net",
+  "tokio/rt-multi-thread",
+  "tokio/signal",
+]
 # Tools over the official MCP Rust SDK (native only; the browser uses a host transport).
 mcp = ["rt-tokio", "dep:rmcp"]
 # Durable execution on the official Temporal Rust SDK (native only).
@@ -55,6 +62,8 @@ cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio"]
 [dependencies]
 a2a-lf = { workspace = true } # its lib name is `a2a`
 a2a-client-lf = { workspace = true, optional = true } # its lib name is `a2a_client`
+a2a-server-lf = { workspace = true, optional = true } # its lib name is `a2a_server`
+axum = { workspace = true, optional = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -99,6 +108,12 @@ uuid = { workspace = true, features = ["js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
 
+# The server binary (R30.1): minimal in M3 task 20, the full CLI in task 25 behind `cli`.
+[[bin]]
+name = "rusty-harness"
+path = "src/bin/rusty-harness.rs"
+required-features = ["server"]
+
 # The stdio MCP server the tool tests talk to (testing-plan T2); built only with `mcp`.
 [[bin]]
 name = "echo-mcp"
@@ -121,4 +136,4 @@ workspace = true
 [package.metadata.cargo-machete]
 # `a2a-lf`'s library is named `a2a`, which machete cannot map back to the package; the
 # wasm32-only `uuid` exists for feature unification (decision-003), not for direct use.
-ignored = ["a2a-lf", "a2a-client-lf"]
+ignored = ["a2a-lf", "a2a-client-lf", "a2a-server-lf"]

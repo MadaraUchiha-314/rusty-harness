@@ -257,7 +257,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M3 — App service layer (PR 3: `loop/issue-3-m3-service`)
 
-- [ ] 20. A2A server adapter: `HarnessExecutor: AgentExecutor` over the SDK's
+- [x] 20. A2A server adapter: `HarnessExecutor: AgentExecutor` over the SDK's
   `DefaultRequestHandler`, `AgentCardBuilder`, JSON-RPC and REST routers, the agent
   card route, the event-log tail as the response stream, `PersistenceStore` as the SDK
   `TaskStore`, the `a2a-grpc` feature wiring (off by default).

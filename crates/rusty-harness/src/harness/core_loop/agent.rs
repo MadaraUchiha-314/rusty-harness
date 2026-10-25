@@ -664,6 +664,7 @@ impl LocalAgent {
         request: &AgentRequest,
         text: String,
         at: DateTime<Utc>,
+        shell_version: Option<u64>,
     ) -> Result<TaskRecord, AgentError> {
         let caller = &request.call.caller;
         let mode = match task_meta(&request.message, "mode").and_then(Value::as_str) {
@@ -726,6 +727,7 @@ impl LocalAgent {
             message_event(&record, attempt, 0, request.message.clone(), at),
             status_event(&record, attempt, 0),
         ]);
+        commit.expect_version = Some(shell_version.unwrap_or(0));
         commit.blobs.push(Self::history_blob(&record.id, &history));
         self.store.commit(commit).await?;
         for parent in &record.parent_tasks {
@@ -754,7 +756,18 @@ impl LocalAgent {
         let at = now(&self.host);
         let caller = &request.call.caller;
         match self.store.get_task(&request.call.task_id).await? {
-            None => Ok((self.create_task(request, text, at).await?, true)),
+            None => Ok((self.create_task(request, text, at, None).await?, true)),
+            // A shell record the A2A server's task store created ahead of the executor
+            // (no participants yet): adopt it as the first message's task.
+            Some(record)
+                if record.participants.is_empty() && record.state == a2a::TaskState::Submitted =>
+            {
+                Ok((
+                    self.create_task(request, text, at, Some(record.version))
+                        .await?,
+                    true,
+                ))
+            }
             Some(record) if record.context_id != request.call.context_id => {
                 Err(AgentError::Unsupported(format!(
                     "task {} belongs to context {}, not {}",
@@ -1385,6 +1398,9 @@ impl LocalAgent {
         reason: CancelReason,
     ) -> Result<a2a::Task, AgentError> {
         let record = self.record(task).await?;
+        if record.state == a2a::TaskState::Canceled {
+            return Ok(record.to_a2a(Vec::new())); // idempotent: the SDK cancels in two steps
+        }
         if self.mailbox.is_running(task) {
             self.mailbox.signal(task, Signal::Cancel(reason));
             return Ok(record.to_a2a(Vec::new()));

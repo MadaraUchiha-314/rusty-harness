@@ -15,6 +15,8 @@ authors = ["MadaraUchiha-314"]
 # The official A2A protocol crates (protocol 1.0; crates.io names end in -lf, imported as `a2a`, `a2a_client`, `a2a_server`).
 a2a-lf = "0.4.2"
 a2a-client-lf = { version = "0.2.9", default-features = false }
+a2a-server-lf = { version = "0.5.3", default-features = false }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 async-trait = "0.1"
 base64 = "0.22"
 bytes = { version = "1", features = ["serde"] }

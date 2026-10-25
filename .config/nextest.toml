@@ -1,0 +1,4 @@
+# nextest policy (shared by local runs and CI): a test that stalls is terminated and
+# reported with its captured output, instead of holding the whole build hostage.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }

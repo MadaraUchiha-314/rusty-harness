@@ -47,25 +47,52 @@ async fn harness(turns: Vec<Vec<ModelEvent>>, configure: impl FnOnce(&mut Config
         .expect("builds")
 }
 
-async fn start(h: &Harness) -> String {
-    let server = serve(h, None).await.expect("binds");
-    let base = format!("http://{}/", server.addr);
-    tokio::spawn(server.run(std::future::pending()));
-    base
+/// A running server and the handle that shuts it down.
+struct Running {
+    base: String,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
+impl Running {
+    /// Stops the server (its heartbeat task ends with the runtime).
+    fn stop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+    }
+}
+
+async fn start(h: &Harness) -> Running {
+    let server = serve(h, None).await.expect("binds");
+    let base = format!("http://{}/", server.addr);
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(server.run(async move {
+        let _ = rx.await;
+    }));
+    Running {
+        base,
+        stop: Some(tx),
+    }
+}
+
+/// One JSON-RPC call, bounded so a stall names the call instead of hanging the build.
 async fn rpc(base: &str, participant: &str, method: &str, params: Value) -> Value {
-    reqwest::Client::new()
-        .post(base)
-        .header("A2A-Version", "1.0")
-        .header(PARTICIPANT_HEADER, participant)
-        .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }))
-        .send()
+    let call = async {
+        reqwest::Client::new()
+            .post(base)
+            .header("A2A-Version", "1.0")
+            .header(PARTICIPANT_HEADER, participant)
+            .json(&json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), call)
         .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap()
+        .unwrap_or_else(|_| panic!("{method} as {participant} did not answer within 60 s"))
 }
 
 fn message(text: &str, task: Option<&str>) -> Value {
@@ -128,7 +155,8 @@ async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_ques
         chrono::Utc::now(),
     );
     h.store().commit(TaskCommit::of(record)).await.unwrap();
-    let base = start(&h).await;
+    let mut running = start(&h).await;
+    let base = running.base.clone();
     let sent = rpc(
         &base,
         "alice",
@@ -184,6 +212,7 @@ async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_ques
         .unwrap();
     assert!(!body.contains("Deploy to prod?"), "{body}");
     assert!(body.contains("TASK_STATE_INPUT_REQUIRED"), "{body}");
+    running.stop();
 }
 
 /// Scenario: `GetTask` after a restart returns the full A2A task
@@ -199,7 +228,8 @@ async fn get_task_after_a_restart_returns_the_full_a2a_task() {
         c.persistence.path = Some(dir.clone());
     };
     let h = harness(vec![text("first"), text("second")], file).await;
-    let base = start(&h).await;
+    let mut running = start(&h).await;
+    let base = running.base.clone();
     let sent = rpc(
         &base,
         "alice",
@@ -215,10 +245,13 @@ async fn get_task_after_a_restart_returns_the_full_a2a_task() {
         json!({ "message": message("again", Some(&task)) }),
     )
     .await;
+    // The first process ends: its server stops before the second one opens the store.
+    running.stop();
     drop(h);
 
     let h2 = harness(vec![], file).await;
-    let base2 = start(&h2).await;
+    let mut running2 = start(&h2).await;
+    let base2 = running2.base.clone();
     let got = rpc(&base2, "alice", "GetTask", json!({ "id": task })).await;
     assert_eq!(got["result"]["id"], task, "{got}");
     assert_eq!(
@@ -238,6 +271,7 @@ async fn get_task_after_a_restart_returns_the_full_a2a_task() {
     assert_eq!(got["result"]["metadata"][TASK_EXT]["mode"], "long-running");
     let listed = rpc(&base2, "alice", "ListTasks", json!({})).await;
     assert_eq!(listed["result"]["tasks"].as_array().map_or(0, Vec::len), 1);
+    running2.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -276,7 +310,8 @@ async fn abuse_push_config_naming_a_link_local_address_is_rejected() {
         c.server.push.allow_hosts = vec!["hooks.example.com".into()];
     })
     .await;
-    let base = start(&h).await;
+    let mut running = start(&h).await;
+    let base = running.base.clone();
     let card: Value = reqwest::get(format!("{base}.well-known/agent-card.json"))
         .await
         .unwrap()
@@ -349,4 +384,5 @@ async fn abuse_push_config_naming_a_link_local_address_is_rejected() {
         "a non-participant cannot read push configs: {bob}"
     );
     let _: HashMap<String, String> = HashMap::new();
+    running.stop();
 }

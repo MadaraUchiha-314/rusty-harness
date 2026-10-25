@@ -21,3 +21,5 @@ Repository = "https://github.com/MadaraUchiha-314/rusty-harness"
 manifest-path = "../../crates/rusty-harness/Cargo.toml"
 bindings = "bin"
 features = ["cli"]
+# The size-tuned profile the other channels ship (decision-006).
+profile = "dist"

@@ -116,6 +116,9 @@ jobs:
       - run: bun run test
         working-directory: crates/rusty-harness-wasm
       - run: bunx tsc --noEmit -p crates/rusty-harness-wasm
+      - name: The npm CLI shim (packaging/npm)
+        run: bun run --cwd packaging/npm test
+      - run: bunx tsc --noEmit -p packaging/npm
       - run: bunx tsc --noEmit -p docs
       - run: bun run lint
       - run: bun run format
@@ -201,6 +204,11 @@ jobs:
   wheels:
     name: Wheels
     uses: ./.github/workflows/wheels.yml
+
+  binaries:
+    # The release dry run: every platform's binary, archive and npm package (Q8).
+    name: Binaries
+    uses: ./.github/workflows/binaries.yml
 
   docs:
     name: Docs

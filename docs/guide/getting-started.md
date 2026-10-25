@@ -3,6 +3,22 @@
 rusty-harness ships the same Rust core to three ecosystems. Pick yours. To run the agent
 as a server instead of embedding it, see [Run the server](./run-the-server).
 
+## The `rusty-harness` command
+
+The binary (the TUI, the A2A server and first-run setup) installs from any of the three
+registries, prebuilt for Linux (x64, arm64; glibc), macOS (x64, arm64) and Windows (x64),
+with nothing downloaded at install time:
+
+```sh
+npm i -g @rusty-harness/cli          # one optional dependency per platform
+pip install "rusty_harness[cli]"     # the rusty-harness-cli wheel, on PATH
+cargo install rusty_harness --features cli
+```
+
+Each release also attaches the archives (`rusty-harness-<version>-<platform>.tar.gz`,
+`.zip` on Windows) and their `SHA256SUMS` to the GitHub release. See
+[Run the TUI](./run-the-tui) for the first run.
+
 ## Rust
 
 ```sh

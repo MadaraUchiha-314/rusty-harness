@@ -479,7 +479,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R30.2, R3.3, R27.1, Q8
   - _Test:_ T15 — `uv run pytest` (parity table generated from the stub, one test per
     name), `uv run pyright`; T3 — the stub diff check
-- [ ] 44. CLI distribution on npm: `@rusty-harness/cli` with per-platform optional
+- [x] 44. CLI distribution on npm: `@rusty-harness/cli` with per-platform optional
   dependencies built by the release workflow, the `rusty-harness` bin shim, the release
   pipeline changes (`release.yml`, `wheels.yml`) with the binaries attached to the tag.
   - _Depends on:_ 43

@@ -70,7 +70,8 @@ From `crates/rusty-harness-wasm/`:
 
 ```sh
 bun run build              # wasm-pack build for bundler, web and nodejs into dist/
-bun run test               # vitest against the built package
+bun run types              # regenerate ts/config.d.ts from the config's JSON schema
+bun run test               # vitest against the built package (build first)
 bun run typecheck          # tsc --noEmit
 wasm-pack test --node      # Rust-side wasm-bindgen tests
 wasm-pack test --headless --chrome
@@ -78,6 +79,19 @@ wasm-pack test --headless --chrome
 
 From the root, `bun run lint` (oxlint, type-aware) and `bun run format` (oxfmt) cover every
 TypeScript, JSON, TOML and YAML file; `bun run format:fix` rewrites them.
+
+## Packaging the binary
+
+The `rusty-harness` binary ships as an npm package per platform behind
+`@rusty-harness/cli` (`packaging/npm/`) and as the `rusty-harness-cli` wheel
+(`packaging/pypi-cli/`, maturin `bin` bindings); every pull request builds all five
+platforms in the `Binaries` job, and a release attaches the archives to its tag.
+
+```sh
+bun run --cwd packaging/npm test        # the shim, against a fake binary laid out as npm would
+(cd packaging/pypi-cli && uvx --from 'maturin[patchelf]' maturin build --release)
+scripts/measure.sh                       # binary < 25 MB, wasm < 3 MB gzipped (T7)
+```
 
 ## Docs
 

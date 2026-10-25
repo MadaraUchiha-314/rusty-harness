@@ -105,9 +105,71 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          # The SDK and CLI wheels and the sdist; never the binary archives.
+          pattern: wheel-*
           path: dist
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  binaries:
+    name: Binaries
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    uses: ./.github/workflows/binaries.yml
+    with:
+      ref: ${{ needs.release.outputs.tag }}
+
+  release-assets:
+    name: Attach the binaries to the release
+    needs: [release, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
+      - name: Upload the archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          (cd dist/archive && sha256sum -- * > SHA256SUMS)
+          gh release upload "$TAG" dist/archive/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  npm-cli:
+    name: Publish the CLI to npm
+    needs: [release, binaries]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: binary-*
+          path: dist
+          merge-multiple: true
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          registry-url: https://registry.npmjs.org
+      # npm >= 11.5 exchanges the OIDC token for a publish token (trusted publishing).
+      - run: npm install -g npm@latest
+      - name: The platform packages, then the package that depends on them
+        run: |
+          for dir in dist/npm/cli-*; do
+            (cd "$dir" && npm publish --provenance --access public)
+          done
+          bun packaging/npm/scripts/pack.ts main dist/npm/cli
+          (cd dist/npm/cli && npm publish --provenance --access public)
 
   npm:
     name: Publish to npm

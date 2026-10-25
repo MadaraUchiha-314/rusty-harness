@@ -121,3 +121,13 @@ pedantic = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
 unimplemented = "warn"
+
+# The shipped `rusty-harness` binary (npm, PyPI, the GitHub release): under the 25 MB
+# budget (T7, decision-006). `release` stays as it is for benchmarks and dependants.
+[profile.dist]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

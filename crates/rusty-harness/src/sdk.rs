@@ -61,6 +61,9 @@ pub enum SdkError {
     /// A durable mode this build cannot run.
     #[error("durable mode {0:?} needs the `durable-temporal` feature and the service layer")]
     Durable(DurableMode),
+    /// Durable execution could not be reached or started (fail-closed at startup).
+    #[error("durable execution: {0}")]
+    DurableConnect(String),
 }
 
 /// Builds a [`Harness`]: `HarnessBuilder::new(config).host(host).llm(..).build().await`.
@@ -337,19 +340,59 @@ impl HarnessBuilder {
         let loopback: Arc<dyn crate::harness::core_loop::agent::Agent> = Arc::new(loopback);
         registry.register(loopback).map_err(reg)?;
 
-        if config.durable.mode != DurableMode::None {
-            return Err(SdkError::Durable(config.durable.mode));
-        }
+        #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+        let mut temporal: Option<
+            Arc<crate::app_service::durable::temporal::TemporalExecution>,
+        > = None;
         #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
-        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> = Some(
-            Arc::new(crate::app_service::durable::none::InProcessExecution::new(
-                Arc::clone(&agent),
-                Arc::new(crate::runtime::TokioRuntime::current()),
-                crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
-            )),
-        );
+        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> =
+            Some(match config.durable.mode {
+                DurableMode::None => {
+                    Arc::new(crate::app_service::durable::none::InProcessExecution::new(
+                        Arc::clone(&agent),
+                        Arc::new(crate::runtime::TokioRuntime::current()),
+                        crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
+                    ))
+                }
+                // Temporal (R22.1): connect first, so an unreachable service stops the
+                // start (fail-closed list); the worker runs in this process.
+                #[cfg(feature = "durable-temporal")]
+                DurableMode::Embedded | DurableMode::Remote => {
+                    use crate::app_service::durable::temporal::{
+                        TemporalConnection, TemporalExecution,
+                    };
+                    let secrets = agent
+                        .host()
+                        .secrets()
+                        .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
+                    let connection = TemporalConnection::connect(
+                        &config.durable,
+                        secrets.as_ref(),
+                        temporal_cache_dir(),
+                    )
+                    .await
+                    .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
+                    let execution = Arc::new(TemporalExecution::new(
+                        Arc::new(connection),
+                        Arc::clone(&agent),
+                        &crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
+                    ));
+                    execution
+                        .start_worker()
+                        .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
+                    temporal = Some(Arc::clone(&execution));
+                    execution
+                }
+                #[cfg(not(feature = "durable-temporal"))]
+                other => return Err(SdkError::Durable(other)),
+            });
         #[cfg(not(all(feature = "rt-tokio", not(target_arch = "wasm32"))))]
-        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> = None;
+        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> = {
+            if config.durable.mode != DurableMode::None {
+                return Err(SdkError::Durable(config.durable.mode));
+            }
+            None
+        };
         let inbox = durable.as_ref().map(|d| {
             Arc::new(crate::app_service::inbox::Inbox::new(
                 Arc::clone(&agent),
@@ -378,6 +421,8 @@ impl HarnessBuilder {
             durable,
             inbox,
             heartbeat,
+            #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+            temporal,
         })
     }
 }
@@ -474,6 +519,8 @@ pub struct Harness {
     durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>>,
     inbox: Option<Arc<crate::app_service::inbox::Inbox>>,
     heartbeat: Option<Arc<crate::app_service::heartbeat::Heartbeat>>,
+    #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+    temporal: Option<Arc<crate::app_service::durable::temporal::TemporalExecution>>,
 }
 
 impl core::fmt::Debug for Harness {
@@ -553,4 +600,20 @@ impl Harness {
     pub fn heartbeat(&self) -> Option<&Arc<crate::app_service::heartbeat::Heartbeat>> {
         self.heartbeat.as_ref()
     }
+
+    /// The Temporal mode, when durable execution runs on it (`embedded` or `remote`).
+    #[must_use]
+    #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+    pub fn temporal(
+        &self,
+    ) -> Option<&Arc<crate::app_service::durable::temporal::TemporalExecution>> {
+        self.temporal.as_ref()
+    }
+}
+
+/// Where `embedded` keeps the downloaded Temporal CLI: `~/.cache/rusty-harness/temporal`.
+#[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+fn temporal_cache_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join(".cache/rusty-harness/temporal"))
 }

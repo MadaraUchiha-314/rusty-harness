@@ -287,17 +287,25 @@ impl AgentExecutor for HarnessExecutor {
         ctx: ExecutorContext,
     ) -> BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>> {
         let agent = Arc::clone(&self.agent);
+        let inbox = Arc::clone(&self.inbox);
         let caller = Self::caller(&ctx);
         let task = ctx.task_id;
         Box::pin(futures::stream::once(async move {
-            agent
+            // Through durable execution, so the mode stops what it drives (R22.6).
+            inbox
                 .cancel(
                     &task,
                     crate::app_service::durable::CancelReason::Participant { by: caller.id },
                 )
                 .await
-                .map(a2a::StreamResponse::Task)
-                .map_err(|e| e.to_a2a())
+                .map_err(|e| e.to_a2a())?;
+            agent
+                .store()
+                .get_task(&task)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?
+                .map(|record| a2a::StreamResponse::Task(record.to_a2a(Vec::new())))
+                .ok_or_else(|| a2a::A2AError::task_not_found(&task))
         }))
     }
 }

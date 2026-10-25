@@ -188,11 +188,24 @@ async fn run(cli: Cli) -> i32 {
             }
         }
     }
-    if config.durable.mode != DurableMode::None {
-        say.error(keys::cli::error::DURABLE_UNREACHABLE, &FmtArgs::new());
-        return 2;
+    match config.durable.mode {
+        DurableMode::None => say.line(keys::cli::first_run::DURABLE_NONE, &FmtArgs::new()),
+        DurableMode::Embedded => {
+            say.line(keys::cli::first_run::DURABLE_EMBEDDED, &FmtArgs::new());
+        }
+        DurableMode::Remote => say.line(
+            keys::cli::first_run::DURABLE_REMOTE,
+            &FmtArgs::new().text(
+                "address",
+                config
+                    .durable
+                    .temporal
+                    .address
+                    .as_ref()
+                    .map_or_else(|| "the environment profile".to_owned(), ToString::to_string),
+            ),
+        ),
     }
-    say.line(keys::cli::first_run::DURABLE_NONE, &FmtArgs::new());
     if cli.url.is_some() {
         say.line(keys::cli::error::REMOTE_NOT_SUPPORTED, &FmtArgs::new());
     }
@@ -200,6 +213,14 @@ async fn run(cli: Cli) -> i32 {
     let loopback_only = config.server.security.is_none();
     let harness = match HarnessBuilder::new(config).host(host).build().await {
         Ok(h) => h,
+        Err(rusty_harness::SdkError::DurableConnect(reason)) => {
+            say.error(keys::cli::error::DURABLE_UNREACHABLE, &FmtArgs::new());
+            say.error(
+                keys::cli::error::STARTUP,
+                &FmtArgs::new().text("reason", reason),
+            );
+            return 2;
+        }
         Err(e) => {
             say.error(
                 keys::cli::error::STARTUP,

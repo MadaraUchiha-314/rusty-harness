@@ -338,7 +338,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: The embedded dev server starts and a trivial workflow
     completes` (ephemeral dev server); T8 — `abuse_temporal_payloads_carry_no_secret`
     (canary in the workflow history)
-- [ ] 29. `TaskWorkflow` and the activities: the deterministic loop body with
+- [x] 29. `TaskWorkflow` and the activities: the deterministic loop body with
   `build_context`, `call_model`, `execute_tool`, `send_a2a`, `set_state`, signals
   `inbox_event`/`cancel`/`complete`, the progress query, store-keyed payloads, the
   attempt protocol (incremental commits, `Retract` on retry), `DurableExecution::

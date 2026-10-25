@@ -231,6 +231,48 @@ pub enum LoopOutcome {
     Failed(String),
 }
 
+/// What `build_context` found (phase 1 of an iteration).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "begun")]
+pub enum Begun {
+    /// The request is built and persisted; call the model.
+    Context {
+        /// The blob holding the request (`ctx/<task>/<n>`).
+        ctx_key: String,
+        /// The request's size, for the token ratio.
+        chars: usize,
+        /// The model alias the router selected.
+        model: String,
+    },
+    /// The boundary ended the run (a signal, a limit, a waiting task).
+    Stopped {
+        /// How.
+        outcome: LoopOutcome,
+    },
+}
+
+/// What `call_model` produced (phase 2 of an iteration).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "model")]
+pub enum ModelPhase {
+    /// The turn is persisted; run its calls, then finish the iteration.
+    Turn {
+        /// The blob holding the turn (`turn/<task>/<n>`).
+        turn_key: String,
+        /// The ids of the tool calls the parse kept, in issue order.
+        calls: Vec<String>,
+        /// Why the model stopped.
+        stop: Option<crate::harness::models::llm::StopReason>,
+        /// Token usage, when the provider reported it.
+        usage: Option<crate::harness::models::llm::Usage>,
+    },
+    /// The model's failure ended the task (a veto, a non-retryable provider error).
+    Stopped {
+        /// How.
+        outcome: LoopOutcome,
+    },
+}
+
 /// What one iteration decided.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "iteration")]
@@ -472,6 +514,53 @@ pub struct LocalAgentParts {
 
 fn history_key(task: &str) -> String {
     format!("history/{task}")
+}
+
+/// The request of iteration `n` (phase 1 → 2).
+fn ctx_key(task: &str, n: u32) -> String {
+    format!("ctx/{task}/{n}")
+}
+
+/// The model's turn of iteration `n` (phase 2 → 3, 4).
+fn turn_key(task: &str, n: u32) -> String {
+    format!("turn/{task}/{n}")
+}
+
+/// One tool call's outcome in iteration `n` (phase 3 → 4).
+fn tool_key(task: &str, n: u32, call: &str) -> String {
+    format!("tool/{task}/{n}/{call}")
+}
+
+/// The model phase's view of a task the loop just failed.
+fn stopped(outcome: IterationOutcome) -> ModelPhase {
+    match outcome {
+        IterationOutcome::Stopped { outcome } => ModelPhase::Stopped { outcome },
+        _ => ModelPhase::Stopped {
+            outcome: LoopOutcome::Failed("the model phase stopped".into()),
+        },
+    }
+}
+
+/// The caller tools run as: the task's reporter, else the agent itself.
+fn reporter_caller(record: &TaskRecord, agent: &EntityId) -> Caller {
+    record
+        .participants
+        .iter()
+        .find(|p| p.has(Role::Reporter))
+        .map_or_else(
+            || Caller::system(agent.id.to_string()),
+            |p| Caller {
+                id: p.id.clone(),
+                roles: p.roles.clone(),
+                human: matches!(p.kind, ParticipantKind::Human),
+                channels: BTreeSet::new(),
+            },
+        )
+}
+
+/// A phase payload, serialized for the store.
+fn to_json<T: Serialize>(value: &T) -> Result<Vec<u8>, AgentError> {
+    serde_json::to_vec(value).map_err(|e| StoreError::Corrupt(e.to_string()).into())
 }
 
 fn now(host: &Host) -> DateTime<Utc> {
@@ -983,23 +1072,53 @@ impl LocalAgent {
         })
     }
 
-    /// One loop body (design.md § Agent and the core loop): the durable activities call
-    /// into it.
+    /// One iteration of the loop (design.md § Agent and the core loop): the four phases
+    /// in order, each reading what the one before persisted (R22.2: the phases are the
+    /// activities durable execution schedules; `none` runs them here in sequence).
     ///
     /// # Errors
     ///
-    /// An infrastructure failure (store, missing fragment); a veto or a model failure is
-    /// a `Stopped { Failed }` outcome, not an error.
-    #[allow(clippy::too_many_lines)]
+    /// Infrastructure failures (the store, a model error worth retrying); everything the
+    /// loop decides is an [`IterationOutcome`].
     pub async fn run_iteration(
         &self,
         task: &TaskId,
         n: u32,
     ) -> Result<IterationOutcome, AgentError> {
+        let attempt = Attempt { iteration: n, n: 1 };
+        if let Begun::Stopped { outcome } = self.iteration_begin(task, n).await? {
+            return Ok(IterationOutcome::Stopped { outcome });
+        }
+        let calls = match self.iteration_model(task, n, attempt).await? {
+            ModelPhase::Stopped { outcome } => return Ok(IterationOutcome::Stopped { outcome }),
+            ModelPhase::Turn { calls, .. } => calls,
+        };
+        // tool.execute ×n, concurrently, results read back in issue order (R8.2).
+        for result in futures::future::join_all(
+            calls
+                .iter()
+                .map(|call| self.iteration_tool(task, n, attempt, call)),
+        )
+        .await
+        {
+            result?;
+        }
+        self.iteration_finish(task, n, attempt).await
+    }
+
+    /// Phase 1, `build_context`: the boundary (events, signals, limits), then the context
+    /// with compaction when needed; the request lands in `ctx/<task>/<n>` and the history
+    /// in its blob, so the next phase needs only the keys (store-keyed payloads, R22.2).
+    ///
+    /// # Errors
+    ///
+    /// Infrastructure failures.
+    #[allow(clippy::too_many_lines)] // one phase, read top to bottom
+    pub async fn iteration_begin(&self, task: &TaskId, n: u32) -> Result<Begun, AgentError> {
         let mut record = self.record(task).await?;
+        let attempt = Attempt { iteration: n, n: 1 };
         if record.state == a2a::TaskState::Submitted {
             record = self.change(record, Transition::Start).await?;
-            let attempt = Attempt { iteration: n, n: 1 };
             self.store
                 .commit(
                     TaskCommit::of(record.clone()).with_events([status_event(&record, attempt, 0)]),
@@ -1007,13 +1126,35 @@ impl LocalAgent {
                 .await?;
             record = self.record(task).await?;
         }
+        if record.state == a2a::TaskState::InputRequired {
+            // A waiting task wakes only for a message the inbox holds for it (R23.1).
+            let has_message = self.store.pending_inbox(task).await?.iter().any(|e| {
+                !record.applied_events.contains(&e.id)
+                    && matches!(e.kind, a2a::StreamResponse::Message(_))
+            });
+            if !has_message {
+                return Ok(Begun::Stopped {
+                    outcome: outcome_of(&record),
+                });
+            }
+            record = self.change(record, Transition::Resume).await?;
+            let cx = self.cx(&record);
+            let mut history = self.load_history(task).await?;
+            self.apply_pending_inbox(&mut record, &mut history, &cx)
+                .await?;
+            if record.state != a2a::TaskState::Working {
+                let mut commit = TaskCommit::of(record.clone());
+                commit.blobs.push(Self::history_blob(task, &history));
+                self.store.commit(commit).await?;
+                record = self.record(task).await?;
+            }
+        }
         if record.state != a2a::TaskState::Working {
-            return Ok(IterationOutcome::Stopped {
+            return Ok(Begun::Stopped {
                 outcome: outcome_of(&record),
             });
         }
         let cx = self.cx(&record);
-        let attempt = Attempt { iteration: n, n: 1 };
         let mut history = self.load_history(task).await?;
 
         // Boundary: events that arrived since the last step, then signals (R11.5). The
@@ -1043,13 +1184,18 @@ impl LocalAgent {
         self.apply_pending_inbox(&mut record, &mut history, &cx)
             .await?;
         if let Some(signal) = self.mailbox.take_signal(task) {
-            return self.stop(record, history, attempt, signal).await;
+            return match self.stop(record, history, attempt, signal).await? {
+                IterationOutcome::Stopped { outcome } => Ok(Begun::Stopped { outcome }),
+                _ => Ok(Begun::Stopped {
+                    outcome: outcome_of(&self.record(task).await?),
+                }),
+            };
         }
 
-        // 1. context.build (with compaction when the estimate is above the threshold).
+        // context.build (with compaction when the estimate is above the threshold).
         let llm = self.router.current()?;
         let alias = self.router.selection().model;
-        let mut ratio = self.ratio_for(&alias);
+        let ratio = self.ratio_for(&alias);
         let mut inputs = self.inputs(&record, history.clone()).await?;
         let mut built = self
             .builder
@@ -1090,9 +1236,49 @@ impl LocalAgent {
                 .await?;
         }
         let chars = request_chars(&built.request);
+        let ctx_key = ctx_key(task, n);
+        self.store
+            .put_blob(&ctx_key, Bytes::from(to_json(&built.request)?))
+            .await?;
+        let history_blob = Self::history_blob(task, &history);
+        self.store
+            .put_blob(&history_blob.key, history_blob.bytes)
+            .await?;
+        Ok(Begun::Context {
+            ctx_key,
+            chars,
+            model: alias,
+        })
+    }
 
-        // 2. model.call
-        let request = built.request;
+    /// Phase 2, `call_model`: the request from `ctx/<task>/<n>` to the model, then
+    /// `response.parse`; the turn (with the parsed calls) lands in `turn/<task>/<n>`.
+    ///
+    /// # Errors
+    ///
+    /// A retryable provider error that ran out of attempts, or the store: infrastructure
+    /// failures durable execution may retry (R22.3). A non-retryable provider error or a
+    /// veto fails the task and is a [`ModelPhase::Stopped`].
+    pub async fn iteration_model(
+        &self,
+        task: &TaskId,
+        n: u32,
+        attempt: Attempt,
+    ) -> Result<ModelPhase, AgentError> {
+        let record = self.record(task).await?;
+        if record.state != a2a::TaskState::Working {
+            return Ok(ModelPhase::Stopped {
+                outcome: outcome_of(&record),
+            });
+        }
+        let cx = self.cx(&record);
+        let request: ModelRequest = self.load_json(&ctx_key(task, n), "context").await?;
+        let chars = request_chars(&request);
+        let llm = self.router.current()?;
+        let alias = self.router.selection().model;
+        let mut ratio = self.ratio_for(&alias);
+
+        // model.call
         let model_error: Arc<Mutex<Option<ModelError>>> = Arc::default();
         let sink = Arc::clone(&model_error);
         let turn = match self
@@ -1113,7 +1299,9 @@ impl LocalAgent {
         {
             Ok(turn) => turn,
             Err(HarnessError::Vetoed(v)) => {
-                return self.fail_task(record, attempt, "vetoed", v.reason).await;
+                return Ok(stopped(
+                    self.fail_task(record, attempt, "vetoed", v.reason).await?,
+                ));
             }
             Err(e) => {
                 let provider = model_error
@@ -1125,8 +1313,10 @@ impl LocalAgent {
                     // a retryable one that ran out of attempts is an infrastructure
                     // failure durable execution may retry.
                     Some(err @ (ModelError::NonRetryable { .. } | ModelError::Decode(_))) => {
-                        self.fail_task(record, attempt, "model", err.to_string())
-                            .await
+                        Ok(stopped(
+                            self.fail_task(record, attempt, "model", err.to_string())
+                                .await?,
+                        ))
                     }
                     _ => Err(e.into()),
                 };
@@ -1139,6 +1329,88 @@ impl LocalAgent {
                 .unwrap_or_else(PoisonError::into_inner)
                 .insert(alias, ratio);
         }
+
+        // response.parse: hooks decide the calls the model's turn made.
+        let calls = self
+            .dispatcher
+            .run::<ResponseParse, _, _>(&cx, turn.clone(), |t| async move { Ok(t.tool_calls) })
+            .await?;
+        let mut turn = turn;
+        turn.tool_calls = calls;
+        let turn_key = turn_key(task, n);
+        self.store
+            .put_blob(&turn_key, Bytes::from(to_json(&turn)?))
+            .await?;
+        Ok(ModelPhase::Turn {
+            turn_key,
+            calls: turn.tool_calls.iter().map(|c| c.id.clone()).collect(),
+            stop: turn.stop,
+            usage: turn.usage,
+        })
+    }
+
+    /// Phase 3, `execute_tool`: one of the turn's calls, under the task's cancellation
+    /// token and the idempotency key `(task, n, call)`; the outcome lands in
+    /// `tool/<task>/<n>/<call>`.
+    ///
+    /// # Errors
+    ///
+    /// The store, or a call the turn does not have.
+    pub async fn iteration_tool(
+        &self,
+        task: &TaskId,
+        n: u32,
+        attempt: Attempt,
+        call_id: &str,
+    ) -> Result<(), AgentError> {
+        let record = self.record(task).await?;
+        let cx = self.cx(&record);
+        let turn: ModelTurn = self.load_json(&turn_key(task, n), "turn").await?;
+        let call = turn
+            .tool_calls
+            .into_iter()
+            .find(|c| c.id == call_id)
+            .ok_or_else(|| {
+                AgentError::Unsupported(format!("task {task}: no call {call_id} in turn {n}"))
+            })?;
+        let caller = reporter_caller(&record, &self.id);
+        let token = self.mailbox.token(task);
+        let executed = self
+            .executor
+            .execute_one(&cx, task, attempt, &caller, &token, call)
+            .await;
+        self.store
+            .put_blob(
+                &tool_key(task, n, call_id),
+                Bytes::from(to_json(&executed)?),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Phase 4, `finish_iteration` (`response.deliver` or the tools' fold): the turn and
+    /// the tool outcomes read back by key, the history extended, one commit (R21.1,
+    /// R21.3, R8.2).
+    ///
+    /// # Errors
+    ///
+    /// The store, or a missing turn or tool outcome.
+    #[allow(clippy::too_many_lines)] // one phase, read top to bottom
+    pub async fn iteration_finish(
+        &self,
+        task: &TaskId,
+        n: u32,
+        attempt: Attempt,
+    ) -> Result<IterationOutcome, AgentError> {
+        let mut record = self.record(task).await?;
+        if record.state != a2a::TaskState::Working {
+            return Ok(IterationOutcome::Stopped {
+                outcome: outcome_of(&record),
+            });
+        }
+        let cx = self.cx(&record);
+        let mut history = self.load_history(task).await?;
+        let turn: ModelTurn = self.load_json(&turn_key(task, n), "turn").await?;
         history.push(Turn::new(HistoryEntry::Assistant {
             text: turn.text.clone(),
             tool_calls: turn.tool_calls.clone(),
@@ -1147,16 +1419,11 @@ impl LocalAgent {
             a2a::Message::new(a2a::Role::Agent, vec![a2a::Part::text(turn.text.clone())]);
         reply.task_id = Some(task.clone());
         reply.context_id = Some(record.context_id.clone());
-
-        // 3. response.parse
-        let calls = self
-            .dispatcher
-            .run::<ResponseParse, _, _>(&cx, turn.clone(), |t| async move { Ok(t.tool_calls) })
-            .await?;
+        let calls = turn.tool_calls;
         record.iteration = n;
 
         if calls.is_empty() {
-            // 4a. response.deliver and the close-or-keep-open policy (R11.3, R21.1, R21.3).
+            // response.deliver and the close-or-keep-open policy (R11.3, R21.1, R21.3).
             let delivery = self
                 .dispatcher
                 .run::<ResponseDeliver, _, _>(
@@ -1182,29 +1449,14 @@ impl LocalAgent {
             return Ok(IterationOutcome::Delivered);
         }
 
-        // 4b. tool.execute ×n, results in issue order (R8.2).
-        let caller = record
-            .participants
-            .iter()
-            .find(|p| p.has(Role::Reporter))
-            .map_or_else(
-                || Caller::system(self.id.id.to_string()),
-                |p| Caller {
-                    id: p.id.clone(),
-                    roles: p.roles.clone(),
-                    human: matches!(p.kind, ParticipantKind::Human),
-                    channels: BTreeSet::new(),
-                },
-            );
-        let token = self.mailbox.token(task);
-        let executed = self
-            .executor
-            .execute_all(&cx, task, attempt, &caller, &token, calls)
-            .await;
+        // The tools' outcomes, in issue order (R8.2).
         let mut pending: Vec<PendingCall> = Vec::new();
         let mut question: Option<a2a::Message> = None;
-        for e in executed {
-            match e {
+        for call in &calls {
+            let executed: Executed = self
+                .load_json(&tool_key(task, n, &call.id), "tool outcome")
+                .await?;
+            match executed {
                 Executed::Result { result } => history.push(Turn::new(HistoryEntry::ToolResult {
                     call_id: result.call_id.clone(),
                     text: result.render(),
@@ -1275,6 +1527,48 @@ impl LocalAgent {
             return self.stop(record, history, attempt, signal).await;
         }
         Ok(IterationOutcome::Continue)
+    }
+
+    /// A blob the phases exchange, decoded.
+    async fn load_json<T: serde::de::DeserializeOwned>(
+        &self,
+        key: &str,
+        what: &str,
+    ) -> Result<T, AgentError> {
+        let bytes = self
+            .store
+            .get_blob(&key.to_owned())
+            .await?
+            .ok_or_else(|| AgentError::Unsupported(format!("{what} {key} is missing")))?;
+        Ok(serde_json::from_slice(&bytes).map_err(|e| StoreError::Corrupt(e.to_string()))?)
+    }
+
+    /// The attempt protocol's retraction (R22.4, design.md § Durable execution): a status
+    /// update whose `task/v1` metadata names the attempt renderers must drop, committed
+    /// before the retry begins. The record is untouched.
+    ///
+    /// # Errors
+    ///
+    /// The store.
+    pub async fn retract(&self, task: &TaskId, attempt: Attempt) -> Result<(), AgentError> {
+        let record = self.record(task).await?;
+        let mut update = record.status_update();
+        update.metadata.get_or_insert_with(HashMap::new).insert(
+            TASK_EXT.to_owned(),
+            serde_json::json!({ "retracted": [attempt] }),
+        );
+        let event = StoredEvent {
+            id: StoredEvent::event_id(&record.id, attempt, "retract", 0),
+            seq: 0,
+            at: now(&self.host),
+            attempt,
+            visibility: Visibility::All,
+            response: a2a::StreamResponse::StatusUpdate(update),
+        };
+        self.store
+            .commit(TaskCommit::of(record).with_events([event]))
+            .await?;
+        Ok(())
     }
 
     /// Folds the store's pending inbox events into the task at a boundary (R20.4–5): a

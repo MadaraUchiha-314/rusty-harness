@@ -21,10 +21,14 @@ use crate::config::{DurableConfig, DurableMode, TemporalConfig};
 use crate::host::{SecretRef, SecretResolver};
 
 pub mod codec;
+pub mod execution;
 pub mod ping;
+pub mod workflow;
 
 pub use codec::SecretGuard;
+pub use execution::TemporalExecution;
 pub use ping::{PingActivities, PingWorkflow, ping_worker_options};
+pub use workflow::{Progress, TaskActivities, TaskWorkflow, TaskWorkflowInput};
 
 /// The identity every connection announces.
 const IDENTITY: &str = concat!("rusty-harness/", env!("CARGO_PKG_VERSION"));
@@ -372,6 +376,35 @@ impl Drop for TemporalWorker {
 #[cfg(test)]
 mod tests {
     use super::{SecretGuard, remote_options};
+    use crate::app_service::durable::temporal::workflow::TaskWorkflow;
+
+    /// T1: the recorded history of the three-turn scenario replays against the current
+    /// `TaskWorkflow` without nondeterminism (the fixture is rewritten by the embedded
+    /// scenario under `UPDATE_SNAPSHOTS=1` whenever the workflow changes).
+    #[tokio::test]
+    async fn the_recorded_history_replays_against_the_current_workflow() {
+        use temporalio_client::WorkflowHistory;
+        use temporalio_sdk::workflow_replayer::{WorkflowReplayer, WorkflowReplayerOptions};
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/temporal/task_workflow_history.json");
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| {
+            panic!(
+                "{}: {e} (record it with UPDATE_SNAPSHOTS=1)",
+                path.display()
+            )
+        });
+        let history = WorkflowHistory::from_json(&bytes).expect("a history");
+        let options = WorkflowReplayerOptions::new()
+            .register_workflow::<TaskWorkflow>()
+            .expect("registers")
+            .build();
+        let replayer = WorkflowReplayer::new(options).expect("replayer");
+        replayer
+            .replay_workflow(history)
+            .await
+            .expect("the history replays against the current workflow");
+    }
+
     use crate::config::TemporalConfig;
     use crate::host::SecretRef;
     use crate::host::testing::MapSecrets;

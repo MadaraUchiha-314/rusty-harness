@@ -103,6 +103,10 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
 ] }
 wasm-bindgen = "0.2"
 web-time = "1"
+criterion = { version = "0.8", default-features = false, features = [
+  "async_tokio",
+  "cargo_bench_support",
+] }
 js-sys = "0.3"
 web-sys = "0.3"
 zeroize = "1"

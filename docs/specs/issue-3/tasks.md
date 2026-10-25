@@ -487,7 +487,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T16 — a dry run of the release workflow on a tag of the PR branch (artifact
     names and sizes); T7 — `scripts/measure.sh` binary size (< 25 MB) and wasm bundle
     (< 3 MB gzipped)
-- [ ] 45. Prompt caching and performance: cache breakpoints verified against both
+- [x] 45. Prompt caching and performance: cache breakpoints verified against both
   providers' usage fields, the demo flow's hit rate measured, the `loop_overhead`
   criterion benchmark (p50 < 5 ms with `RecordedLlm`), TUI cold start measured.
   - _Depends on:_ 42

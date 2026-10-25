@@ -48,8 +48,8 @@ the failure is visible and recovered from.
 - A panic anywhere in the shipped binary ends the process, and the panic message is the
   last thing on stderr.
 - Every channel builds with `--profile dist`: `binaries.yml`, the CLI wheel (maturin
-  `profile = "dist"`) and `scripts/measure.sh`. `binaries.yml` fails a build over 25 MB
-  on every platform.
+  `profile = "dist"`) and `scripts/measure.sh`. `binaries.yml` reports each platform's
+  size and warns over 25 MB; the targets are measured, not gates (Q13).
 - Fat LTO makes the shipped build slow (about ten minutes locally), which is why it is a
   separate profile and not part of `cargo build --release`.
 

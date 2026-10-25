@@ -59,8 +59,9 @@ jobs:
             | jq -r '.packages[] | select(.name == "rusty_harness") | .version')"
           bytes="$(wc -c < "$binary" | tr -d ' ')"
           echo "| ${{ matrix.platform }} | \`$exe\` | $bytes bytes |" >> "$GITHUB_STEP_SUMMARY"
+          # A measured target, not a gate (Q13): flag it on the run, keep building.
           if (( bytes > 25000000 )); then
-            echo "::error::$exe is $bytes bytes, over the 25 MB budget (T7, decision-006)"; exit 1
+            echo "::warning::$exe is $bytes bytes, over the 25 MB target (T7, decision-006)"
           fi
           mkdir -p dist/archive dist/npm
           bun packaging/npm/scripts/pack.ts platform ${{ matrix.platform }} "$binary" \
@@ -83,6 +84,11 @@ jobs:
           cp -R "dist/npm/cli-${{ matrix.platform }}" "$modules/"
           bun packaging/npm/scripts/pack.ts main "$modules/cli"
           node "$modules/cli/bin/rusty-harness.js" --version
+      - name: TUI cold start (T7, measured)
+        if: runner.os == 'Linux'
+        run: |
+          ms="$(python3 scripts/cold-start.py "target/${{ matrix.target }}/dist/rusty-harness" 5)"
+          echo "| ${{ matrix.platform }} | TUI cold start | $ms ms (median of 5) |" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.platform }}

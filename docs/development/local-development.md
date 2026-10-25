@@ -90,7 +90,10 @@ platforms in the `Binaries` job, and a release attaches the archives to its tag.
 ```sh
 bun run --cwd packaging/npm test        # the shim, against a fake binary laid out as npm would
 (cd packaging/pypi-cli && uvx --from 'maturin[patchelf]' maturin build --release)
-scripts/measure.sh                       # binary < 25 MB, wasm < 3 MB gzipped (T7)
+scripts/measure.sh                       # binary, wasm and TUI cold start vs their targets (T7)
+cargo bench -p rusty_harness --bench loop_overhead   # one turn through the loop (p50 < 5 ms)
+# The prompt-cache hit rate against OpenAI (spends a few cents; needs OPENAI_API_KEY):
+cargo run -p rusty_harness --features rt-tokio --example cache_hit_rate
 ```
 
 ## Docs

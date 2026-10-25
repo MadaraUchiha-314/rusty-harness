@@ -53,6 +53,13 @@ through `intl-messageformat` (R33.7, R25.6).
   disabled and the next message SHALL start a new task referencing it (R26.3, R21.7).
 - WHEN text is shown to a person THEN it SHALL come from `strings/en.json`; the strings
   test fails on a key the renderer references that the catalog lacks (R33.7).
+- WHEN the visual suite runs THEN every prototype state SHALL match its baseline still in
+  light and dark, and the phone width SHALL scroll vertically only (R26.7).
+- WHEN axe runs at WCAG 2.1 AA on a state THEN there SHALL be no violation in either
+  theme, and `Enter`, `Shift+Enter`, `/` and `Esc` SHALL do what the hint says (NFR
+  accessibility).
+- WHEN the built bundles are scanned THEN no provider key pattern and no model provider
+  host SHALL be found (abuse 11, boundary 7).
 
 ## Design
 
@@ -62,14 +69,25 @@ through `intl-messageformat` (R33.7, R25.6).
   `bun run --cwd web test:strings` (T14), `bunx tsc --noEmit -p web`,
   `bun run --cwd web build`; the conformance suite stays at `bun run --cwd web test:contract`
   (T3).
-- Not yet on the wire, so not yet rendered: tool-call progress and streamed text deltas;
-  the `Tool` composition (`src/components/app/tool-card.tsx`) is ready for them. The
-  visual contract, accessibility and voice legs arrive with tasks 36 and 39.
+- The browser legs run the production bundle against a scripted A2A mock
+  (`web/tests/support/mock-harness.ts`: the card and the JSON-RPC methods, one event
+  stream per prototype state): `bun run --cwd web test:visual` keeps one still per state
+  in light and dark plus the phone width under `tests/visual/__screenshots__` (T5; the
+  baselines are captured in the Playwright image CI runs in, `test:visual:update`
+  re-captures them), `bun run --cwd web test:a11y` runs axe at WCAG 2.1 AA on every state
+  in both themes and walks the keyboard flow (T9), `bun run --cwd web test:bundle-scan`
+  refuses a provider key pattern or a provider host in the built bundles (T8, abuse 11).
+  `bun run --cwd web capture` records the multi-turn flow as the evidence GIF.
+- Not yet on the wire, so not yet rendered from the stream: tool-call progress and
+  streamed text deltas; the `Tool` composition (`src/components/app/tool-card.tsx`) is
+  shown from the test-only fixtures page for the `tool` and `denied` stills. Voice
+  arrives with task 39.
 
 ## History
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
 | issue-3 (M5, task 35) | The web renderer package: AI Elements copied in, the SDK client, the per-task store, A2UI through `@a2ui/react`, the composer with the palette, the task panel, strings from `en.json` | PR #11 |
+| issue-3 (M5, task 36) | The visual contract on Playwright against a scripted mock, axe at AA in both themes, the keyboard flow, the bundle scan, the capture script | PR #11 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

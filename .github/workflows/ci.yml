@@ -119,6 +119,9 @@ jobs:
   web:
     name: Web renderer
     runs-on: ubuntu-latest
+    # The Playwright image pins Chromium and the fonts the screenshot baselines were
+    # captured with (web/tests/visual/__screenshots__); run the browser legs in it.
+    container: mcr.microsoft.com/playwright:v1.64.1-noble
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -126,6 +129,24 @@ jobs:
       - run: bunx tsc --noEmit -p web
       - run: bun run --cwd web test
       - run: bun run --cwd web build
+      - name: the bundle carries no credential (abuse 11)
+        run: bun run --cwd web test:bundle-scan
+      - name: the visual contract (T5)
+        run: bun run --cwd web test:visual
+        env:
+          CI: "1"
+      - name: accessibility at WCAG 2.1 AA (T9)
+        run: bun run --cwd web test:a11y
+        env:
+          CI: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: web-playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 7
 
   conformance:
     name: A2A conformance (TypeScript SDK)

@@ -6,6 +6,7 @@ import {
   PlanTrigger,
 } from "@/components/ai-elements/plan";
 import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
+import { ListTreeIcon } from "lucide-react";
 import { t } from "@/i18n";
 import { stateName, type TaskView } from "@/store/task";
 
@@ -88,7 +89,16 @@ export function TaskPanel({ task, durable }: { task: TaskView | undefined; durab
           </ol>
           {subTasks.length > 0 && (
             <Task defaultOpen>
-              <TaskTrigger title={t("web.task.sub_tasks", { n: subTasks.length })} />
+              {/* A real button carries the trigger's aria attributes (WCAG 4.1.2). */}
+              <TaskTrigger title={t("web.task.sub_tasks", { n: subTasks.length })}>
+                <button
+                  type="button"
+                  className="flex w-full cursor-pointer items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground"
+                >
+                  <ListTreeIcon className="size-4" aria-hidden="true" />
+                  <span>{t("web.task.sub_tasks", { n: subTasks.length })}</span>
+                </button>
+              </TaskTrigger>
               <TaskContent>
                 {subTasks.map((s) => (
                   <TaskItem key={s.task}>{s.task}</TaskItem>

@@ -33,6 +33,8 @@ cargo nextest run -p rusty_harness --all-features -E 'binary(durable_temporal) |
 cargo nextest run -p rusty_harness --features tui -E 'test(tui_snapshot_)'
 # The web renderer (web/): component and strings tests, types, the production bundle:
 bun run --cwd web test && bunx tsc --noEmit -p web && bun run --cwd web build
+# The browser legs (Playwright; `bunx playwright install chromium` once): stills, axe, the bundle scan
+bun run --cwd web test:visual && bun run --cwd web test:a11y && bun run --cwd web test:bundle-scan
 # The core must stay runtime-free for the browser:
 cargo check --target wasm32-unknown-unknown -p rusty_harness --no-default-features --features rt-wasm
 # Supply chain:

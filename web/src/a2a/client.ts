@@ -78,7 +78,15 @@ export function messageJson(outgoing: Outgoing): Record<string, unknown> {
 
 /** `SendStreamingMessage`. */
 export function send(client: Client, outgoing: Outgoing): AsyncGenerator<StreamResponse> {
-  return client.sendMessageStream(SendMessageRequest.fromJSON({ message: messageJson(outgoing) }));
+  return sendJson(client, messageJson(outgoing));
+}
+
+/** `SendStreamingMessage` with a message already shaped (see [`messageJson`]). */
+export function sendJson(
+  client: Client,
+  message: Record<string, unknown>,
+): AsyncGenerator<StreamResponse> {
+  return client.sendMessageStream(SendMessageRequest.fromJSON({ message }));
 }
 
 /** The task extension's complete message (R21.7). */

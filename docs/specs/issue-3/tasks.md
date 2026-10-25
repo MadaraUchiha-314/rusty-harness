@@ -410,7 +410,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R26.1–3, R26.5–6, R10.5, R21.7, R25.4, R33.7
   - _Test:_ T1 — `bun run --cwd web test` (component tests per AI Element composition);
     T3 — the contract suite moves into `web/` (`test:contract`); T14 — `test:strings`
-- [ ] 36. Web visual contract and accessibility: Playwright screenshots of every
+- [x] 36. Web visual contract and accessibility: Playwright screenshots of every
   prototype state compared with `design/screenshots/`, the multi-turn GIF, axe at WCAG
   2.1 AA in light and dark, keyboard flow (`Enter`, `Shift+Enter`, `/`, `Esc`), the
   bundle scan for key patterns. 🔒 boundary 7.

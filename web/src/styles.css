@@ -21,7 +21,7 @@
   --secondary: #f4f4f5;
   --secondary-foreground: #18181b;
   --muted: #f4f4f5;
-  --muted-foreground: #71717a;
+  --muted-foreground: #52525b;
   --accent: #ffedd5;
   --accent-foreground: #c2410c;
   --destructive: #b91c1c;
@@ -189,4 +189,20 @@
   @apply inline-block rounded-md px-1.5 font-mono font-semibold;
   background: var(--cmd-soft);
   color: var(--cmd);
+}
+
+/* The A2UI basic catalog renders in the light DOM; its primary button takes the agent
+   accent (AA contrast in both themes) and its surface sits on the card. */
+.a2ui .a2ui-button-primary,
+.a2ui .a2ui-button-primary:hover {
+  background: var(--agent) !important;
+  border-color: var(--agent) !important;
+  color: var(--agent-foreground) !important;
+}
+.a2ui .a2ui-button-primary * {
+  color: var(--agent-foreground) !important;
+}
+.a2ui .a2ui-textfield,
+.a2ui .a2ui-surface {
+  color: var(--foreground);
 }

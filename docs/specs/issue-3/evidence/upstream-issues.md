@@ -30,3 +30,20 @@ the SDK ships a feature, the matching piece of `protocol_gap` is deleted.
   service parameter, and `a2a_server::GuardedHandler` wrapping the SDK handler with an
   async participant check and membership-filtered `ListTasks`.
 - **Status:** draft, to be filed.
+
+## 3. `@a2ui/web_core` 0.14 basic catalog: unlabelled text field, primary button below AA
+
+- **Where:** `universal/basic_catalog/components/TextField.js` renders the label
+  (`<label>${props.label}</label>`) and the `<input class="a2ui-textfield">` as siblings
+  with no `for`/`id` or `aria-labelledby`, so axe reports `label` (critical) on every
+  text field;
+  the default primary button colour on white text sits below 4.5:1, so axe reports
+  `color-contrast` (serious) on `.a2ui-button-primary` (`web/tests/a11y/axe.spec.ts`,
+  the A2UI form state).
+- **Spec:** WCAG 2.1 AA 1.3.1 / 4.1.2 (name, role, value) and 1.4.3 (contrast).
+- **Our workaround:** `web/src/components/app/a2ui-block.tsx` names each
+  `input.a2ui-textfield` from its sibling label with `aria-label` (a `MutationObserver`
+  keeps re-renders labelled); `web/src/styles.css` paints `.a2ui-button-primary` in the
+  agent accent, which meets AA in both themes.
+- **To file against:** <https://github.com/google/A2UI> (`web_core`, basic catalog).
+- **Status:** draft, to be filed.

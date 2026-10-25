@@ -41,6 +41,28 @@ export function A2uiBlock({
     };
   }, [processor]);
 
+  // The basic catalog renders a text field's `<label>` as a sibling of its `<input>`,
+  // unassociated (upstream issue 3 in evidence/upstream-issues.md); name the input from
+  // it so assistive technology announces the field (WCAG 1.3.1, 4.1.2).
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const nameInputs = () => {
+      const root = host.current;
+      if (!root) return;
+      for (const input of root.querySelectorAll<HTMLInputElement>("input.a2ui-textfield")) {
+        if (input.hasAttribute("aria-label") || input.hasAttribute("aria-labelledby")) continue;
+        const text = input.parentElement?.querySelector("label")?.textContent?.trim();
+        if (text) input.setAttribute("aria-label", text);
+      }
+    };
+    const observer = new MutationObserver(nameInputs);
+    if (host.current) {
+      nameInputs();
+      observer.observe(host.current, { childList: true, subtree: true });
+    }
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     // Messages only grow for one ask; feed the processor the ones it has not seen.
     if (messages.length > applied.current) {
@@ -57,6 +79,7 @@ export function A2uiBlock({
 
   return (
     <div
+      ref={host}
       className="a2ui rounded-lg border bg-card p-4 shadow-xs"
       role="form"
       aria-label={label ?? t("tui.a2ui.title")}

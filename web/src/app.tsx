@@ -1,14 +1,16 @@
 // The web renderer: one harness over the official SDK, one store per task, the AI
 // Elements for the chrome (design.md § Web renderer; R26).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { StreamResponse } from "@a2a-js/sdk";
+import { Message, type StreamResponse } from "@a2a-js/sdk";
 import {
   a2uiAction,
   cancel,
   complete,
   connect,
+  messageJson,
   resubscribe,
   send,
+  sendJson,
   type Harness,
   type Outgoing,
 } from "@/a2a/client";
@@ -118,9 +120,19 @@ export function App() {
         setPicker(true);
         return;
       }
-      void drive(send(harness.client, outgoingFor({ text })));
+      const outgoing = outgoingFor({ text });
+      if (outgoing.taskId) {
+        // A follow-up on an open task shows at once; the harness's echo of the same
+        // message id is not shown twice. A first message waits for the task snapshot,
+        // which carries the message log.
+        const json = messageJson(outgoing);
+        apply({ payload: { $case: "message", value: Message.fromJSON(json) } });
+        void drive(sendJson(harness.client, json));
+        return;
+      }
+      void drive(send(harness.client, outgoing));
     },
-    [drive, harness, outgoingFor],
+    [apply, drive, harness, outgoingFor],
   );
 
   const onA2uiAction = useCallback(

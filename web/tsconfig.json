@@ -12,5 +12,13 @@
     "exactOptionalPropertyTypes": false,
     "noUncheckedIndexedAccess": false
   },
-  "include": ["src", "tests", "scripts", "vite.config.ts"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "vite.config.ts",
+    "fixtures",
+    "playwright.config.ts",
+    "vitest.node.config.ts"
+  ]
 }

@@ -62,6 +62,15 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 toml = "1"
+# The official Temporal Rust SDK (R22.1); native only, behind `durable-temporal`.
+temporalio-sdk = { version = "1.1", default-features = false, features = ["envconfig"] }
+temporalio-client = { version = "1.1", default-features = false, features = [
+  "envconfig",
+  "tls-ring",
+] }
+temporalio-common = { version = "1.1", default-features = false }
+temporalio-macros = { version = "1.1" }
+temporalio-workflow = { version = "1.1", default-features = false }
 tracing = "0.1"
 tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", default-features = false, features = [

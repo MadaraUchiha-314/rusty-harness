@@ -328,7 +328,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M4 — Durable execution (PR 4: `loop/issue-3-m4-durable`)
 
-- [ ] 28. Temporal client and worker: `durable::temporal` on `temporalio-sdk` 1.1 behind
+- [x] 28. Temporal client and worker: `durable::temporal` on `temporalio-sdk` 1.1 behind
   `durable-temporal`, connection from config (`remote`, API key resolved inside the
   constructor, `load_from_config` when `from_env`), the worker in the same process,
   `embedded` through `WorkflowEnvironment::start_local` behind `durable-embedded`, data

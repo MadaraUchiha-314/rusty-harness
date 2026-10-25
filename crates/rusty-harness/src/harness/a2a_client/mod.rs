@@ -267,6 +267,7 @@ harness_async_trait! {
                 call: CallContext { task_id, context_id, stored_task: None, caller: self.caller.clone(), service_params: BTreeMap::new() },
                 metadata: request.metadata,
                 extensions,
+                inbox_event_id: None,
             };
             let local = Arc::clone(&self.local);
             let events: Vec<Result<a2a::StreamResponse, a2a::A2AError>> = local
@@ -512,6 +513,7 @@ harness_async_trait! {
                         call: CallContext { task_id: out.message.task_id.clone().unwrap_or_default(), context_id: out.message.context_id.clone().unwrap_or_default(), stored_task: None, caller, service_params: BTreeMap::new() },
                         metadata: None,
                         extensions: vec![TASK_EXT.to_owned()],
+                        inbox_event_id: None,
                     };
                     let stream = agent.send_message(request).map(|r| r.map_err(|e| e.to_a2a()));
                     fold_reply(stream).await.map_err(|e| HarnessError::Internal(e.to_string()))

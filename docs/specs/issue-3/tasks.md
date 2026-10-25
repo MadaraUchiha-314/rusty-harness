@@ -278,7 +278,7 @@ abuse cases are tests like any other (`reference/security.md`).
     created`, `abuse_non_participant_gets_task_not_found_and_empty_list_tasks`,
     `abuse_ninth_stream_of_one_caller_is_rejected_and_the_other_task_keeps_streaming`;
     T3 — `Scenario: An extension not advertised in the card is not activated`
-- [ ] 22. Inbox and events: `InboxEvent` with the tri-state status, `Inbox::accept`
+- [x] 22. Inbox and events: `InboxEvent` with the tri-state status, `Inbox::accept`
   (validation per R20.6, hooks, store, signal, status), `/inbox` route, delivery policy
   (interrupt vs queue), the applied-set dedupe, the `events/` webhook adapters. 🔒
   boundary 2.

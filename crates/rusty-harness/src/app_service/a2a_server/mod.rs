@@ -36,6 +36,7 @@ pub const A2UI_EXT: &str = crate::harness::channels::A2UI_EXT;
 /// The SDK's `AgentExecutor` over the local agent (design.md § A2A API server).
 pub struct HarnessExecutor {
     agent: Arc<LocalAgent>,
+    inbox: Arc<crate::app_service::inbox::Inbox>,
 }
 
 impl core::fmt::Debug for HarnessExecutor {
@@ -45,10 +46,10 @@ impl core::fmt::Debug for HarnessExecutor {
 }
 
 impl HarnessExecutor {
-    /// The executor over `agent`.
+    /// The executor over `agent`, ingesting through `inbox`.
     #[must_use]
-    pub fn new(agent: Arc<LocalAgent>) -> Self {
-        Self { agent }
+    pub fn new(agent: Arc<LocalAgent>, inbox: Arc<crate::app_service::inbox::Inbox>) -> Self {
+        Self { agent, inbox }
     }
 
     /// The caller of a request: the authenticated principal when the service layer set
@@ -84,6 +85,7 @@ impl AgentExecutor for HarnessExecutor {
         ctx: ExecutorContext,
     ) -> BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>> {
         let agent = Arc::clone(&self.agent);
+        let inbox = Arc::clone(&self.inbox);
         let caller = Self::caller(&ctx);
         let Some(message) = ctx.message else {
             return Box::pin(futures::stream::iter(vec![Err(
@@ -105,6 +107,7 @@ impl AgentExecutor for HarnessExecutor {
             },
             metadata: ctx.metadata,
             extensions: protocol_gap::active_extensions(&ctx.service_params),
+            inbox_event_id: None,
         };
         let task = ctx.task_id;
         Box::pin(
@@ -114,19 +117,30 @@ impl AgentExecutor for HarnessExecutor {
                     .events(&task, 1, usize::MAX, &caller)
                     .await
                     .map_or(1, |e| e.len() as u64 + 1);
-                let opened = agent.open_task(&request).await;
-                let run = match opened {
-                    Ok((_, true)) => {
-                        let agent = Arc::clone(&agent);
-                        let task = task.clone();
-                        tokio::spawn(async move {
-                            let _ = agent.run(&task).await;
-                        });
-                        true
-                    }
-                    Ok((_, false)) => false,
-                    Err(e) => return futures::stream::iter(vec![Err(e.to_a2a())]).boxed(),
+                // One ingestion path (R20.2): the message is an inbox event; the inbox
+                // applies it and signals durable execution, which runs the loop.
+                let event = crate::app_service::inbox::InboxEvent {
+                    id: if request.message.message_id.is_empty() {
+                        a2a::new_message_id()
+                    } else {
+                        request.message.message_id.clone()
+                    },
+                    target: crate::app_service::inbox::EventTarget::Task(task.clone()),
+                    kind: a2a::StreamResponse::Message(request.message.clone()),
+                    status: crate::app_service::inbox::InboxStatus::Received,
+                    sender: caller.clone(),
+                    received_at: agent
+                        .host()
+                        .clock()
+                        .map_or_else(|_| chrono::Utc::now(), |c| c.now()),
+                    delivery: crate::app_service::inbox::DeliveryKind::Interrupt,
+                    extensions: request.extensions.clone(),
+                    traceparent: request.call.service_params.get("traceparent").cloned(),
                 };
+                if let Err(e) = inbox.accept(event).await {
+                    return futures::stream::iter(vec![Err(e.to_a2a())]).boxed();
+                }
+                let run = true;
                 let viewer = caller.clone().in_channels(
                     crate::harness::channels::Channel::memberships(
                         store.as_ref(),
@@ -716,8 +730,11 @@ pub async fn router_at(
         )
         .await?,
     );
+    let inbox = harness.inbox().cloned().ok_or_else(|| {
+        crate::HarnessError::Internal("the server needs the in-process inbox (rt-tokio)".into())
+    })?;
     let handler = a2a_server::DefaultRequestHandler::new(
-        HarnessExecutor::new(Arc::clone(&agent)),
+        HarnessExecutor::new(Arc::clone(&agent), Arc::clone(&inbox)),
         SdkTaskStore::new(Arc::clone(&agent)),
     )
     .with_capabilities(card.capabilities.clone())

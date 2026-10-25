@@ -82,6 +82,10 @@ pub struct AgentRequest {
     /// Extension URIs the caller activated.
     #[serde(default)]
     pub extensions: Vec<String>,
+    /// The inbox event this message arrived as, marked applied by the commit that
+    /// applies it (R20.5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbox_event_id: Option<String>,
 }
 
 /// The agent's input and output schemas (sherma's `input_schema` / `output_schema`).
@@ -607,6 +611,12 @@ impl LocalAgent {
         &self.store
     }
 
+    /// The platform.
+    #[must_use]
+    pub fn host(&self) -> &Arc<Host> {
+        &self.host
+    }
+
     fn cx(&self, task: &TaskRecord) -> HookCx {
         let mut cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
         cx.task = Some(task.id.clone());
@@ -728,6 +738,7 @@ impl LocalAgent {
             status_event(&record, attempt, 0),
         ]);
         commit.expect_version = Some(shell_version.unwrap_or(0));
+        commit.inbox_applied.extend(request.inbox_event_id.clone());
         commit.blobs.push(Self::history_blob(&record.id, &history));
         self.store.commit(commit).await?;
         for parent in &record.parent_tasks {
@@ -874,6 +885,7 @@ impl LocalAgent {
         let mut commit = TaskCommit::of(record.clone())
             .with_events([inbound, status_event(&record, attempt, ordinal)]);
         commit.pending_calls.clone_from(&record.pending_calls);
+        commit.inbox_applied.extend(request.inbox_event_id.clone());
         commit.blobs.push(Self::history_blob(&record.id, &history));
         self.store.commit(commit).await?;
         Ok((self.record(&record.id).await?, true))
@@ -989,6 +1001,8 @@ impl LocalAgent {
                 }));
             }
         }
+        self.apply_pending_inbox(&mut record, &mut history, &cx)
+            .await?;
         if let Some(signal) = self.mailbox.take_signal(task) {
             return self.stop(record, history, attempt, signal).await;
         }
@@ -1211,6 +1225,80 @@ impl LocalAgent {
             return self.stop(record, history, attempt, signal).await;
         }
         Ok(IterationOutcome::Continue)
+    }
+
+    /// Folds the store's pending inbox events into the task at a boundary (R20.4–5): a
+    /// message is the next user turn, a sub-agent's update answers the pending call that
+    /// waits for it; each is marked applied in one commit with the turn it produced, and
+    /// an id already applied is skipped (the duplicate-signal case).
+    async fn apply_pending_inbox(
+        &self,
+        record: &mut TaskRecord,
+        history: &mut Vec<Turn>,
+        cx: &HookCx,
+    ) -> Result<(), AgentError> {
+        let pending = self.store.pending_inbox(&record.id).await?;
+        let mut applied: Vec<String> = Vec::new();
+        for event in pending {
+            if record.applied_events.contains(&event.id) || applied.contains(&event.id) {
+                applied.push(event.id.clone());
+                continue;
+            }
+            let kind = crate::app_service::inbox::classify(&event.kind);
+            let delivery = crate::app_service::inbox::Delivery {
+                event: crate::app_service::inbox::EventRef {
+                    id: event.id.clone(),
+                    target: event.target.clone(),
+                },
+                kind,
+            };
+            let outcome = self
+                .dispatcher
+                .run::<crate::app_service::inbox::InboxDeliver, _, _>(
+                    cx,
+                    delivery,
+                    |d| async move {
+                        Ok(crate::app_service::inbox::Applied {
+                            event: d.event.id,
+                            kind: d.kind,
+                        })
+                    },
+                )
+                .await;
+            match outcome {
+                Ok(_) => {}
+                Err(HarnessError::Vetoed(_)) => {
+                    applied.push(event.id.clone()); // a vetoed delivery is consumed, never retried
+                    continue;
+                }
+                Err(e) => return Err(e.into()),
+            }
+            match &event.kind {
+                a2a::StreamResponse::Message(m) => history.push(Turn::new(HistoryEntry::User { text: m.text().unwrap_or_default().to_owned() })),
+                a2a::StreamResponse::StatusUpdate(u) => {
+                    if u.status.state.is_terminal()
+                        && let Some(i) = record.pending_calls.iter().position(|p| matches!(&p.resume_on, ResumeOn::SubTask { task } if *task == u.task_id))
+                    {
+                        let call = record.pending_calls.remove(i);
+                        let text = u.status.message.as_ref().and_then(|m| m.text()).unwrap_or_default().to_owned();
+                        history.push(Turn::new(HistoryEntry::ToolResult { call_id: call.call_id, text: serde_json::json!({ "task_id": u.task_id, "state": format!("{:?}", u.status.state).to_lowercase(), "text": text }).to_string() }));
+                    }
+                }
+                a2a::StreamResponse::ArtifactUpdate(a) => history.push(Turn::new(HistoryEntry::SubAgentReply { task: a.task_id.clone(), text: serde_json::to_string(&a.artifact).unwrap_or_default() })),
+                a2a::StreamResponse::Task(_) => {}
+            }
+            applied.push(event.id.clone());
+        }
+        if applied.is_empty() {
+            return Ok(());
+        }
+        record.applied_events.extend(applied.iter().cloned());
+        let mut commit = TaskCommit::of(record.clone());
+        commit.inbox_applied = applied;
+        commit.blobs.push(Self::history_blob(&record.id, history));
+        self.store.commit(commit).await?;
+        *record = self.record(&record.id.clone()).await?;
+        Ok(())
     }
 
     /// The stop path (R21.8, R22.6): no further writes after the terminal commit.
@@ -1627,6 +1715,7 @@ pub(crate) mod tests {
             },
             metadata: None,
             extensions: vec![],
+            inbox_event_id: None,
         }
     }
 

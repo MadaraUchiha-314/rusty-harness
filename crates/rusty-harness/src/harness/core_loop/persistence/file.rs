@@ -361,6 +361,9 @@ harness_async_trait! {
         }
 
         async fn put_inbox(&self, event: &InboxEvent) -> Result<EventRef, StoreError> {
+            if self.index.lock().inbox.contains_key(&event.id) {
+                return Ok(EventRef { id: event.id.clone(), target: event.target.clone() });
+            }
             let mut stored = event.clone();
             stored.status = InboxStatus::Received;
             write_json(&self.root.join("inbox").join(format!("{}.json", event.id)), &stored).await?;

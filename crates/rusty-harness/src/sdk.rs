@@ -337,6 +337,23 @@ impl HarnessBuilder {
         if config.durable.mode != DurableMode::None {
             return Err(SdkError::Durable(config.durable.mode));
         }
+        #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> = Some(
+            Arc::new(crate::app_service::durable::none::InProcessExecution::new(
+                Arc::clone(&agent),
+                Arc::new(crate::runtime::TokioRuntime::current()),
+                crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
+            )),
+        );
+        #[cfg(not(all(feature = "rt-tokio", not(target_arch = "wasm32"))))]
+        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> = None;
+        let inbox = durable.as_ref().map(|d| {
+            Arc::new(crate::app_service::inbox::Inbox::new(
+                Arc::clone(&agent),
+                Arc::clone(d),
+                Arc::clone(&dispatcher),
+            ))
+        });
         Ok(Harness {
             config,
             host,
@@ -346,6 +363,8 @@ impl HarnessBuilder {
             prompts,
             agent,
             plugins,
+            durable,
+            inbox,
         })
     }
 }
@@ -435,6 +454,8 @@ pub struct Harness {
     prompts: Arc<PromptRegistry>,
     agent: Arc<LocalAgent>,
     plugins: Vec<InstalledPlugin>,
+    durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>>,
+    inbox: Option<Arc<crate::app_service::inbox::Inbox>>,
 }
 
 impl core::fmt::Debug for Harness {
@@ -495,17 +516,17 @@ impl Harness {
         &self.plugins
     }
 
-    /// The in-process durable mode over this harness's agent, for resuming open tasks
-    /// after a restart (R14.4) and signalling running ones.
-    #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+    /// Durable execution over this harness's agent (mode `none` in process): resumes open
+    /// tasks after a restart (R14.4) and signals running ones. `None` where no runtime
+    /// can spawn (the browser build drives the loop itself).
     #[must_use]
-    pub fn durable(
-        &self,
-    ) -> crate::app_service::durable::none::InProcessExecution<crate::runtime::TokioRuntime> {
-        crate::app_service::durable::none::InProcessExecution::new(
-            Arc::clone(&self.agent),
-            Arc::new(crate::runtime::TokioRuntime::current()),
-            crate::app_service::durable::RetryPolicy::from(&self.config.durable.retry),
-        )
+    pub fn durable(&self) -> Option<&Arc<dyn crate::app_service::durable::DurableExecution>> {
+        self.durable.as_ref()
+    }
+
+    /// The durable inbox: the one ingestion path for every event (R20.2).
+    #[must_use]
+    pub fn inbox(&self) -> Option<&Arc<crate::app_service::inbox::Inbox>> {
+        self.inbox.as_ref()
     }
 }

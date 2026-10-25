@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CommandsMeta",
+  "description": "The `commands/v1` extension payload: the card form lists the commands, the message\nform marks tokens and the outcome (design.md § A2A extensions).",
+  "type": "object",
+  "properties": {
+    "commands": {
+      "description": "Card: the registered commands.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CommandEntry"
+      }
+    },
+    "result": {
+      "description": "Message: what the command did.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CommandOutcome"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tokens": {
+      "description": "Message: the command tokens.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CommandToken"
+      }
+    }
+  },
+  "$defs": {
+    "CommandEntry": {
+      "description": "One command as the `commands/v1` card payload lists it.",
+      "type": "object",
+      "properties": {
+        "description_key": {
+          "description": "The catalog key of its description, or the plugin's text.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name after the slash.",
+          "type": "string"
+        },
+        "roles": {
+          "description": "Roles that may invoke it; empty means every participant.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Role"
+          }
+        }
+      },
+      "required": ["name", "description_key", "roles"]
+    },
+    "CommandOutcome": {
+      "description": "What a command did, on the message that invoked it.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "The command.",
+          "type": "string"
+        },
+        "outcome": {
+          "description": "`done`, `exit`, `unknown` or `failed`.",
+          "type": "string"
+        }
+      },
+      "required": ["name", "outcome"]
+    },
+    "CommandToken": {
+      "description": "A command token in a message (`commands/v1` message payload), for highlighting.",
+      "type": "object",
+      "properties": {
+        "end": {
+          "description": "Byte offset past the token.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "name": {
+          "description": "The command.",
+          "type": "string"
+        },
+        "start": {
+          "description": "Byte offset of the slash.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        }
+      },
+      "required": ["start", "end", "name"]
+    },
+    "Role": {
+      "description": "A participant's role on a task (R12.1).",
+      "oneOf": [
+        {
+          "description": "Does the work.",
+          "type": "string",
+          "const": "assignee"
+        },
+        {
+          "description": "Asked for it.",
+          "type": "string",
+          "const": "reporter"
+        },
+        {
+          "description": "Follows it.",
+          "type": "string",
+          "const": "watcher"
+        },
+        {
+          "description": "May change anything about it.",
+          "type": "string",
+          "const": "admin"
+        }
+      ]
+    }
+  }
+}

@@ -319,7 +319,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R24.1, R24.3, abuse 7
   - _Test:_ T2 — `Scenario: Every operation of a task appears in one trace` (OTLP
     collector stub in the test); T8 — the canary scenario, second leg
-- [ ] 27. M3 pull request: capability docs for the server, inbox, channels, heartbeat;
+- [x] 27. M3 pull request: capability docs for the server, inbox, channels, heartbeat;
   `docs/guide/` "Run the server" page; the A2A extension pages on the docs site (Q12);
   `evidence/pull-requests.md` row.
   - _Depends on:_ 25, 26

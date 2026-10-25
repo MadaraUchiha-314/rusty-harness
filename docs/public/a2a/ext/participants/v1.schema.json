@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ParticipantsMeta",
+  "description": "The `participants/v1` payload.",
+  "type": "object",
+  "properties": {
+    "participants": {
+      "description": "Everyone on the task.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Participant"
+      }
+    }
+  },
+  "required": ["participants"],
+  "$defs": {
+    "EntityId": {
+      "description": "The identity of an entity instance: its id and, for versioned kinds, its version.\n\n`version` is `None` for the kinds the design declares unversioned (surfaces,\nrenderers, channels, built-in hooks and commands) and for a registration that did not\nstate one.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The name the entity is registered under, unique within its kind.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The version, when the kind is versioned.",
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["id"]
+    },
+    "Participant": {
+      "description": "A person, agent or system on a task, with its roles (R12.1).",
+      "type": "object",
+      "properties": {
+        "display": {
+          "description": "What to show.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Stable id (the authenticated caller's id for a person).",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What it is.",
+          "$ref": "#/$defs/ParticipantKind"
+        },
+        "roles": {
+          "description": "Its roles.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Role"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": ["id", "display", "kind", "roles"]
+    },
+    "ParticipantKind": {
+      "description": "What kind of thing a participant is.",
+      "oneOf": [
+        {
+          "description": "A person.",
+          "type": "string",
+          "const": "human"
+        },
+        {
+          "description": "An agent, by its registry identity.",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "$ref": "#/$defs/EntityId"
+            }
+          },
+          "additionalProperties": false,
+          "required": ["agent"]
+        },
+        {
+          "description": "A system (an event source, the harness itself).",
+          "type": "string",
+          "const": "system"
+        }
+      ]
+    },
+    "Role": {
+      "description": "A participant's role on a task (R12.1).",
+      "oneOf": [
+        {
+          "description": "Does the work.",
+          "type": "string",
+          "const": "assignee"
+        },
+        {
+          "description": "Asked for it.",
+          "type": "string",
+          "const": "reporter"
+        },
+        {
+          "description": "Follows it.",
+          "type": "string",
+          "const": "watcher"
+        },
+        {
+          "description": "May change anything about it.",
+          "type": "string",
+          "const": "admin"
+        }
+      ]
+    }
+  }
+}

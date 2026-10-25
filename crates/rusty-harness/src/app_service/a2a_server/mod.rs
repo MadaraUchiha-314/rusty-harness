@@ -954,10 +954,163 @@ pub async fn router_at(
             _ => {}
         }
     }
+    // `POST /inbox`: the second route into the inbox (R20.1–2), behind the same gate.
+    app = app.merge(
+        axum::Router::new()
+            .route("/inbox", axum::routing::post(post_inbox))
+            .with_state(InboxRoute {
+                inbox,
+                store: Arc::clone(agent.store()),
+                host: Arc::clone(agent.host()),
+            }),
+    );
     Ok(app.layer(axum::middleware::from_fn_with_state(
         gate,
         protocol_gap::gate,
     )))
+}
+
+/// What the inbox route needs.
+#[derive(Clone)]
+struct InboxRoute {
+    inbox: Arc<crate::app_service::inbox::Inbox>,
+    store: Arc<dyn PersistenceStore>,
+    host: Arc<crate::host::Host>,
+}
+
+/// `POST /inbox`: one A2A event addressed to a task or a context (an [`InboxPost`]),
+/// accepted through the same gate, the same participant guard and the same
+/// `Inbox::accept` as a `SendMessage` (R20.1–2, boundary 2). `202` with the event's
+/// reference; `404` for a task the caller does not participate in, as for any other
+/// operation (abuse 2); `409` for a terminal task; `400` for a body that is not an event.
+///
+/// [`InboxPost`]: crate::interaction::events::InboxPost
+#[allow(clippy::too_many_lines)] // one request, read top to bottom
+async fn post_inbox(
+    axum::extract::State(route): axum::extract::State<InboxRoute>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use crate::app_service::inbox::{
+        DeliveryKind, EventTarget, InboxError, InboxEvent, InboxStatus,
+    };
+    use crate::interaction::events::{InboxPostAdapter, WebhookAdapter as _};
+    use axum::response::IntoResponse as _;
+
+    let lower: std::collections::BTreeMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_ascii_lowercase(),
+                v.to_str().unwrap_or("").to_owned(),
+            )
+        })
+        .collect();
+    let params: ServiceParams = lower
+        .iter()
+        .map(|(k, v)| (k.clone(), vec![v.clone()]))
+        .collect();
+    let error = |status: http::StatusCode, err: a2a::A2AError| {
+        (
+            status,
+            axum::Json(serde_json::json!({ "code": err.code, "message": err.message })),
+        )
+            .into_response()
+    };
+    let post = match InboxPostAdapter.translate(&lower, &body) {
+        Ok(Some(post)) => post,
+        Ok(None) => {
+            return error(
+                http::StatusCode::BAD_REQUEST,
+                a2a::A2AError::invalid_params("not an event"),
+            );
+        }
+        Err(e) => {
+            return error(
+                http::StatusCode::BAD_REQUEST,
+                a2a::A2AError::invalid_params(e.to_string()),
+            );
+        }
+    };
+    let message_task = match &post.event {
+        a2a::StreamResponse::Message(m) => m.task_id.clone(),
+        _ => None,
+    };
+    let target = match (post.task_id.or(message_task), post.context_id, &post.event) {
+        (Some(task), _, _) => EventTarget::Task(task),
+        (None, Some(context), a2a::StreamResponse::Message(_)) => EventTarget::Context(context),
+        _ => {
+            return error(
+                http::StatusCode::BAD_REQUEST,
+                a2a::A2AError::invalid_params("an event must name a task, or a message a context"),
+            );
+        }
+    };
+    let caller = Caller::human(
+        protocol_gap::caller_id(&params)
+            .unwrap_or_else(|| protocol_gap::DEFAULT_PRINCIPAL.to_owned()),
+        [],
+    );
+    // The participant guard (abuse 2): a stranger learns nothing, not even that the
+    // task exists.
+    if let EventTarget::Task(task) = &target
+        && let Ok(Some(record)) = route.store.get_task(task).await
+        && !record.participants.is_empty()
+        && !caller.sees(&record)
+    {
+        return error(
+            http::StatusCode::NOT_FOUND,
+            a2a::A2AError::task_not_found(task),
+        );
+    }
+    let delivery = match &post.event {
+        a2a::StreamResponse::Message(_) => DeliveryKind::Interrupt,
+        _ => DeliveryKind::Queue,
+    };
+    let id = match &post.event {
+        a2a::StreamResponse::Message(m) if !m.message_id.is_empty() => m.message_id.clone(),
+        _ => a2a::new_message_id(),
+    };
+    let event = InboxEvent {
+        id,
+        target,
+        kind: post.event,
+        status: InboxStatus::Received,
+        sender: caller,
+        received_at: route
+            .host
+            .clock()
+            .map_or_else(|_| chrono::Utc::now(), |c| c.now()),
+        delivery,
+        extensions: if post.extensions.is_empty() {
+            protocol_gap::active_extensions(&params)
+        } else {
+            post.extensions
+        },
+        traceparent: crate::app_service::o11y::trace::incoming(
+            lower
+                .get(crate::app_service::o11y::trace::HEADER)
+                .map(String::as_str),
+        ),
+    };
+    match route.inbox.accept(event).await {
+        Ok(reference) => (
+            http::StatusCode::ACCEPTED,
+            axum::Json(serde_json::to_value(&reference).unwrap_or_default()),
+        )
+            .into_response(),
+        Err(e) => {
+            let status = match &e {
+                InboxError::NotFound(_) => http::StatusCode::NOT_FOUND,
+                InboxError::Terminal(_) => http::StatusCode::CONFLICT,
+                InboxError::ContextMismatch { .. } | InboxError::Invalid(_) => {
+                    http::StatusCode::BAD_REQUEST
+                }
+                _ => http::StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            error(status, e.to_a2a())
+        }
+    }
 }
 
 /// Why the server refused to start.

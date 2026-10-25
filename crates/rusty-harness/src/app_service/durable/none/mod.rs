@@ -94,24 +94,62 @@ impl<R: Runtime + MaybeSendSync + 'static> InProcessExecution<R> {
     }
 
     fn spawn(&self, task: TaskId) {
+        Self::spawn_with(
+            Arc::clone(&self.agent),
+            Arc::clone(&self.runtime),
+            self.retry.clone(),
+            Arc::clone(&self.running),
+            task,
+        );
+    }
+
+    /// Spawns one run of `task`, idempotent on the task id. When the run ends waiting and
+    /// the inbox already holds a message for the task, the task is run again: a signal
+    /// that arrived after the loop's last boundary and before the run returned found the
+    /// task "running" and spawned nothing, and must not be lost (R20.4).
+    fn spawn_with(
+        agent: Arc<LocalAgent>,
+        runtime: Arc<R>,
+        retry: RetryPolicy,
+        running: Arc<Mutex<BTreeSet<TaskId>>>,
+        task: TaskId,
+    ) {
         {
-            let mut running = self.running.lock().unwrap_or_else(PoisonError::into_inner);
-            if !running.insert(task.clone()) {
+            let mut set = running.lock().unwrap_or_else(PoisonError::into_inner);
+            if !set.insert(task.clone()) {
                 return; // idempotent on the task id
             }
         }
-        let agent = Arc::clone(&self.agent);
-        let runtime = Arc::clone(&self.runtime);
-        let retry = self.retry.clone();
-        let running = Arc::clone(&self.running);
-        let rt = Arc::clone(&self.runtime);
+        let rt = Arc::clone(&runtime);
         rt.spawn(async move {
-            let _ = Self::drive(&agent, &runtime, &retry, &task).await;
+            let outcome = Self::drive(&agent, &runtime, &retry, &task).await;
             running
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .remove(&task);
+            let waiting = matches!(
+                outcome,
+                LoopOutcome::AwaitingTurn
+                    | LoopOutcome::AwaitingParticipant { .. }
+                    | LoopOutcome::LimitReached { .. }
+            );
+            if waiting && Self::has_pending_message(&agent, &task).await {
+                Self::spawn_with(agent, runtime, retry, running, task);
+            }
         });
+    }
+
+    /// Whether the inbox holds a message for `task` the loop has not applied.
+    async fn has_pending_message(agent: &LocalAgent, task: &TaskId) -> bool {
+        let Ok(Some(record)) = agent.store().get_task(task).await else {
+            return false;
+        };
+        agent.store().pending_inbox(task).await.is_ok_and(|events| {
+            events.iter().any(|e| {
+                !record.applied_events.contains(&e.id)
+                    && matches!(e.kind, a2a::StreamResponse::Message(_))
+            })
+        })
     }
 }
 

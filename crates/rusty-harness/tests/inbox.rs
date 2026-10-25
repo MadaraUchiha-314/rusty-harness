@@ -366,3 +366,95 @@ async fn abuse_inbox_event_for_a_terminal_task_is_rejected_without_creating_one(
         "nothing stored for the refused events"
     );
 }
+
+/// A follow-up accepted from inside the loop's own delivered transition: it lands after
+/// the final commit and before the run returns, the window a slow store widens.
+struct LateFollowUp {
+    inbox: Arc<Inbox>,
+    fired: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl
+    rusty_harness::harness::hooks::PostHook<
+        rusty_harness::harness::core_loop::task::TaskStateChange,
+    > for LateFollowUp
+{
+    async fn post(
+        &self,
+        _cx: &rusty_harness::harness::hooks::HookCx,
+        _input: &rusty_harness::harness::core_loop::task::StateChange,
+        output: rusty_harness::harness::core_loop::task::StateChanged,
+    ) -> Result<
+        rusty_harness::harness::core_loop::task::StateChanged,
+        rusty_harness::harness::hooks::HookError,
+    > {
+        if output.task.state == a2a::TaskState::InputRequired
+            && !self.fired.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let id = output.task.id.clone();
+            let follow = event(
+                "late-1",
+                EventTarget::Task(id.clone()),
+                a2a::StreamResponse::Message(message("late-1", "again", Some(&id), None, false)),
+            );
+            self.inbox.accept(follow).await.expect("accepted");
+        }
+        Ok(output)
+    }
+}
+
+/// Scenario: An inbox event for a running task is applied at the next loop boundary
+///     Given a long-running task whose first turn is being delivered
+///     When a follow-up message is accepted after the loop's last boundary, while the run
+///     is still marked running
+///     Then the task runs the second turn at once, applying the message exactly once,
+///     without waiting for the heartbeat to re-signal it (R20.4–5)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_accepted_in_the_runs_tail_runs_the_next_turn_once() {
+    let (h, llm) = harness(vec![text("first"), text("second")]).await;
+    let inbox = Arc::clone(h.inbox().unwrap());
+    h.hooks()
+        .register::<rusty_harness::harness::core_loop::task::TaskStateChange>(
+            rusty_harness::registry::EntityId::new("test.late-follow-up"),
+            rusty_harness::harness::hooks::Hook::Post(Arc::new(LateFollowUp {
+                inbox: Arc::clone(&inbox),
+                fired: std::sync::atomic::AtomicBool::new(false),
+            })),
+            rusty_harness::harness::hooks::HookOrder::default(),
+        );
+    inbox
+        .accept(event(
+            "m-1",
+            EventTarget::Context("ctx-late".into()),
+            a2a::StreamResponse::Message(message("m-1", "hello", None, Some("ctx-late"), true)),
+        ))
+        .await
+        .unwrap();
+    let task = only_task(&h).await;
+    let mut answer = None;
+    for _ in 0..300 {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let record = h.store().get_task(&task).await.unwrap().unwrap();
+        let text = record
+            .status_message
+            .as_ref()
+            .and_then(|m| m.text())
+            .map(str::to_owned);
+        if text.as_deref() == Some("second") && !h.agent().mailbox().is_running(&task) {
+            answer = text;
+            break;
+        }
+    }
+    assert_eq!(
+        answer.as_deref(),
+        Some("second"),
+        "the late message ran the second turn"
+    );
+    let second_turn = user_texts(&llm, 1);
+    assert_eq!(
+        second_turn.iter().filter(|t| t.contains("again")).count(),
+        1,
+        "the follow-up appears once in the second request: {second_turn:?}"
+    );
+}

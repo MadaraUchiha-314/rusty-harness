@@ -1016,12 +1016,24 @@ impl LocalAgent {
         let attempt = Attempt { iteration: n, n: 1 };
         let mut history = self.load_history(task).await?;
 
-        // Boundary: events that arrived since the last step, then signals (R11.5).
+        // Boundary: events that arrived since the last step, then signals (R11.5). The
+        // mailbox is a wake-up; an event the inbox also persisted is applied from the
+        // store, once (R20.5).
         *self
             .last_boundary
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(now(&self.host));
+        let persisted: Vec<String> = self
+            .store
+            .pending_inbox(task)
+            .await?
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
         for event in self.mailbox.drain(task) {
+            if persisted.contains(&event.id) || record.applied_events.contains(&event.id) {
+                continue;
+            }
             if let a2a::StreamResponse::Message(m) = &event.kind {
                 history.push(Turn::new(HistoryEntry::User {
                     text: m.text().unwrap_or_default().to_owned(),

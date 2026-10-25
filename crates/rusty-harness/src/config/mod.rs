@@ -435,6 +435,8 @@ pub struct LoopConfig {
     pub on_limit: String,
     /// How long a signalled inbox event may wait before the heartbeat re-signals it.
     pub signal_grace: DurationStr,
+    /// How often the heartbeat ticks (R23.1).
+    pub heartbeat_interval: DurationStr,
 }
 
 impl Default for LoopConfig {
@@ -447,6 +449,7 @@ impl Default for LoopConfig {
             idle_timeout: None,
             on_limit: "input-required".into(),
             signal_grace: DurationStr::secs(30),
+            heartbeat_interval: DurationStr::secs(5),
         }
     }
 }

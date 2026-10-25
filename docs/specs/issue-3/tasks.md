@@ -296,7 +296,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A task watcher outside a channel sees the state change but
     not the question`, `Scenario: GetTask after a restart returns the full A2A task`;
     T8 — `abuse_push_config_naming_a_link_local_address_is_rejected`
-- [ ] 24. Heartbeat: interval loop on the runtime seam, re-signalling of `Received` and
+- [x] 24. Heartbeat: interval loop on the runtime seam, re-signalling of `Received` and
   stale `Signalled` events, liveness record and gauge, `task.stalled` hook with the
   default warning.
   - _Depends on:_ 22

@@ -437,6 +437,7 @@ pub struct LocalAgent {
     sub_task_policy: SubTaskPolicy,
     mailbox: Mailbox,
     ratios: Mutex<BTreeMap<String, TokenRatio>>,
+    last_boundary: Mutex<Option<DateTime<Utc>>>,
 }
 
 impl core::fmt::Debug for LocalAgent {
@@ -581,6 +582,7 @@ impl LocalAgent {
             sub_task_policy: SubTaskPolicy::default(),
             mailbox: Mailbox::default(),
             ratios: Mutex::new(BTreeMap::new()),
+            last_boundary: Mutex::new(None),
         }
     }
 
@@ -615,6 +617,15 @@ impl LocalAgent {
     #[must_use]
     pub fn host(&self) -> &Arc<Host> {
         &self.host
+    }
+
+    /// When the loop last reached a boundary, for the heartbeat's liveness (R23.2).
+    #[must_use]
+    pub fn last_boundary(&self) -> Option<DateTime<Utc>> {
+        *self
+            .last_boundary
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn cx(&self, task: &TaskRecord) -> HookCx {
@@ -994,6 +1005,10 @@ impl LocalAgent {
         let mut history = self.load_history(task).await?;
 
         // Boundary: events that arrived since the last step, then signals (R11.5).
+        *self
+            .last_boundary
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(now(&self.host));
         for event in self.mailbox.drain(task) {
             if let a2a::StreamResponse::Message(m) = &event.kind {
                 history.push(Turn::new(HistoryEntry::User {
@@ -1274,7 +1289,18 @@ impl LocalAgent {
                 Err(e) => return Err(e.into()),
             }
             match &event.kind {
-                a2a::StreamResponse::Message(m) => history.push(Turn::new(HistoryEntry::User { text: m.text().unwrap_or_default().to_owned() })),
+                a2a::StreamResponse::Message(m) => {
+                    let text = m.text().unwrap_or_default().to_owned();
+                    // While a participant is awaited, a message answers the oldest ask.
+                    let open_ask = record.pending_calls.iter().position(|p| matches!(p.resume_on, ResumeOn::Ask { .. }));
+                    match open_ask {
+                        Some(i) => {
+                            let call = record.pending_calls.remove(i);
+                            history.push(Turn::new(HistoryEntry::ToolResult { call_id: call.call_id, text }));
+                        }
+                        None => history.push(Turn::new(HistoryEntry::User { text })),
+                    }
+                }
                 a2a::StreamResponse::StatusUpdate(u) => {
                     if u.status.state.is_terminal()
                         && let Some(i) = record.pending_calls.iter().position(|p| matches!(&p.resume_on, ResumeOn::SubTask { task } if *task == u.task_id))
@@ -1294,6 +1320,7 @@ impl LocalAgent {
         }
         record.applied_events.extend(applied.iter().cloned());
         let mut commit = TaskCommit::of(record.clone());
+        commit.pending_calls.clone_from(&record.pending_calls);
         commit.inbox_applied = applied;
         commit.blobs.push(Self::history_blob(&record.id, history));
         self.store.commit(commit).await?;
@@ -1376,7 +1403,7 @@ impl LocalAgent {
                 let cx = self.cx(&record);
                 self.dispatcher
                     .run::<TaskRun, _, _>(&cx, task.clone(), |task| async move {
-                        self.drive(&task)
+                        Box::pin(self.drive(&task))
                             .await
                             .map_err(|e| HarnessError::Internal(e.to_string()))
                     })
@@ -1392,9 +1419,32 @@ impl LocalAgent {
     async fn drive(&self, task: &TaskId) -> Result<LoopOutcome, AgentError> {
         let started = Instant::now();
         loop {
-            let record = self.record(task).await?;
-            if record.is_terminal() || record.state == a2a::TaskState::InputRequired {
+            let mut record = self.record(task).await?;
+            if record.is_terminal() {
                 return Ok(outcome_of(&record));
+            }
+            if record.state == a2a::TaskState::InputRequired {
+                // A waiting task wakes only for a message the inbox holds for it (a
+                // forwarded signal, R23.1); otherwise it keeps waiting.
+                let has_message = self.store.pending_inbox(task).await?.iter().any(|e| {
+                    !record.applied_events.contains(&e.id)
+                        && matches!(e.kind, a2a::StreamResponse::Message(_))
+                });
+                if !has_message {
+                    return Ok(outcome_of(&record));
+                }
+                record = self.change(record, Transition::Resume).await?;
+                let cx = self.cx(&record);
+                let mut history = self.load_history(task).await?;
+                self.apply_pending_inbox(&mut record, &mut history, &cx)
+                    .await?;
+                if record.state != a2a::TaskState::Working {
+                    // The boundary commit carried the resume; make sure it landed.
+                    let mut commit = TaskCommit::of(record.clone());
+                    commit.blobs.push(Self::history_blob(task, &history));
+                    self.store.commit(commit).await?;
+                }
+                continue;
             }
             let n = record.iteration + 1;
             let limit = if n > self.limits.max_iterations {

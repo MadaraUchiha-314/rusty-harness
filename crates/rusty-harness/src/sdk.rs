@@ -354,6 +354,15 @@ impl HarnessBuilder {
                 Arc::clone(&dispatcher),
             ))
         });
+        let heartbeat = durable.as_ref().map(|d| {
+            Arc::new(crate::app_service::heartbeat::Heartbeat::new(
+                format!("{}-{}", config.agent.name, std::process::id()),
+                &config.r#loop,
+                Arc::clone(&agent),
+                Arc::clone(d),
+                Arc::clone(&dispatcher),
+            ))
+        });
         Ok(Harness {
             config,
             host,
@@ -365,6 +374,7 @@ impl HarnessBuilder {
             plugins,
             durable,
             inbox,
+            heartbeat,
         })
     }
 }
@@ -456,6 +466,7 @@ pub struct Harness {
     plugins: Vec<InstalledPlugin>,
     durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>>,
     inbox: Option<Arc<crate::app_service::inbox::Inbox>>,
+    heartbeat: Option<Arc<crate::app_service::heartbeat::Heartbeat>>,
 }
 
 impl core::fmt::Debug for Harness {
@@ -528,5 +539,11 @@ impl Harness {
     #[must_use]
     pub fn inbox(&self) -> Option<&Arc<crate::app_service::inbox::Inbox>> {
         self.inbox.as_ref()
+    }
+
+    /// The heartbeat (R23); the server starts it, an embedder may tick it.
+    #[must_use]
+    pub fn heartbeat(&self) -> Option<&Arc<crate::app_service::heartbeat::Heartbeat>> {
+        self.heartbeat.as_ref()
     }
 }

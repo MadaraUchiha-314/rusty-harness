@@ -81,6 +81,7 @@
       "description": "The core loop's limits.",
       "$ref": "#/$defs/LoopConfig",
       "default": {
+        "heartbeat_interval": "5s",
         "idle_timeout": null,
         "max_iterations": 50,
         "max_tokens": null,
@@ -362,6 +363,11 @@
       "description": "`[loop]`.",
       "type": "object",
       "properties": {
+        "heartbeat_interval": {
+          "description": "How often the heartbeat ticks (R23.1).",
+          "$ref": "#/$defs/Duration",
+          "default": "5s"
+        },
         "idle_timeout": {
           "description": "How long a long-running task waits for the next turn before the idle outcome.",
           "anyOf": [

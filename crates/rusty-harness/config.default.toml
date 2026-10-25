@@ -86,6 +86,7 @@ max_iterations = 50
 stall_after = "15m"
 on_limit = "input-required" # input-required | fail
 signal_grace = "30s"
+heartbeat_interval = "5s"
 # max_tokens = 200000
 # wall_clock = "2h"
 # idle_timeout = "24h"

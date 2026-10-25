@@ -54,6 +54,7 @@ durable-temporal = [
   "dep:temporalio-common",
   "dep:temporalio-macros",
   "dep:temporalio-workflow",
+  "dep:temporalio-protos",
   "tokio/rt-multi-thread",
 ]
 # `embedded` durable mode: the SDK's ephemeral dev server (development only).
@@ -78,6 +79,7 @@ temporalio-client = { workspace = true, optional = true }
 temporalio-common = { workspace = true, optional = true }
 temporalio-macros = { workspace = true, optional = true }
 temporalio-workflow = { workspace = true, optional = true }
+temporalio-protos = { workspace = true, optional = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -152,5 +154,6 @@ workspace = true
 [package.metadata.cargo-machete]
 # `a2a-lf`'s library is named `a2a`, which machete cannot map back to the package; the
 # wasm32-only `uuid` exists for feature unification (decision-003), not for direct use.
-# `temporalio-workflow` is reached only through the paths the Temporal macros expand to.
-ignored = ["a2a-lf", "a2a-client-lf", "a2a-server-lf", "temporalio-workflow"]
+# `temporalio-workflow` is reached only through the paths the Temporal macros expand to;
+# `temporalio-protos` is listed to turn on its `vendored-protox` feature (no system protoc).
+ignored = ["a2a-lf", "a2a-client-lf", "a2a-server-lf", "temporalio-workflow", "temporalio-protos"]

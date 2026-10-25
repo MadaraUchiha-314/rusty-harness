@@ -71,6 +71,8 @@ temporalio-client = { version = "1.1", default-features = false, features = [
 temporalio-common = { version = "1.1", default-features = false }
 temporalio-macros = { version = "1.1" }
 temporalio-workflow = { version = "1.1", default-features = false }
+# Compiles the protos in-process (protox) so no `protoc` is needed on a builder or in CI.
+temporalio-protos = { version = "0.10", default-features = false, features = ["vendored-protox"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", default-features = false, features = [

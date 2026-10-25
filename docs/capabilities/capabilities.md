@@ -26,3 +26,4 @@ behaviour. Add one line per capability doc here.
 | [The terminal renderer](tui.md) | one command opens a TUI that is an A2A client of the harness it started or of `--url`; native A2UI forms, images, `NO_COLOR` |
 | [The web renderer](web.md) | a browser chat on shadcn AI Elements over the official A2A SDK; one store per task, A2UI through `@a2ui/react`, strings from `en.json` |
 | [Multi-modal and voice](voice.md) | images and audio in, images and speech out; every provider session and key held by the harness |
+| [The harness in the browser](browser.md) | the whole harness as an npm package; the page supplies `fetch`, sockets, time and secrets, and the unavailable list is short |

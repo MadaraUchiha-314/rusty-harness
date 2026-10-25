@@ -462,7 +462,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M7 — Packaging, parity, docs and the demo (PR 7: `loop/issue-3-m7-ship`)
 
-- [ ] 42. WASM SDK: the npm package exposing `Harness.create(config, host)`,
+- [x] 42. WASM SDK: the npm package exposing `Harness.create(config, host)`,
   `sendMessage`, `cancelTask`, `subscribe` with generated types, the `Host` built from
   JS callbacks (`fetch`, WebSocket, `crypto`, `Date`, console sink), the `wasm_transport`
   JSON-RPC client over the official types, the unavailable-feature list documented.

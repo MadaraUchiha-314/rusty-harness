@@ -9,14 +9,19 @@ use crate::config::{Config, DurableMode, ModelProvider};
 use crate::harness::a2a_client::AgentCallTool;
 use crate::harness::channels::{ParticipantAskTool, ParticipantDelegateTool};
 use crate::harness::commands::{ModelRouter, ModelSelection, install_builtins};
-use crate::harness::core_loop::agent::{LocalAgent, LocalAgentParts};
+use crate::harness::core_loop::agent::{
+    Agent as _, AgentRequest, CallContext, LocalAgent, LocalAgentParts,
+};
 use crate::harness::core_loop::persistence::{MemoryStore, PersistenceStore};
+use crate::harness::core_loop::task::{Caller, Role};
 use crate::harness::hooks::{Hook, HookDispatcher, HookOrder};
 use crate::harness::models::llm::Llm;
 use crate::harness::plugins::{InstalledPlugin, McpServerEntity, PluginError, PluginLoader};
 use crate::harness::tools::{McpServer, Tool, ToolError, ToolExecute, ToolPolicy};
 use crate::host::Host;
 use crate::registry::{Entity, EntityId, Registry};
+use crate::runtime::{HarnessStream, boxed_stream};
+use futures::StreamExt as _;
 
 /// Why a harness could not be built; every variant is fail-closed (nothing half-built
 /// is returned).
@@ -636,6 +641,125 @@ impl Harness {
         self.heartbeat.as_ref()
     }
 
+    /// Sends `request` as `caller` (the operator when `None`) and streams the turn back as
+    /// A2A events: the SDK's `sendMessage` (R30, design.md § Packaging and SDK parity).
+    pub fn send_message(
+        &self,
+        request: a2a::SendMessageRequest,
+        caller: Option<Caller>,
+    ) -> HarnessStream<'_, Result<a2a::StreamResponse, a2a::A2AError>> {
+        let task_id = request
+            .message
+            .task_id
+            .clone()
+            .unwrap_or_else(a2a::new_task_id);
+        let context_id = request
+            .message
+            .context_id
+            .clone()
+            .unwrap_or_else(a2a::new_context_id);
+        let extensions = request.message.extensions.clone().unwrap_or_default();
+        let agent_request = AgentRequest {
+            message: request.message,
+            call: CallContext {
+                task_id,
+                context_id,
+                stored_task: None,
+                caller: caller.unwrap_or_else(operator),
+                service_params: std::collections::BTreeMap::new(),
+            },
+            metadata: request.metadata,
+            extensions,
+            inbox_event_id: None,
+            traceparent: None,
+        };
+        boxed_stream(
+            self.agent
+                .send_message(agent_request)
+                .map(|r| r.map_err(|e| e.to_a2a())),
+        )
+    }
+
+    /// The task as `caller` sees it: the SDK's `getTask`.
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or the store.
+    pub async fn get_task(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        self.store
+            .a2a_task(&task.to_owned(), &caller.unwrap_or_else(operator))
+            .await
+            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
+            .ok_or_else(|| a2a::A2AError::task_not_found(task))
+    }
+
+    /// Cancels the task on behalf of `caller`: the SDK's `cancelTask`.
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or a task already in a terminal state.
+    pub async fn cancel_task(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        let by = caller.unwrap_or_else(operator).id;
+        let task = task.to_owned();
+        if self
+            .store
+            .get_task(&task)
+            .await
+            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
+            .is_none()
+        {
+            return Err(a2a::A2AError::task_not_found(&task));
+        }
+        self.agent
+            .cancel(
+                &task,
+                crate::app_service::durable::CancelReason::Participant { by },
+            )
+            .await
+            .map_err(|e| e.to_a2a())
+    }
+
+    /// The task's log from the start, then its live events until the turn ends, as
+    /// `caller` may see them: the SDK's `subscribe` (R19.7).
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or the store.
+    pub async fn subscribe(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<HarnessStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>, a2a::A2AError>
+    {
+        let task = task.to_owned();
+        let caller = caller.unwrap_or_else(operator);
+        if self
+            .store
+            .get_task(&task)
+            .await
+            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
+            .is_none()
+        {
+            return Err(a2a::A2AError::task_not_found(&task));
+        }
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), &task, &caller)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        Ok(
+            crate::app_service::channels_api::log_stream(Arc::clone(&self.store), task, 1, viewer)
+                .await,
+        )
+    }
+
     /// The Temporal mode, when durable execution runs on it (`embedded` or `remote`).
     #[must_use]
     #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
@@ -644,6 +768,11 @@ impl Harness {
     ) -> Option<&Arc<crate::app_service::durable::temporal::TemporalExecution>> {
         self.temporal.as_ref()
     }
+}
+
+/// Who an SDK call acts as when the embedder names no one: the operator, as on loopback.
+fn operator() -> Caller {
+    Caller::human("operator", [Role::Admin])
 }
 
 /// Where `embedded` keeps the downloaded Temporal CLI: `~/.cache/rusty-harness/temporal`.

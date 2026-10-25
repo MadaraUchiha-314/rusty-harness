@@ -16,7 +16,7 @@ use crate::host::{LogRecord, LogSink, SpanRecord};
 #[derive(Debug, Default, Clone)]
 struct SpanData {
     fields: BTreeMap<String, String>,
-    started: Option<std::time::Instant>,
+    started: Option<crate::runtime::Instant>,
 }
 
 /// Forwards events and finished spans to a [`LogSink`].
@@ -58,7 +58,7 @@ where
         if let Some(span) = ctx.span(id) {
             let data = SpanData {
                 fields: visitor.fields.into_iter().collect(),
-                started: Some(std::time::Instant::now()),
+                started: Some(crate::runtime::Instant::now()),
             };
             span.extensions_mut().insert(data);
         }

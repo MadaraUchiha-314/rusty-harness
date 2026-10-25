@@ -128,6 +128,8 @@ opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 url = { workspace = true }
 uuid = { workspace = true }
+# `Instant` that works on wasm32 (`performance.now`); std's own natively.
+web-time = { workspace = true }
 zeroize = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -136,6 +138,8 @@ wasm-bindgen-futures = { workspace = true, optional = true }
 # Feature unification: `uuid/js` makes the official `a2a` types crate build for the browser
 # (design.md T2, D5) — uuid needs a JS randomness source there.
 uuid = { workspace = true, features = ["js"] }
+# `Utc::now()` reads `Date.now()` instead of panicking on wasm32-unknown-unknown.
+chrono = { workspace = true, features = ["wasmbind"] }
 
 # Native-only: tests and doctests run under tokio behind `rt-tokio`.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

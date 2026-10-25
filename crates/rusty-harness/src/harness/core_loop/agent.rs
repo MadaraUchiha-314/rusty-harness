@@ -13,9 +13,9 @@
 //! calls is delivered and the task's mode decides between `completed` and
 //! `input-required` (R11.3, R21.1, R21.3).
 
+use crate::runtime::Instant;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Instant;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};

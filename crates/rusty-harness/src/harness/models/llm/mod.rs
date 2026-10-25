@@ -392,7 +392,7 @@ pub fn check_modalities(
 /// The first error of the stream.
 pub async fn collect(
     mut events: EventStream<'_>,
-    started: Option<std::time::Instant>,
+    started: Option<crate::runtime::Instant>,
 ) -> Result<ModelTurn, ModelError> {
     let mut turn = ModelTurn::default();
     while let Some(event) = events.next().await {
@@ -599,7 +599,7 @@ mod tests {
         let req = ModelRequest::new(Prompt::data(DataRole::TaskField, "x"), vec![]);
         let turn = collect(
             llm.stream(req).await.expect("stream"),
-            Some(std::time::Instant::now()),
+            Some(crate::runtime::Instant::now()),
         )
         .await
         .expect("turn");

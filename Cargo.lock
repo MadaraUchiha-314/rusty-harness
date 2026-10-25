@@ -4156,10 +4156,21 @@ dependencies = [
 name = "rusty-harness-wasm"
 version = "0.1.0"
 dependencies = [
+ "a2a-lf",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "http",
+ "js-sys",
  "rusty_harness",
+ "serde",
+ "serde_json",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]
@@ -4212,6 +4223,7 @@ dependencies = [
  "url",
  "uuid",
  "wasm-bindgen-futures",
+ "web-time",
  "zeroize",
 ]
 

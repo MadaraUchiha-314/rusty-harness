@@ -20,6 +20,29 @@ wasm-bindgen = { workspace = true }
 # `#[wasm_bindgen] async fn` expands to code that names this crate.
 wasm-bindgen-futures = { workspace = true }
 
+# The SDK surface and the JS host exist only on wasm32 (design.md § WASM and browser support).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+a2a-lf = { workspace = true } # its lib name is `a2a`
+async-trait = { workspace = true } # named by `rusty_harness::harness_async_trait!`
+bytes = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
+js-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+web-sys = { workspace = true, features = [
+  "BinaryType",
+  "CloseEvent",
+  "Headers",
+  "MessageEvent",
+  "ReadableStream",
+  "ReadableStreamDefaultReader",
+  "Response",
+  "WebSocket",
+] }
+
 [dev-dependencies]
 wasm-bindgen-test = { workspace = true }
 

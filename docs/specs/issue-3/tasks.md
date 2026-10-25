@@ -387,7 +387,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R25.1–6
   - _Test:_ T1 — `renderer::a2ui::tests` (serde round trip of every basic component);
     T6 — `snapshot_a2ui_ask_payload`
-- [ ] 34. TUI: ratatui layout per the prototype (header, conversation with
+- [x] 34. TUI: ratatui layout per the prototype (header, conversation with
   `tui-markdown`, plan strip, composer, hints), the `a2a-client-lf` client against the
   loopback or `--url`, task controls with the complete confirmation, `/model` picker,
   command highlighting from `commands/v1`, the A2UI basic catalog rendered natively

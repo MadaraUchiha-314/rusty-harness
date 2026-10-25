@@ -36,6 +36,8 @@ pub const TASK_EXT: &str = "https://madarauchiha-314.github.io/rusty-harness/a2a
 /// The `participants/v1` extension URI.
 pub const PARTICIPANTS_EXT: &str =
     "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/participants/v1";
+/// The `plan/v1` extension URI: the metadata key of a task's plan.
+pub const PLAN_EXT: &str = "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/plan/v1";
 
 /// A participant's role on a task (R12.1).
 #[derive(

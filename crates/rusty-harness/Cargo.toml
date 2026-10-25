@@ -62,7 +62,16 @@ durable-embedded = ["durable-temporal", "temporalio-sdk/testing"]
 # The gRPC binding of the A2A server.
 a2a-grpc = ["server"]
 # The terminal renderer.
-tui = ["rt-tokio"]
+tui = [
+  "rt-tokio",
+  "dep:ratatui",
+  "dep:crossterm",
+  "dep:tui-markdown",
+  "dep:ratatui-image",
+  "dep:image",
+  "tokio/rt-multi-thread",
+  "tokio/signal",
+]
 # Microphone and speaker host capabilities.
 audio = ["rt-tokio"]
 # The `rusty-harness` binary: everything a user installs.
@@ -71,6 +80,11 @@ cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio", 
 [dependencies]
 a2a-lf = { workspace = true } # its lib name is `a2a`
 a2a-client-lf = { workspace = true, optional = true } # its lib name is `a2a_client`
+crossterm = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+ratatui = { workspace = true, optional = true }
+ratatui-image = { workspace = true, optional = true }
+tui-markdown = { workspace = true, optional = true }
 a2a-server-lf = { workspace = true, optional = true } # its lib name is `a2a_server`
 axum = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }

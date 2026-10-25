@@ -1302,6 +1302,19 @@ fn render<'a>(
     }
 }
 
+/// The `DataPart` carrying client-to-server `messages` (an `action` or an `error`),
+/// marked like [`part`].
+#[must_use]
+pub fn client_part(messages: &[ClientMessage]) -> a2a::Part {
+    let data = serde_json::to_value(messages).unwrap_or_else(|_| Value::Array(Vec::new()));
+    let mut part = a2a::Part::data(data).with_media_type(MEDIA_TYPE);
+    part.metadata = Some(HashMap::from([(
+        MIME_TYPE_KEY.to_owned(),
+        Value::String(MEDIA_TYPE.to_owned()),
+    )]));
+    part
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

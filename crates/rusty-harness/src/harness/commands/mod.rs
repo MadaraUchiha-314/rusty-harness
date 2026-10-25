@@ -114,6 +114,10 @@ fn keys_by_name(name: &str) -> Option<StringKey> {
     .find(|k| k.as_str() == name)
 }
 
+/// The `commands/v1` extension URI: the metadata key of command tokens and outcomes.
+pub const COMMANDS_EXT: &str =
+    "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/commands/v1";
+
 /// One command as the `commands/v1` card payload lists it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct CommandEntry {

@@ -7,6 +7,7 @@
 //! Everything printed for a person comes from the string catalog in the resolved locale:
 //! `--locale`, then `[locale]`, then `LANG`, then `en`.
 
+use std::io::IsTerminal as _;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
@@ -15,7 +16,14 @@ use rusty_harness::app_service::a2a_server::serve;
 use rusty_harness::app_service::o11y;
 use rusty_harness::assets::{Catalog, FmtArgs, keys};
 use rusty_harness::config::{Config, ConfigSources, DurableMode};
+use rusty_harness::harness::commands::Command;
+use rusty_harness::harness::core_loop::agent::Agent as _;
+use rusty_harness::harness::models::llm::{Llm, Modality};
 use rusty_harness::host::{FileSystem, Host, TokioFs};
+use rusty_harness::interaction::renderer::tui::{
+    App, Footer, ModelEntry, ModelTrait, Theme, TuiOptions,
+};
+use rusty_harness::registry::Registry;
 
 /// The command line.
 #[derive(Debug, Parser)]
@@ -206,8 +214,13 @@ async fn run(cli: Cli) -> i32 {
             ),
         ),
     }
-    if cli.url.is_some() {
-        say.line(keys::cli::error::REMOTE_NOT_SUPPORTED, &FmtArgs::new());
+    if let Some(url) = cli.url.clone() {
+        // Attach to a remote harness: the same TUI, no server of our own (R27.3).
+        say.line(keys::cli::first_run::STARTING_TUI, &FmtArgs::new());
+        let options = tui_options(&config, None, None, &say.locale);
+        let code = run_tui(options, &url, &host, &say).await;
+        o11y.flush();
+        return code;
     }
 
     let loopback_only = config.server.security.is_none();
@@ -249,24 +262,140 @@ async fn run(cli: Cli) -> i32 {
     );
     say.line(
         keys::cli::first_run::LISTENING,
-        &FmtArgs::new().text("url", url),
+        &FmtArgs::new().text("url", url.clone()),
     );
-    let _ = cli.no_tui; // the terminal UI arrives with milestone 5; until then this is log mode
-    let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
+    // Log mode when asked, and whenever there is no terminal to draw on (a service
+    // manager, a test harness, a pipe): the server then runs until interrupted.
+    let log_mode =
+        cli.no_tui || !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal();
+    let code = if log_mode {
+        let shutdown = async {
+            let _ = tokio::signal::ctrl_c().await;
+        };
+        match server.run(shutdown).await {
+            Ok(()) => 0,
+            Err(e) => {
+                say.error(
+                    keys::cli::error::SERVE,
+                    &FmtArgs::new().text("reason", e.to_string()),
+                );
+                1
+            }
+        }
+    } else {
+        // The TUI is an A2A client of the server it just started (R27.3).
+        say.line(keys::cli::first_run::STARTING_TUI, &FmtArgs::new());
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let server_task = tokio::spawn(server.run(async move {
+            let _ = stopped.await;
+        }));
+        let options = tui_options(
+            harness.config(),
+            Some(harness.registry()),
+            Some(&harness.agent().card().name),
+            &say.locale,
+        );
+        let code = match url.parse::<url::Url>() {
+            Ok(url) => run_tui(options, &url, harness.host(), &say).await,
+            Err(e) => {
+                say.error(
+                    keys::cli::error::STARTUP,
+                    &FmtArgs::new().text("reason", e.to_string()),
+                );
+                2
+            }
+        };
+        let _ = stop.send(());
+        let _ = server_task.await;
+        code
     };
-    let code = match server.run(shutdown).await {
+    o11y.flush();
+    code
+}
+
+/// Runs the terminal UI against `url`; a failure is reported from the catalog.
+async fn run_tui(options: TuiOptions, url: &url::Url, host: &Host, say: &Say) -> i32 {
+    match rusty_harness::interaction::renderer::tui::run(App::new(options), url, host).await {
         Ok(()) => 0,
         Err(e) => {
             say.error(
-                keys::cli::error::SERVE,
+                keys::cli::error::TUI,
                 &FmtArgs::new().text("reason", e.to_string()),
             );
             1
         }
+    }
+}
+
+/// What the TUI shows besides the stream: the `/model` rows and the commands come from
+/// the in-process registry (a remote harness's are not known here), the footer from
+/// the configuration.
+fn tui_options(
+    config: &Config,
+    registry: Option<&Registry>,
+    agent: Option<&str>,
+    locale: &str,
+) -> TuiOptions {
+    let current = if config.models.contains_key("default") {
+        "default".to_owned()
+    } else {
+        config.models.keys().next().cloned().unwrap_or_default()
     };
-    o11y.flush();
-    code
+    let models = registry.map_or_else(Vec::new, |registry| {
+        config
+            .models
+            .iter()
+            .map(|(alias, m)| {
+                let provider = serde_json::to_value(m.provider)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                let mut traits = Vec::new();
+                if let Ok(llm) = registry.latest::<dyn Llm>(alias) {
+                    let caps = llm.capabilities();
+                    if caps.tools {
+                        traits.push(ModelTrait::Tools);
+                    }
+                    if caps.input_modalities.contains(&Modality::Image) {
+                        traits.push(ModelTrait::Vision);
+                    }
+                    if caps.input_modalities.contains(&Modality::Audio) {
+                        traits.push(ModelTrait::Voice);
+                    }
+                }
+                ModelEntry {
+                    alias: alias.clone(),
+                    label: format!("{provider}/{}", m.model),
+                    traits,
+                }
+            })
+            .collect()
+    });
+    let commands = registry.map_or_else(
+        || vec!["model".to_owned(), "effort".to_owned(), "exit".to_owned()],
+        |registry| {
+            registry
+                .list::<dyn Command>()
+                .iter()
+                .map(|c| c.descriptor().name.clone())
+                .collect()
+        },
+    );
+    TuiOptions {
+        agent: agent.map_or_else(|| "rusty-harness".to_owned(), str::to_owned),
+        locale: locale.to_owned(),
+        models,
+        commands,
+        footer: Footer {
+            effort: config.models.get(&current).and_then(|m| m.effort.clone()),
+            model: current,
+            durable: serde_json::to_value(config.durable.mode)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default(),
+        },
+        mono: Theme::from_env().is_mono(),
+    }
 }
 
 #[cfg(test)]

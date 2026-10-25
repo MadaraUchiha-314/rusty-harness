@@ -60,6 +60,24 @@ durable mode, the agent card) print before the UI takes the screen.
 A message sent after a task has finished starts a new task in the same context that
 references the finished one; a finished task is never reopened.
 
+## Voice
+
+With a microphone on the machine, space on an empty composer is push-to-talk. In a
+terminal that reports key releases (kitty, WezTerm, foot, Ghostty), hold space and talk,
+release to send; elsewhere press space to start and press it again to send. `esc` drops
+the capture. The harness needs a way to hear, configured once:
+
+```toml
+[voice]
+provider = "openai-realtime"
+api_key = "env:OPENAI_API_KEY"
+# voice = "marin"
+```
+
+The audio goes to the harness, never to the provider; the reply comes back in text and,
+for a spoken turn, as speech through the speakers. On Linux the binary needs ALSA
+(`libasound2`).
+
 ## Colours
 
 The TUI uses the terminal's own palette. Set `NO_COLOR=1` (or `TERM=dumb`) for the

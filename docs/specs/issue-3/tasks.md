@@ -453,7 +453,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R28.6, R27.5, R26.4, Q7
   - _Test:_ T11 — the manual procedures in `evidence/manual.md` (hold, toggle, web
     capture and playback); T5 — `tui_snapshot_voice`, the web `voice` state screenshot
-- [ ] 41. M6 pull request: capability doc for multi-modal and voice, the voice section of
+- [x] 41. M6 pull request: capability doc for multi-modal and voice, the voice section of
   the TUI and web guides, `decision-005` (voice through the harness, T6 in `design.md`),
   `evidence/pull-requests.md` row.
   - _Depends on:_ 40

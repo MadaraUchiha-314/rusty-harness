@@ -9,3 +9,4 @@ Index of durable decisions. Each record lives beside this file as
 | [002](decision-002.md) | MSRV 1.92 for the Temporal Rust SDK | accepted |
 | [003](decision-003.md) | The official A2A Rust SDK, protocol ≥ 1.0, one browser transport of our own | accepted |
 | [004](decision-004.md) | The workflow is started by the inbox; activities exchange store keys | accepted |
+| [005](decision-005.md) | Voice goes through the harness, as A2A audio parts | accepted |

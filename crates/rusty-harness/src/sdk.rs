@@ -224,6 +224,35 @@ impl HarnessBuilder {
         if registry.latest::<dyn Llm>("default").is_err() {
             return Err(SdkError::NoDefaultModel);
         }
+
+        // Voice (R28.3–5): the providers `[voice]` names, all held by the harness.
+        match config.voice.provider.as_deref() {
+            None => {}
+            Some("openai-realtime" | "openai") => {
+                let (voice, stt, tts) =
+                    crate::harness::models::speech::openai::providers(&config.voice, &host)
+                        .await
+                        .map_err(|e| SdkError::Model {
+                            alias: "voice".into(),
+                            reason: e.to_string(),
+                        })?;
+                registry
+                    .register::<dyn crate::harness::models::speech::Voice>(Arc::new(voice))
+                    .map_err(reg)?;
+                registry
+                    .register::<dyn crate::harness::models::speech::SpeechToText>(Arc::new(stt))
+                    .map_err(reg)?;
+                registry
+                    .register::<dyn crate::harness::models::speech::TextToSpeech>(Arc::new(tts))
+                    .map_err(reg)?;
+            }
+            Some(other) => {
+                return Err(SdkError::Model {
+                    alias: "voice".into(),
+                    reason: format!("unknown voice provider {other:?}; known: openai-realtime"),
+                });
+            }
+        }
         let router = Arc::new(ModelRouter::new(
             Arc::clone(&registry),
             ModelSelection {

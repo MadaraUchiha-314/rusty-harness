@@ -96,6 +96,9 @@ heartbeat_interval = "5s"
 # provider = "openai-realtime"
 # model = "gpt-realtime-2.1"
 # api_key = "env:OPENAI_API_KEY"
+# transcribe_model = "gpt-live-transcribe"
+# speech_model = "gpt-4o-mini-tts"
+# voice = "marin"
 
 [o11y]
 log_level = "info"

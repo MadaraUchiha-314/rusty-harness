@@ -1,6 +1,6 @@
 //! The native defaults behind `rt-tokio`: reqwest for HTTP, the system clock, the OS
 //! random source, environment/keyring/file secret resolution, tokio's file system and
-//! process spawning. WebSocket, MCP transport, microphone and speaker arrive with the
+//! process spawning. `WebSocket`, MCP transport, microphone and speaker arrive with the
 //! milestones that need them; until then a native host reports them unsupported.
 
 use std::collections::BTreeMap;
@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use super::{
     ChildIo, Clock, Command, FileSystem, Host, HostError, HttpClient, HttpRequest, HttpResponse,
     HttpStreamingResponse, ProcessSpawner, Rng, Secret, SecretError, SecretRef, SecretResolver,
+    WebSocket, WebSocketClient, WsMessage,
 };
 use crate::harness_async_trait;
 
@@ -232,18 +233,92 @@ impl Host {
     /// The native defaults: reqwest, the system clock, the OS random source, the
     /// environment/keyring/file resolver, tokio's file system and process spawning.
     ///
-    /// WebSocket, MCP transport, microphone and speaker are supplied by later milestones
+    /// `WebSocket`s come from `tokio-tungstenite` (voice and transcription sessions,
+    /// R28.3). MCP transport, microphone and speaker are supplied by later milestones
     /// and report [`crate::HarnessError::Unsupported`] until then.
     #[must_use]
     pub fn native() -> Host {
         Host::builder()
             .http(Arc::new(ReqwestHttp::default()))
+            .websocket(Arc::new(TungsteniteClient))
             .clock(Arc::new(SystemClock))
             .rng(Arc::new(OsRng))
             .secrets(Arc::new(NativeSecrets))
             .fs(Arc::new(TokioFs))
             .process(Arc::new(TokioProcess))
             .build()
+    }
+}
+
+/// `WebSocket`s over `tokio-tungstenite`, TLS through rustls with the OS roots.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TungsteniteClient;
+
+type Tungstenite =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// One open connection.
+struct TungsteniteSocket(Tungstenite);
+
+fn ws_error(e: &tokio_tungstenite::tungstenite::Error) -> HostError {
+    use tokio_tungstenite::tungstenite::Error as E;
+    match e {
+        E::Http(response) => HostError::Http {
+            status: Some(response.status().as_u16()),
+            message: "websocket handshake refused".into(),
+        },
+        // The message never echoes a request header (the bearer token rides on one).
+        other => HostError::Io(format!("websocket: {other}")),
+    }
+}
+
+harness_async_trait! {
+    impl WebSocketClient for TungsteniteClient {
+        async fn connect(&self, url: url::Url, headers: http::HeaderMap) -> Result<Box<dyn WebSocket>, HostError> {
+            use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+            let mut request = url
+                .as_str()
+                .into_client_request()
+                .map_err(|e| ws_error(&e))?;
+            request.headers_mut().extend(headers);
+            let (stream, _) = tokio_tungstenite::connect_async(request)
+                .await
+                .map_err(|e| ws_error(&e))?;
+            Ok(Box::new(TungsteniteSocket(stream)))
+        }
+    }
+}
+
+harness_async_trait! {
+    impl WebSocket for TungsteniteSocket {
+        async fn send(&mut self, message: WsMessage) -> Result<(), HostError> {
+            use futures::SinkExt as _;
+            use tokio_tungstenite::tungstenite::Message as M;
+            let frame = match message {
+                WsMessage::Text(t) => M::Text(t.into()),
+                WsMessage::Binary(b) => M::Binary(b),
+                WsMessage::Close => M::Close(None),
+            };
+            self.0.send(frame).await.map_err(|e| ws_error(&e))
+        }
+
+        async fn next(&mut self) -> Option<Result<WsMessage, HostError>> {
+            use tokio_tungstenite::tungstenite::Message as M;
+            loop {
+                return match self.0.next().await? {
+                    Ok(M::Text(t)) => Some(Ok(WsMessage::Text(t.to_string()))),
+                    Ok(M::Binary(b)) => Some(Ok(WsMessage::Binary(b))),
+                    Ok(M::Close(_)) => Some(Ok(WsMessage::Close)),
+                    // Pings are answered by tungstenite itself.
+                    Ok(M::Ping(_) | M::Pong(_) | M::Frame(_)) => continue,
+                    Err(e) => Some(Err(ws_error(&e))),
+                };
+            }
+        }
+
+        async fn close(&mut self) -> Result<(), HostError> {
+            self.0.close(None).await.map_err(|e| ws_error(&e))
+        }
     }
 }
 
@@ -347,9 +422,10 @@ mod tests {
         let host = Host::native();
         assert!(host.http().is_ok() && host.clock().is_ok() && host.rng().is_ok());
         assert!(host.secrets().is_ok() && host.fs().is_ok() && host.process().is_ok());
+        assert!(host.websocket().is_ok(), "M6 supplies WebSockets");
         assert!(matches!(
-            host.websocket(),
-            Err(crate::HarnessError::Unsupported(Capability::WebSocket))
+            host.microphone(),
+            Err(crate::HarnessError::Unsupported(Capability::Microphone))
         ));
     }
 }

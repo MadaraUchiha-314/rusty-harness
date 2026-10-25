@@ -470,6 +470,14 @@ pub struct VoiceConfig {
     pub model: Option<String>,
     /// The credential, by reference.
     pub api_key: Option<SecretRef>,
+    /// The API base (`https://api.openai.com/v1` when absent).
+    pub base_url: Option<url::Url>,
+    /// The streaming transcription model (`gpt-live-transcribe` when absent).
+    pub transcribe_model: Option<String>,
+    /// The synthesis model (`gpt-4o-mini-tts` when absent).
+    pub speech_model: Option<String>,
+    /// The voice the model speaks with (`marin` when absent).
+    pub voice: Option<String>,
 }
 
 /// `[o11y]`.

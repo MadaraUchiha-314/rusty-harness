@@ -24,7 +24,8 @@ mod native;
 
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
 pub use native::{
-    NativeSecrets, OsRng, ReqwestHttp, SystemClock, TokioFs, TokioProcess, scrubbed_env,
+    NativeSecrets, OsRng, ReqwestHttp, SystemClock, TokioFs, TokioProcess, TungsteniteClient,
+    scrubbed_env,
 };
 
 pub use secret::{InvalidSecretRef, Secret, SecretError, SecretRef};

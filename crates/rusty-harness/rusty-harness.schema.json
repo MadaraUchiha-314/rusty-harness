@@ -169,8 +169,12 @@
       "$ref": "#/$defs/VoiceConfig",
       "default": {
         "api_key": null,
+        "base_url": null,
         "model": null,
-        "provider": null
+        "provider": null,
+        "speech_model": null,
+        "transcribe_model": null,
+        "voice": null
       }
     }
   },
@@ -859,6 +863,12 @@
           ],
           "default": null
         },
+        "base_url": {
+          "description": "The API base (`https://api.openai.com/v1` when absent).",
+          "type": ["string", "null"],
+          "format": "uri",
+          "default": null
+        },
         "model": {
           "description": "The model.",
           "type": ["string", "null"],
@@ -866,6 +876,21 @@
         },
         "provider": {
           "description": "`openai-realtime`, or absent for no voice.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "speech_model": {
+          "description": "The synthesis model (`gpt-4o-mini-tts` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "transcribe_model": {
+          "description": "The streaming transcription model (`gpt-live-transcribe` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "voice": {
+          "description": "The voice the model speaks with (`marin` when absent).",
           "type": ["string", "null"],
           "default": null
         }

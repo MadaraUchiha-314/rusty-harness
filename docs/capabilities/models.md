@@ -31,6 +31,16 @@ flowchart LR
   not accept the modality THEN the message SHALL be refused before any task exists, as
   `ContentTypeNotSupported` naming the modality and the model (R28.1). The card lists
   the image and audio types the harness carries; the model decides.
+- WHEN `[voice] provider = "openai-realtime"` is configured THEN the harness SHALL
+  register a `Voice` (`gpt-realtime-2.1` over the Realtime WebSocket, tool calls run by
+  the harness), a `SpeechToText` (`gpt-live-transcribe` over the transcription session)
+  and a `TextToSpeech` (`/v1/audio/speech`, PCM streamed), all on one key resolved by the
+  host; audio is 16-bit PCM at 24 kHz mono both ways (R28.3–5).
+- WHEN a surface speaks through the harness THEN the relay SHALL open the provider
+  session, forward the surface's audio, run the session's tool calls, and hand back
+  `voice/v1` audio parts (`seq`, `attempt`, `format`, `session`) and transcripts; the key
+  and the provider URL SHALL appear only on the harness's own handshake (boundary 6,
+  abuse 11, D7).
 - WHEN a provider answers with a retryable status THEN `Retrying` SHALL wait the
   configured backoff (honouring `Retry-After`) and try again up to `max_attempts`.
 - WHEN `/model <alias>` or `/effort <level>` runs THEN the next call SHALL use the new
@@ -51,6 +61,7 @@ flowchart LR
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
+| issue-3 (M6, task 39) | OpenAI `Voice`, `SpeechToText`, `TextToSpeech`; the native WebSocket; the harness-side relay and `voice/v1` parts | PR #12 |
 | issue-3 (M6, task 38) | Image and audio parts from messages into the context; the up-front modality refusal | PR #12 |
 | issue-3 (M2, tasks 11, 13) | `Llm`, OpenAI and Anthropic clients, `Retrying`, System One, the model router behind `/model` and `/effort` | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 

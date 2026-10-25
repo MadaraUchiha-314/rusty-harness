@@ -435,7 +435,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R28.1–2
   - _Test:_ T1 — `models::tests::unsupported_modality_is_a_typed_error`; T2 —
     `Scenario: An image sent to a text-only model is rejected naming the modality`
-- [ ] 39. Speech interfaces and the OpenAI implementations: `SpeechToText`
+- [x] 39. Speech interfaces and the OpenAI implementations: `SpeechToText`
   (`gpt-transcribe`, `gpt-live-transcribe` over the WebSocket transcription session),
   `TextToSpeech` (`/v1/audio/speech`, streamed), `Voice` (`gpt-realtime-2.1` over
   WebSocket with tool calling), `voice/v1` audio parts with `seq`/`attempt`/`format`,

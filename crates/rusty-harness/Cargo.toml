@@ -23,6 +23,7 @@ rt-tokio = [
   "tokio/process",
   "tokio/io-util",
   "dep:reqwest",
+  "dep:tokio-tungstenite",
   "dep:a2a-client-lf",
   "dep:getrandom",
   "dep:tracing-opentelemetry",
@@ -102,6 +103,7 @@ futures = { workspace = true }
 getrandom = { workspace = true, optional = true }
 http = { workspace = true }
 reqwest = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",

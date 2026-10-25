@@ -369,7 +369,7 @@ harness_async_trait! {
     }
 }
 
-/// Tool names as the providers accept them: OpenAI and Anthropic both require
+/// Tool names as the providers accept them: `OpenAI` and Anthropic both require
 /// `^[a-zA-Z0-9_-]{1,64}$`, and the harness's own names carry dots (`agent.call`,
 /// `server.tool`). Built per request from its tools; anything else maps through the same
 /// rule so a tool call in the history still matches.
@@ -422,7 +422,6 @@ impl WireNames {
     }
 
     /// Maps the tool calls of a decoded stream back to the harness's names.
-    #[must_use]
     pub fn restore(self, events: EventStream<'static>) -> EventStream<'static> {
         crate::runtime::boxed_stream(events.map(move |event| match event {
             Ok(ModelEvent::ToolCall { mut call }) => {

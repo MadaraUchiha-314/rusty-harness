@@ -31,6 +31,8 @@ bun run --cwd web test:contract
 cargo nextest run -p rusty_harness --all-features -E 'binary(durable_temporal) | binary(durable_chaos)'
 # The TUI's prototype states as TestBackend buffers (UPDATE_SNAPSHOTS=1 rewrites tests/snapshots/tui_*.txt):
 cargo nextest run -p rusty_harness --features tui -E 'test(tui_snapshot_)'
+# The web renderer (web/): component and strings tests, types, the production bundle:
+bun run --cwd web test && bunx tsc --noEmit -p web && bun run --cwd web build
 # The core must stay runtime-free for the browser:
 cargo check --target wasm32-unknown-unknown -p rusty_harness --no-default-features --features rt-wasm
 # Supply chain:

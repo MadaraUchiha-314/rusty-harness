@@ -399,7 +399,7 @@ abuse cases are tests like any other (`reference/security.md`).
     a2ui, model, done, first), `Scenario: An image artifact renders in a graphics-capable
     terminal and degrades to alt text`; T9 — the `NO_COLOR=1` leg; T8 — the canary
     scenario, third leg (TUI output)
-- [ ] 35. Web renderer package: `web/` on Vite + React 19 + Tailwind 4 + shadcn with the
+- [x] 35. Web renderer package: `web/` on Vite + React 19 + Tailwind 4 + shadcn with the
   AI Elements copied in (Chat, Prompt Input, Tool, Reasoning, Plan, Task, Subagent,
   Model Selector, Suggestion, Confirmation), `@a2a-js/sdk` 1.3 as the only transport
   (the browser spike of D1 first), the per-task store reducing the event stream with

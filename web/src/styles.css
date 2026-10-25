@@ -1,0 +1,192 @@
+/* The web renderer's design system: shadcn/ui tokens carrying the prototype's palette
+   (design.md § UI/UX design — zinc neutrals, one orange accent for the agent, violet for
+   command tokens, light and dark through prefers-color-scheme and data-theme). */
+@import "tailwindcss";
+@import "tw-animate-css";
+/* The basic catalog injects its own styles (`injectBasicCatalogStyles`); the React
+   package's `styles/structural.css` export names a file 0.14.0 does not ship. */
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --radius: 0.625rem;
+  --background: #fafafa;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #ffedd5;
+  --accent-foreground: #c2410c;
+  --destructive: #b91c1c;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #c2410c;
+  --agent: #c2410c;
+  --agent-foreground: #ffffff;
+  --agent-soft: #ffedd5;
+  --ok: #15803d;
+  --ok-soft: #dcfce7;
+  --warn: #a16207;
+  --warn-soft: #fef9c3;
+  --info: #1d4ed8;
+  --info-soft: #dbeafe;
+  --danger: #b91c1c;
+  --danger-soft: #fee2e2;
+  --cmd: #6d28d9;
+  --cmd-soft: #ede9fe;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --background: #0f0f11;
+    --foreground: #f4f4f5;
+    --card: #18181b;
+    --card-foreground: #f4f4f5;
+    --popover: #18181b;
+    --popover-foreground: #f4f4f5;
+    --primary: #f4f4f5;
+    --primary-foreground: #18181b;
+    --secondary: #202024;
+    --secondary-foreground: #f4f4f5;
+    --muted: #202024;
+    --muted-foreground: #a1a1aa;
+    --accent: #3b2412;
+    --accent-foreground: #fb923c;
+    --destructive: #fca5a5;
+    --border: #27272a;
+    --input: #27272a;
+    --ring: #fb923c;
+    --agent: #fb923c;
+    --agent-foreground: #1c1917;
+    --agent-soft: #3b2412;
+    --ok: #4ade80;
+    --ok-soft: #14301f;
+    --warn: #facc15;
+    --warn-soft: #3a3010;
+    --info: #93c5fd;
+    --info-soft: #172554;
+    --danger: #fca5a5;
+    --danger-soft: #450a0a;
+    --cmd: #c4b5fd;
+    --cmd-soft: #2e1065;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0f0f11;
+  --foreground: #f4f4f5;
+  --card: #18181b;
+  --card-foreground: #f4f4f5;
+  --popover: #18181b;
+  --popover-foreground: #f4f4f5;
+  --primary: #f4f4f5;
+  --primary-foreground: #18181b;
+  --secondary: #202024;
+  --secondary-foreground: #f4f4f5;
+  --muted: #202024;
+  --muted-foreground: #a1a1aa;
+  --accent: #3b2412;
+  --accent-foreground: #fb923c;
+  --destructive: #fca5a5;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #fb923c;
+  --agent: #fb923c;
+  --agent-foreground: #1c1917;
+  --agent-soft: #3b2412;
+  --ok: #4ade80;
+  --ok-soft: #14301f;
+  --warn: #facc15;
+  --warn-soft: #3a3010;
+  --info: #93c5fd;
+  --info-soft: #172554;
+  --danger: #fca5a5;
+  --danger-soft: #450a0a;
+  --cmd: #c4b5fd;
+  --cmd-soft: #2e1065;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-agent: var(--agent);
+  --color-agent-foreground: var(--agent-foreground);
+  --color-agent-soft: var(--agent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-cmd: var(--cmd);
+  --color-cmd-soft: var(--cmd-soft);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-sm antialiased;
+    margin: 0;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+/* A command token in a message or the composer (R26.5). */
+.cmd {
+  @apply inline-block rounded-md px-1.5 font-mono font-semibold;
+  background: var(--cmd-soft);
+  color: var(--cmd);
+}

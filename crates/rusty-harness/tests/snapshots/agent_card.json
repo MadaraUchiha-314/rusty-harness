@@ -37,6 +37,24 @@
       {
         "description": "rusty-harness commands/v1 extension",
         "params": {
+          "commands": [
+            {
+              "description_key": "command.effort.description",
+              "name": "effort",
+              "roles": ["assignee", "reporter", "admin"]
+            },
+            {
+              "description_key": "command.exit.description",
+              "name": "exit",
+              "roles": []
+            },
+            {
+              "description_key": "command.model.description",
+              "name": "model",
+              "roles": ["assignee", "reporter", "admin"]
+            }
+          ],
+          "models": ["default"],
           "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/commands.v1.schema.json"
         },
         "required": false,

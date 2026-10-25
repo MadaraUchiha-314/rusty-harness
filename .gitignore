@@ -27,3 +27,6 @@ docs/.vitepress/cache/
 docs/.vitepress/dist/
 # the-loop runtime lock files
 docs/specs/*/work-item-state.lock
+
+# The web renderer bundle
+web/dist/

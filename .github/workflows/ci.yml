@@ -116,6 +116,17 @@ jobs:
       - run: bun run lint
       - run: bun run format
 
+  web:
+    name: Web renderer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit -p web
+      - run: bun run --cwd web test
+      - run: bun run --cwd web build
+
   conformance:
     name: A2A conformance (TypeScript SDK)
     runs-on: ubuntu-latest

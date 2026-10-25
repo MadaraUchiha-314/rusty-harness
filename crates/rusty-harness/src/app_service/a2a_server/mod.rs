@@ -621,6 +621,37 @@ impl AgentCardBuilder {
         Self::build_at(config, registry, base, &config.server.bind)
     }
 
+    /// The six `rusty-harness` extensions as the card advertises them; `commands/v1`
+    /// also lists the registered commands and the model aliases `/model` accepts, so a
+    /// renderer can list and highlight them (R10.5, R26.5, R27.6).
+    fn extensions(registry: &Registry) -> Vec<a2a::AgentExtension> {
+        ext::all()
+            .into_iter()
+            .map(|e| {
+                let mut params = HashMap::from([("schema".to_owned(), serde_json::Value::String(format!("https://madarauchiha-314.github.io/rusty-harness/a2a-ext/{}.v1.schema.json", e.name)))]);
+                if e.name == "commands" {
+                    let listed = crate::harness::commands::CommandsMeta::card(registry);
+                    params.insert(
+                        "commands".to_owned(),
+                        serde_json::to_value(listed.commands).unwrap_or(serde_json::Value::Null),
+                    );
+                    let models: Vec<String> = registry
+                        .list::<dyn crate::harness::models::llm::Llm>()
+                        .iter()
+                        .map(|m| m.entity_id().id.to_string())
+                        .collect();
+                    params.insert("models".to_owned(), serde_json::json!(models));
+                }
+                a2a::AgentExtension {
+                    uri: e.uri,
+                    description: Some(format!("rusty-harness {}/v1 extension", e.name)),
+                    required: Some(false),
+                    params: Some(params),
+                }
+            })
+            .collect()
+    }
+
     /// The card for a server bound at `bound` (the actual address once bound), unless
     /// `[server] public_url` names where clients reach it.
     ///
@@ -667,15 +698,7 @@ impl AgentCardBuilder {
                 security_requirements: None,
             })
             .collect();
-        let mut extensions: Vec<a2a::AgentExtension> = ext::all()
-            .into_iter()
-            .map(|e| a2a::AgentExtension {
-                uri: e.uri,
-                description: Some(format!("rusty-harness {}/v1 extension", e.name)),
-                required: Some(false),
-                params: Some(HashMap::from([("schema".to_owned(), serde_json::Value::String(format!("https://madarauchiha-314.github.io/rusty-harness/a2a-ext/{}.v1.schema.json", e.name)))])),
-            })
-            .collect();
+        let mut extensions = Self::extensions(registry);
         extensions.push(a2a::AgentExtension {
             uri: A2UI_EXT.to_owned(),
             description: Some("A2UI 0.9.1 payloads as application/a2ui+json data parts".into()),

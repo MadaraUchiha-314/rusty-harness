@@ -26,7 +26,7 @@ pub mod ping;
 pub mod workflow;
 
 pub use codec::SecretGuard;
-pub use execution::TemporalExecution;
+pub use execution::{TemporalExecution, WorkerRoles};
 pub use ping::{PingActivities, PingWorkflow, ping_worker_options};
 pub use workflow::{Progress, TaskActivities, TaskWorkflow, TaskWorkflowInput};
 

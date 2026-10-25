@@ -372,11 +372,14 @@ impl HarnessBuilder {
                     )
                     .await
                     .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
-                    let execution = Arc::new(TemporalExecution::new(
-                        Arc::new(connection),
-                        Arc::clone(&agent),
-                        &crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
-                    ));
+                    let execution = Arc::new(
+                        TemporalExecution::new(
+                            Arc::new(connection),
+                            Arc::clone(&agent),
+                            &crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
+                        )
+                        .with_heartbeat_every(config.r#loop.heartbeat_interval.into()),
+                    );
                     execution
                         .start_worker()
                         .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
@@ -504,6 +507,9 @@ fn install_tracing(dispatcher: &HookDispatcher) {
     TracingHooks::install::<crate::app_service::inbox::InboxDeliver>(dispatcher);
     TracingHooks::install::<crate::app_service::heartbeat::HeartbeatTick>(dispatcher);
     TracingHooks::install::<crate::app_service::heartbeat::TaskStalled>(dispatcher);
+    TracingHooks::install::<crate::app_service::durable::ActivityRun>(dispatcher);
+    TracingHooks::install::<crate::app_service::durable::ActivityFailed>(dispatcher);
+    TracingHooks::install::<crate::app_service::durable::ActivityRetry>(dispatcher);
 }
 
 /// A built harness: the agent and the pieces behind it.

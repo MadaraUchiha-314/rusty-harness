@@ -3,6 +3,7 @@
 //! materialized beside it and rebuilt from the journal on open when they are behind.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::sync::Mutex;
@@ -23,7 +24,7 @@ use crate::runtime::HarnessStream;
 pub struct FileStore {
     id: EntityId,
     root: PathBuf,
-    index: MemoryStore,
+    index: Arc<MemoryStore>,
     write: Mutex<()>,
 }
 
@@ -121,7 +122,7 @@ impl FileStore {
         let store = Self {
             id: EntityId::new("file"),
             root,
-            index: MemoryStore::new(),
+            index: Arc::new(MemoryStore::new()),
             write: Mutex::new(()),
         };
         store.replay().await?;
@@ -295,6 +296,118 @@ impl FileStore {
     }
 }
 
+/// Brings `index` up to date with what other processes wrote for `task` under `root`:
+/// the journal entries after the last one applied here, and the inbox files. Two workers
+/// on one directory (R22.5) see each other's commits through this.
+async fn refresh_task(root: &Path, index: &MemoryStore, task: &TaskId) -> Result<(), StoreError> {
+    let known = index.lock().commits.get(task).copied().unwrap_or(0);
+    let dir = root.join("commits").join(task);
+    for path in entries(&dir).await? {
+        let seq: CommitSeq = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if seq <= known {
+            continue;
+        }
+        let commit = read_json::<TaskCommit>(&path)
+            .await?
+            .ok_or_else(|| StoreError::Corrupt(path.display().to_string()))?
+            .unchecked();
+        let mut guard = index.lock();
+        if guard.commits.get(task).copied().unwrap_or(0) >= seq {
+            continue; // another refresh got there first
+        }
+        let checked = guard.check(&commit)?;
+        guard.apply(commit, &checked);
+        guard.blobs.clear();
+    }
+    refresh_inbox(root, index).await
+}
+
+/// Re-reads the inbox files: an event another process accepted, or moved on.
+async fn refresh_inbox(root: &Path, index: &MemoryStore) -> Result<(), StoreError> {
+    for path in entries(&root.join("inbox")).await? {
+        if let Some(event) = read_json::<InboxEvent>(&path).await? {
+            let mut guard = index.lock();
+            let newer = match guard.inbox.get(&event.id) {
+                None => true,
+                Some(known) => rank(&event.status) > rank(&known.status),
+            };
+            if newer {
+                guard.inbox.insert(event.id.clone(), event);
+            }
+        }
+    }
+    Ok(())
+}
+
+impl FileStore {
+    async fn refresh_task(&self, task: &TaskId) -> Result<(), StoreError> {
+        refresh_task(&self.root, &self.index, task).await
+    }
+
+    async fn refresh_inbox(&self) -> Result<(), StoreError> {
+        refresh_inbox(&self.root, &self.index).await
+    }
+
+    /// Every task the journal knows, refreshed.
+    async fn refresh_all(&self) -> Result<(), StoreError> {
+        for dir in entries(&self.root.join("commits")).await? {
+            if let Some(task) = dir.file_name().and_then(|n| n.to_str()) {
+                self.refresh_task(&task.to_owned()).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Keeps a live tail fed while it is open: another process's commits reach the index
+    /// (and so the tail) by refreshing the journal every 100 ms. Only with a tokio
+    /// runtime; in-process commits notify the tail directly in any case.
+    fn follow_from_disk(&self, task: &TaskId) -> Option<AbortOnDrop> {
+        let handle = tokio::runtime::Handle::try_current().ok()?;
+        let root = self.root.clone();
+        let index = Arc::clone(&self.index);
+        let task = task.clone();
+        let join = handle.spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                if refresh_task(&root, &index, &task).await.is_err() {
+                    break;
+                }
+                let terminal = index
+                    .lock()
+                    .tasks
+                    .get(&task)
+                    .is_some_and(TaskRecord::is_terminal);
+                if terminal {
+                    break;
+                }
+            }
+        });
+        Some(AbortOnDrop(join.abort_handle()))
+    }
+}
+
+/// Stops the disk follower when the tail that owns it is dropped.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// How far an inbox event has moved; disk wins when it is further along.
+fn rank(status: &InboxStatus) -> u8 {
+    match status {
+        InboxStatus::Received => 0,
+        InboxStatus::Signalled { .. } => 1,
+        InboxStatus::Applied { .. } => 2,
+    }
+}
+
 impl Entity for FileStore {
     fn kind(&self) -> EntityKind {
         EntityKind::PersistenceStore
@@ -308,6 +421,7 @@ harness_async_trait! {
     impl PersistenceStore for FileStore {
         async fn commit(&self, commit: TaskCommit) -> Result<CommitSeq, StoreError> {
             let _serial = self.write.lock().await;
+            self.refresh_task(&commit.task.id).await?;
             let checked = self.index.lock().check(&commit)?;
             // 1. The journal entry: once this rename lands, the commit has happened.
             write_json(&self.commit_path(&commit.task.id, checked.seq), &commit).await?;
@@ -323,19 +437,27 @@ harness_async_trait! {
         }
 
         async fn get_task(&self, id: &TaskId) -> Result<Option<TaskRecord>, StoreError> {
+            self.refresh_task(id).await?;
             self.index.get_task(id).await
         }
 
         async fn list_tasks(&self, query: TaskQuery) -> Result<Page<TaskRecord>, StoreError> {
+            self.refresh_all().await?;
             self.index.list_tasks(query).await
         }
 
         async fn events(&self, task: &TaskId, from: Seq, limit: usize, viewer: &Caller) -> Result<Vec<StoredEvent>, StoreError> {
+            self.refresh_task(task).await?;
             self.index.events(task, from, limit, viewer).await
         }
 
         fn tail_events(&self, task: &TaskId, from: Seq, viewer: &Caller) -> HarnessStream<'static, Result<StoredEvent, StoreError>> {
-            self.index.tail_events(task, from, viewer)
+            use futures::StreamExt as _;
+            let follower = self.follow_from_disk(task);
+            Box::pin(self.index.tail_events(task, from, viewer).map(move |item| {
+                let _keep = &follower;
+                item
+            }))
         }
 
         async fn put_state(&self, task: &TaskId, state: &AgentState) -> Result<(), StoreError> {
@@ -371,10 +493,12 @@ harness_async_trait! {
         }
 
         async fn pending_inbox(&self, task: &TaskId) -> Result<Vec<InboxEvent>, StoreError> {
+            self.refresh_task(task).await?;
             self.index.pending_inbox(task).await
         }
 
         async fn mark_inbox(&self, event: &EventRef, status: InboxStatus) -> Result<(), StoreError> {
+            self.refresh_inbox().await?;
             self.index.mark_inbox(event, status).await?;
             let stored = self.index.lock().inbox.get(&event.id).cloned();
             if let Some(stored) = stored {

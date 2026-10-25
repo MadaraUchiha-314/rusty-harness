@@ -349,7 +349,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A retried model call retracts the partial output of the
     failed attempt`, the three-turn scenario re-run under `durable-embedded`; T1 —
     `durable::temporal::tests` with `WorkflowReplayer` on a recorded history
-- [ ] 30. Retry orchestration, timeouts and crash recovery: engine `maximum_attempts =
+- [x] 30. Retry orchestration, timeouts and crash recovery: engine `maximum_attempts =
   1`, the `retry_decision` activity running `durable.activity_failure` and
   `durable.activity_retry`, backoff timers, per-activity start-to-close and heartbeat
   timeouts, activity heartbeats from the long activities, `remote` unreachable → exit.

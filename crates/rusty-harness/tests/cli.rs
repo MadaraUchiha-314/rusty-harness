@@ -155,3 +155,43 @@ async fn the_demo_fixture_config_loads() {
         config.plugins.paths
     );
 }
+
+/// T8 (fail-closed list, R22.1, R30): `remote` configured but Temporal unreachable refuses
+/// to start, with the message and exit code 2, instead of falling back to `none`.
+#[test]
+#[cfg(feature = "durable-temporal")]
+fn abuse_remote_durable_unreachable_refuses_to_start() {
+    let home = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("unreachable-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&home).unwrap();
+    let address = home.join("temporal.address");
+    std::fs::write(&address, "http://127.0.0.1:1").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_rusty-harness"))
+        .args(["--bind", "127.0.0.1:0", "--no-tui"])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("HOME", &home)
+        .env("NO_COLOR", "1")
+        .env("RH__MODELS__DEFAULT__PROVIDER", "openai")
+        .env("RH__MODELS__DEFAULT__MODEL", "mock")
+        .env("RH__MODELS__DEFAULT__API_KEY", "env:RH_UNREACHABLE_KEY")
+        .env("RH_UNREACHABLE_KEY", "sk-test")
+        .env("RH__DURABLE__MODE", "remote")
+        .env(
+            "RH__DURABLE__TEMPORAL__ADDRESS",
+            format!("file:{}", address.display()),
+        )
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let err = String::from_utf8_lossy(&output.stderr);
+    assert!(err.contains("Temporal is unreachable"), "{err}");
+    let out = String::from_utf8_lossy(&output.stdout);
+    assert!(!out.contains("listening"), "never served: {out}");
+    let _ = std::fs::remove_dir_all(&home);
+}

@@ -9,6 +9,7 @@ use temporalio_sdk::WorkerOptions;
 
 use super::workflow::{RetrySchedule, TaskActivities, TaskWorkflow, TaskWorkflowInput};
 use super::{TemporalConnection, TemporalWorker};
+use crate::app_service::durable::ActivityTimeouts;
 use crate::app_service::durable::{CancelReason, DurableError, DurableExecution, RetryPolicy};
 use crate::app_service::inbox::EventRef;
 use crate::config::DurableMode;
@@ -16,6 +17,7 @@ use crate::harness::core_loop::agent::LocalAgent;
 use crate::harness::core_loop::task::{ParticipantId, TaskId};
 use crate::harness_async_trait;
 use crate::registry::{Entity, EntityId, EntityKind};
+use std::time::Duration;
 
 /// The Temporal modes.
 pub struct TemporalExecution {
@@ -23,7 +25,21 @@ pub struct TemporalExecution {
     connection: Arc<TemporalConnection>,
     agent: Arc<LocalAgent>,
     retry: RetrySchedule,
-    worker: Mutex<Option<TemporalWorker>>,
+    timeouts: ActivityTimeouts,
+    heartbeat_every: Duration,
+    workers: Mutex<Vec<TemporalWorker>>,
+}
+
+/// What a worker polls for. One process normally runs both; the chaos tests split them
+/// to kill one side (R22.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkerRoles {
+    /// Workflow tasks and activity tasks.
+    Both,
+    /// Workflow tasks only.
+    WorkflowsOnly,
+    /// Activity tasks only.
+    ActivitiesOnly,
 }
 
 impl core::fmt::Debug for TemporalExecution {
@@ -52,43 +68,78 @@ impl TemporalExecution {
             connection,
             agent,
             retry: RetrySchedule::from(retry),
-            worker: Mutex::new(None),
+            timeouts: ActivityTimeouts::default(),
+            heartbeat_every: Duration::from_secs(5),
+            workers: Mutex::new(Vec::new()),
         }
     }
 
-    /// Starts the worker for the task queue: `TaskWorkflow` and its activities.
+    /// Per-activity timeouts other than the design's defaults (R22.5).
+    #[must_use]
+    pub fn with_timeouts(mut self, timeouts: ActivityTimeouts) -> Self {
+        self.timeouts = timeouts;
+        self
+    }
+
+    /// How often a running activity heartbeats: the harness heartbeat's interval (R23.4).
+    #[must_use]
+    pub fn with_heartbeat_every(mut self, every: Duration) -> Self {
+        self.heartbeat_every = every;
+        self
+    }
+
+    /// Starts a worker for the task queue polling both task types.
     ///
     /// # Errors
     ///
     /// [`DurableError::Failed`] when the worker cannot be created.
     pub fn start_worker(&self) -> Result<(), DurableError> {
-        let options = WorkerOptions::new(self.connection.task_queue().to_owned())
-            .register_workflow::<TaskWorkflow>()
-            .map_err(|e| DurableError::Failed(format!("register TaskWorkflow: {e}")))?
-            .register_activities(TaskActivities {
-                agent: Arc::clone(&self.agent),
-            })
-            .build();
-        let worker = TemporalWorker::start(&self.connection, options)?;
-        *self.worker.lock().unwrap_or_else(PoisonError::into_inner) = Some(worker);
-        Ok(())
+        self.start_worker_with(WorkerRoles::Both)
     }
 
-    /// Stops the worker, when one runs.
+    /// Starts a worker polling `roles`; several may run in one process.
     ///
     /// # Errors
     ///
-    /// [`DurableError::Failed`] when the worker ended with an error.
-    pub async fn stop_worker(&self) -> Result<(), DurableError> {
-        let worker = self
-            .worker
+    /// [`DurableError::Failed`] when the worker cannot be created.
+    pub fn start_worker_with(&self, roles: WorkerRoles) -> Result<(), DurableError> {
+        let builder = WorkerOptions::new(self.connection.task_queue().to_owned());
+        let activities = TaskActivities {
+            agent: Arc::clone(&self.agent),
+            heartbeat_every: self.heartbeat_every,
+        };
+        let options = match roles {
+            WorkerRoles::Both => builder
+                .register_workflow::<TaskWorkflow>()
+                .map_err(|e| DurableError::Failed(format!("register TaskWorkflow: {e}")))?
+                .register_activities(activities)
+                .build(),
+            WorkerRoles::WorkflowsOnly => builder
+                .register_workflow::<TaskWorkflow>()
+                .map_err(|e| DurableError::Failed(format!("register TaskWorkflow: {e}")))?
+                .build(),
+            WorkerRoles::ActivitiesOnly => builder.register_activities(activities).build(),
+        };
+        let worker = TemporalWorker::start(&self.connection, options)?;
+        self.workers
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        match worker {
-            Some(worker) => worker.stop().await,
-            None => Ok(()),
+            .push(worker);
+        Ok(())
+    }
+
+    /// Stops every worker this process runs.
+    ///
+    /// # Errors
+    ///
+    /// [`DurableError::Failed`] when a worker ended with an error.
+    pub async fn stop_worker(&self) -> Result<(), DurableError> {
+        let workers: Vec<TemporalWorker> =
+            std::mem::take(&mut *self.workers.lock().unwrap_or_else(PoisonError::into_inner));
+        for worker in workers {
+            worker.stop().await?;
         }
+        Ok(())
     }
 
     /// The connection.
@@ -101,6 +152,7 @@ impl TemporalExecution {
         TaskWorkflowInput {
             task: task.clone(),
             retry: self.retry.clone(),
+            timeouts: self.timeouts.clone(),
         }
     }
 

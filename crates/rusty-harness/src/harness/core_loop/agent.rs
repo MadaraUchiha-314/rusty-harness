@@ -699,6 +699,12 @@ impl LocalAgent {
         &self.mailbox
     }
 
+    /// The hook dispatcher every operation of this agent runs through.
+    #[must_use]
+    pub fn hooks(&self) -> &Arc<HookDispatcher> {
+        &self.dispatcher
+    }
+
     /// The store.
     #[must_use]
     pub fn store(&self) -> &Arc<dyn PersistenceStore> {

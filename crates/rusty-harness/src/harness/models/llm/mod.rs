@@ -369,6 +369,89 @@ harness_async_trait! {
     }
 }
 
+/// Tool names as the providers accept them: OpenAI and Anthropic both require
+/// `^[a-zA-Z0-9_-]{1,64}$`, and the harness's own names carry dots (`agent.call`,
+/// `server.tool`). Built per request from its tools; anything else maps through the same
+/// rule so a tool call in the history still matches.
+#[derive(Debug, Default)]
+pub struct WireNames {
+    to_wire: std::collections::BTreeMap<String, String>,
+    from_wire: std::collections::BTreeMap<String, String>,
+}
+
+impl WireNames {
+    /// The longest name the providers take.
+    pub const MAX: usize = 64;
+
+    /// One wire name per tool of `tools`, unique even when two sanitise alike.
+    #[must_use]
+    pub fn new(tools: &[ToolDescriptor]) -> Self {
+        let mut names = Self::default();
+        for tool in tools {
+            let base = Self::sanitise(&tool.name);
+            let mut wire = base.clone();
+            let mut n = 2;
+            while names.from_wire.contains_key(&wire) {
+                let suffix = format!("_{n}");
+                let keep = Self::MAX.saturating_sub(suffix.len()).min(base.len());
+                wire = format!("{}{suffix}", &base[..keep]);
+                n += 1;
+            }
+            names.to_wire.insert(tool.name.clone(), wire.clone());
+            names.from_wire.insert(wire, tool.name.clone());
+        }
+        names
+    }
+
+    /// The name to send for `ours`.
+    #[must_use]
+    pub fn wire(&self, ours: &str) -> String {
+        self.to_wire
+            .get(ours)
+            .cloned()
+            .unwrap_or_else(|| Self::sanitise(ours))
+    }
+
+    /// The harness's name for a `wire` name the model used.
+    #[must_use]
+    pub fn ours(&self, wire: &str) -> String {
+        self.from_wire
+            .get(wire)
+            .cloned()
+            .unwrap_or_else(|| wire.to_owned())
+    }
+
+    /// Maps the tool calls of a decoded stream back to the harness's names.
+    #[must_use]
+    pub fn restore(self, events: EventStream<'static>) -> EventStream<'static> {
+        crate::runtime::boxed_stream(events.map(move |event| match event {
+            Ok(ModelEvent::ToolCall { mut call }) => {
+                call.name = self.ours(&call.name);
+                Ok(ModelEvent::ToolCall { call })
+            }
+            other => other,
+        }))
+    }
+
+    fn sanitise(name: &str) -> String {
+        let mut out: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if out.is_empty() {
+            out.push('_');
+        }
+        out.truncate(Self::MAX);
+        out
+    }
+}
+
 /// Checks the request's modalities against the model's.
 ///
 /// # Errors
@@ -654,5 +737,46 @@ mod tests {
             Err(ModelError::NonRetryable { .. })
         ));
         assert_eq!(retrying.inner.attempts(), 1);
+    }
+
+    #[test]
+    fn tool_names_go_out_as_the_providers_accept_and_come_back_as_ours() {
+        use super::WireNames;
+        use crate::harness::tools::ToolDescriptor;
+        let tool = |name: &str| ToolDescriptor {
+            name: name.into(),
+            description: String::new(),
+            parameters: serde_json::json!({ "type": "object" }),
+            idempotency: crate::harness::tools::Idempotency::Idempotent,
+        };
+        let long = "x.".repeat(40);
+        let names = WireNames::new(&[
+            tool("agent.call"),
+            tool("agent_call"),
+            tool("ok-name"),
+            tool(&long),
+        ]);
+        assert_eq!(names.wire("agent.call"), "agent_call");
+        assert_eq!(
+            names.wire("agent_call"),
+            "agent_call_2",
+            "a collision gets a suffix"
+        );
+        assert_eq!(names.wire("ok-name"), "ok-name");
+        assert_eq!(names.wire(&long).len(), WireNames::MAX);
+        for ours in ["agent.call", "agent_call", "ok-name", long.as_str()] {
+            let wire = names.wire(ours);
+            assert!(
+                wire.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'),
+                "{wire}"
+            );
+            assert_eq!(names.ours(&wire), ours);
+        }
+        assert_eq!(
+            names.wire("gone.tool"),
+            "gone_tool",
+            "a tool no longer offered still maps"
+        );
     }
 }

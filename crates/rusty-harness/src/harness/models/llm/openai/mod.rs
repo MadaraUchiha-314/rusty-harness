@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use super::sse;
 use super::{
     ContentPart, EventStream, Llm, MessageRole, Modality, ModelCapabilities, ModelError,
-    ModelEvent, ModelRequest, StopReason, Usage, check_modalities, retry_after,
+    ModelEvent, ModelRequest, StopReason, Usage, WireNames, check_modalities, retry_after,
 };
 use crate::config::ModelConfig;
 use crate::harness::tools::ToolCall;
@@ -123,6 +123,7 @@ impl OpenAiLlm {
     /// The Chat Completions request body for `request` (snapshot-tested).
     #[must_use]
     pub fn body(&self, request: &ModelRequest) -> Value {
+        let names = WireNames::new(&request.tools);
         let mut messages =
             vec![json!({ "role": "system", "content": request.instructions.render() })];
         for message in &request.messages {
@@ -135,7 +136,7 @@ impl OpenAiLlm {
                             message
                                 .tool_calls
                                 .iter()
-                                .map(|c| json!({ "id": c.id, "type": "function", "function": { "name": c.name, "arguments": c.arguments.to_string() } }))
+                                .map(|c| json!({ "id": c.id, "type": "function", "function": { "name": names.wire(&c.name), "arguments": c.arguments.to_string() } }))
                                 .collect(),
                         );
                     }
@@ -150,7 +151,7 @@ impl OpenAiLlm {
                 request
                     .tools
                     .iter()
-                    .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } }))
+                    .map(|t| json!({ "type": "function", "function": { "name": names.wire(&t.name), "description": t.description, "parameters": t.parameters } }))
                     .collect(),
             );
         }
@@ -427,7 +428,7 @@ harness_async_trait! {
                 }
                 return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).replace(self.api_key.expose(), "[redacted]"), retry_after(&response.headers)));
             }
-            Ok(decode(response.body))
+            Ok(WireNames::new(&request.tools).restore(decode(response.body)))
         }
     }
 }
@@ -534,6 +535,34 @@ mod tests {
         assert_eq!(turn.stop, Some(StopReason::ToolUse));
         assert_eq!(turn.usage.map(|u| u.cached_input_tokens), Some(8));
         assert_eq!(seen.lock().unwrap().as_slice(), ["Bearer sk-canary-openai"]);
+    }
+
+    #[tokio::test]
+    async fn dotted_tool_names_go_out_sanitised_and_come_back_as_ours() {
+        let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let bodies2 = bodies.clone();
+        let http = Arc::new(MockHttp::new(move |req| {
+            bodies2
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&req.body).into_owned());
+            Ok(HttpResponse { status: http::StatusCode::OK, headers: http::HeaderMap::new(), body: concat!(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"agent_call\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+                "data: [DONE]\n\n").into() })
+        }));
+        let mut req = request();
+        req.tools[0].name = "agent.call".into();
+        req.messages[1].tool_calls[0].name = "agent.call".into();
+        let turn = collect(client(http).stream(req).await.expect("stream"), None)
+            .await
+            .expect("turn");
+        assert_eq!(turn.tool_calls[0].name, "agent.call");
+        let body = bodies.lock().unwrap()[0].clone();
+        assert!(body.contains("\"name\":\"agent_call\""), "{body}");
+        assert!(
+            !body.contains("agent.call"),
+            "no dotted name reaches the provider: {body}"
+        );
     }
 
     #[tokio::test]

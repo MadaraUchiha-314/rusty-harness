@@ -17,7 +17,8 @@ use serde_json::{Value, json};
 use super::sse;
 use super::{
     CacheBreakpoint, ContentPart, EventStream, Llm, MessageRole, Modality, ModelCapabilities,
-    ModelError, ModelEvent, ModelRequest, StopReason, Usage, check_modalities, retry_after,
+    ModelError, ModelEvent, ModelRequest, StopReason, Usage, WireNames, check_modalities,
+    retry_after,
 };
 use crate::config::ModelConfig;
 use crate::harness::tools::ToolCall;
@@ -120,6 +121,7 @@ impl AnthropicLlm {
     /// The Messages request body for `request` (snapshot-tested).
     #[must_use]
     pub fn body(&self, request: &ModelRequest) -> Value {
+        let names = WireNames::new(&request.tools);
         let cached_after: BTreeSet<usize> = request
             .cache_hints
             .iter()
@@ -138,7 +140,7 @@ impl AnthropicLlm {
                 _ => parts(&message.parts),
             };
             for call in &message.tool_calls {
-                content.push(json!({ "type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments }));
+                content.push(json!({ "type": "tool_use", "id": call.id, "name": names.wire(&call.name), "input": call.arguments }));
             }
             if cached_after.contains(&(index + 1))
                 && let Some(last) = content.last_mut()
@@ -160,7 +162,7 @@ impl AnthropicLlm {
         });
         if !request.tools.is_empty() {
             body["tools"] = Value::Array(
-                request.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.parameters })).collect(),
+                request.tools.iter().map(|t| json!({ "name": names.wire(&t.name), "description": t.description, "input_schema": t.parameters })).collect(),
             );
         }
         body
@@ -479,7 +481,7 @@ harness_async_trait! {
                 }
                 return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).replace(self.api_key.expose(), "[redacted]"), retry_after(&response.headers)));
             }
-            Ok(decode(response.body))
+            Ok(WireNames::new(&request.tools).restore(decode(response.body)))
         }
     }
 }

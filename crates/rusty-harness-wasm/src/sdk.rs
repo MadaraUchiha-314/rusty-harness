@@ -16,7 +16,9 @@ use wasm_bindgen_futures::future_to_promise;
 #[wasm_bindgen(typescript_custom_section)]
 const TYPES: &str = concat!(
     include_str!("../ts/config.d.ts"),
+    "\n",
     include_str!("../ts/a2a.d.ts"),
+    "\n",
     include_str!("../ts/host.d.ts"),
 );
 

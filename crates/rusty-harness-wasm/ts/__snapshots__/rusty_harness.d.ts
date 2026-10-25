@@ -480,12 +480,7 @@ export interface PartCommon {
 
 /** One piece of content: exactly one of `text`, `raw` (base64), `url` or `data`. */
 export type Part = PartCommon &
-(
-| { text: string }
-| { raw: string }
-| { url: string }
-| { data: unknown }
-);
+({ text: string } | { raw: string } | { url: string } | { data: unknown });
 
 /** A message between a person and the agent. */
 export interface Message {

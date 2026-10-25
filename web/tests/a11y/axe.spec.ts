@@ -5,7 +5,7 @@
 // promises: Enter sends, Shift+Enter breaks the line, `/` opens the palette, Esc closes.
 import { AxeBuilder } from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { dark, openWith, send } from "../support/page";
+import { dark, light, openWith, send } from "../support/page";
 
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
@@ -24,7 +24,7 @@ async function audit(page: Page, where: string) {
   await analyze(page, where, "light");
   await dark(page);
   await analyze(page, where, "dark");
-  await page.emulateMedia({ colorScheme: "light" });
+  await light(page);
 }
 
 const USER = "Draft release notes for Q4. Keep the task open, I will iterate with you.";

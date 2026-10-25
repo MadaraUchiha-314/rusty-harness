@@ -77,6 +77,8 @@ tui = [
 audio = ["rt-tokio", "dep:cpal"]
 # The `rusty-harness` binary: everything a user installs.
 cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio", "dep:clap"]
+# Test-only binaries (the stdio MCP fixture), kept out of what `cli` ships (Q8).
+test-fixtures = ["mcp"]
 
 [dependencies]
 a2a-lf = { workspace = true } # its lib name is `a2a`
@@ -157,7 +159,7 @@ required-features = ["cli"]
 [[bin]]
 name = "echo-mcp"
 path = "tests/fixtures/plugins/demo/bin/echo-mcp.rs"
-required-features = ["mcp"]
+required-features = ["test-fixtures"]
 test = false
 doc = false
 bench = false

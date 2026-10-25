@@ -10,7 +10,9 @@ layers defaults ← file ← `RH__SECTION__KEY` environment variables ← code o
 deserializes once with unknown fields refused. The JSON schema is generated from the
 types and published as `crates/rusty-harness/rusty-harness.schema.json`; the commented
 defaults the first run writes are `config.default.toml`, kept equal to
-`Config::default()` by a test.
+`Config::default()` by a test. The same schema generates the SDKs' types: the npm
+package's `Config` interface and the Python stub's `ConfigDict` `TypedDict`s, each
+checked against it in CI.
 
 ## Current behaviour
 
@@ -33,5 +35,6 @@ defaults the first run writes are `config.default.toml`, kept equal to
 | Work item | What changed | Links |
 |-----------|--------------|-------|
 | issue-3 (M1, task 7) | Typed `Config`, layered loading, the published schema, the default file | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #7 |
+| issue-3 (M7, tasks 42–43) | The schema generates the SDKs' types: `Config` for TypeScript (`bun run types`), `ConfigDict` and friends for Python (`stub_gen`); `Config.from_toml` / `from_dict` in Python, a `Config` object or TOML text in `Harness.create` | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

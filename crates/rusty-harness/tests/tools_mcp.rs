@@ -2,8 +2,8 @@
 //! Requirement: docs/specs/issue-3/requirements.md#R8
 //!
 //! The T2 scenarios of task 15 against the fixture stdio MCP server (`echo-mcp`, built
-//! from `tests/fixtures/plugins/demo/bin/echo-mcp.rs` with the `mcp` feature).
-#![cfg(all(feature = "mcp", not(target_arch = "wasm32")))]
+//! from `tests/fixtures/plugins/demo/bin/echo-mcp.rs` with the `test-fixtures` feature).
+#![cfg(all(feature = "test-fixtures", not(target_arch = "wasm32")))]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

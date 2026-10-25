@@ -1,0 +1,23 @@
+# The `rusty-harness` binary as a platform wheel (Q8): `pip install rusty_harness[cli]`
+# (or `rusty-harness-cli` alone) puts it on PATH, with no download at install time.
+[build-system]
+requires = ["maturin>=1,<2"]
+build-backend = "maturin"
+
+[project]
+name = "rusty-harness-cli"
+description = "The rusty-harness binary: the TUI, the A2A server and first-run setup."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+dynamic = ["version"]
+classifiers = ["Programming Language :: Rust", "Environment :: Console"]
+
+[project.urls]
+Homepage = "https://madarauchiha-314.github.io/rusty-harness/"
+Repository = "https://github.com/MadaraUchiha-314/rusty-harness"
+
+[tool.maturin]
+manifest-path = "../../crates/rusty-harness/Cargo.toml"
+bindings = "bin"
+features = ["cli"]

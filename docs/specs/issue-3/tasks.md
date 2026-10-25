@@ -471,7 +471,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T12 — `Scenario: The wasm build runs a task against a mocked host`
     (`wasm-pack test --node`, `--headless --chrome`), `bun run test` in the wasm crate;
     T3 — `contract_typescript_declarations` (snapshot of the generated `.d.ts`)
-- [ ] 43. Python bindings: `Harness`, `Config.from_toml`/`from_dict`, awaitable and
+- [x] 43. Python bindings: `Harness`, `Config.from_toml`/`from_dict`, awaitable and
   `*_sync` twins for every exported API, `TypedDict`s generated from the JSON schema,
   the regenerated stub, maturin `bin` bindings shipping the `rusty-harness` binary in
   the wheel (Q8).

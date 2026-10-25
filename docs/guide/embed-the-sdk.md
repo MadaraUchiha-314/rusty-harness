@@ -72,6 +72,29 @@ register your own hooks before the first task.
 `a2a::SendMessageRequest`, acting as the operator; `get_task`, `cancel_task` and
 `subscribe` complete the SDK surface the TypeScript and Python packages wrap.
 
+## From Python
+
+`pip install rusty_harness` gives the same surface; every awaitable has a blocking
+`*_sync` twin, and configuration, requests and events are `dict`s typed by the
+`TypedDict`s in the stub (`ConfigDict` is generated from the configuration's JSON
+schema).
+
+```python
+from rusty_harness import Config, Harness
+
+config = Config.from_toml(open("config.toml").read())  # or Config.from_dict({...})
+harness = await Harness.create(config)
+async for event in harness.send_message(
+    {"message": {"messageId": "m1", "role": "ROLE_USER", "parts": [{"text": "hello"}]}}
+):
+    print(event)
+
+server = await harness.serve("127.0.0.1:7474")  # the A2A server, until server.stop()
+```
+
+`pip install "rusty_harness[cli]"` adds the `rusty-harness` binary, shipped as a native
+wheel per platform (`rusty-harness-cli`).
+
 ## In the browser (TypeScript)
 
 The npm package `rusty-harness` is the same harness compiled to WebAssembly. The page

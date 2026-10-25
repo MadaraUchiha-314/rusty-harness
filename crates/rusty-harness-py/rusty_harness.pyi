@@ -3,10 +3,152 @@
 
 import builtins
 import typing
+import typing_extensions
 __all__ = [
+    "A2AError",
+    "Config",
+    "EventStream",
+    "Harness",
+    "Host",
+    "Server",
     "hello",
     "hello_sync",
 ]
+
+class A2AError(builtins.Exception):
+    r"""
+    A rejected call; `code` is the A2A JSON-RPC error code.
+    """
+    ...
+
+@typing.final
+class Config:
+    r"""
+    The configuration: the same typed `Config` the TOML file expresses (R30.2).
+    """
+    def __new__(cls) -> Config:
+        r"""
+        The defaults, as `config.default.toml` writes them.
+        """
+    @staticmethod
+    def from_toml(text: builtins.str) -> Config:
+        r"""
+        Parses TOML text, unknown fields refused and credentials by reference only.
+        """
+    @staticmethod
+    def from_dict(value: ConfigDict) -> Config:
+        r"""
+        Builds from a `dict` of the `ConfigDict` shape (the TOML file's tables as dicts).
+        """
+    def to_dict(self) -> ConfigDict:
+        r"""
+        The whole configuration as a `dict`.
+        """
+    def __repr__(self) -> builtins.str: ...
+
+@typing.final
+class EventStream:
+    r"""
+    A turn's events: iterate with `async for` (from the awaitable API) or `for` (from
+    the `*_sync` one).
+    """
+    def __aiter__(self) -> EventStream: ...
+    def __anext__(self) -> typing.Awaitable[StreamResponse]: ...
+    def __iter__(self) -> EventStream: ...
+    def __next__(self) -> StreamResponse: ...
+
+@typing.final
+class Harness:
+    r"""
+    A harness in this process: what the CLI assembles, from the same `Config` (R30).
+    """
+    @property
+    def config(self) -> Config:
+        r"""
+        The configuration the harness was built from.
+        """
+    def __new__(cls, config: Config, host: typing.Optional[Host] = None) -> Harness:
+        r"""
+        Builds a harness, blocking until it is ready; `Harness.create` is the awaitable.
+        """
+    @staticmethod
+    def create(config: Config, host: typing.Optional[Host] = None) -> typing.Awaitable[Harness]:
+        r"""
+        Builds a harness; fails closed when a configured credential does not resolve.
+        """
+    @staticmethod
+    def create_sync(config: Config, host: typing.Optional[Host] = None) -> Harness:
+        r"""
+        Builds a harness, blocking until it is ready.
+        """
+    def send_message(self, request: SendMessageRequest) -> typing.AsyncIterator[StreamResponse]:
+        r"""
+        Sends a message; `async for event in harness.send_message(request)`.
+        """
+    def send_message_sync(self, request: SendMessageRequest) -> typing.Iterator[StreamResponse]:
+        r"""
+        Sends a message; `for event in harness.send_message_sync(request)`.
+        """
+    def subscribe(self, task_id: builtins.str) -> typing.AsyncIterator[StreamResponse]:
+        r"""
+        The task's log so far, then its live events until the turn ends.
+        """
+    def subscribe_sync(self, task_id: builtins.str) -> typing.Iterator[StreamResponse]:
+        r"""
+        The task's log so far, then its live events, blocking per event.
+        """
+    def get_task(self, task_id: builtins.str) -> typing.Awaitable[Task]:
+        r"""
+        The task as it stands; raises `A2AError` when there is none.
+        """
+    def get_task_sync(self, task_id: builtins.str) -> Task:
+        r"""
+        The task as it stands, blocking.
+        """
+    def cancel_task(self, task_id: builtins.str) -> typing.Awaitable[Task]:
+        r"""
+        Cancels a task; raises `A2AError` when there is none or it already ended.
+        """
+    def cancel_task_sync(self, task_id: builtins.str) -> Task:
+        r"""
+        Cancels a task, blocking.
+        """
+    def serve(self, bind: typing.Optional[builtins.str] = None) -> typing.Awaitable[Server]:
+        r"""
+        Serves the harness over A2A on `bind` (default `[server] bind`) and returns once
+        it listens; without `[server.security]` only a loopback address is accepted.
+        """
+    def serve_sync(self, bind: typing.Optional[builtins.str] = None) -> Server:
+        r"""
+        Serves the harness over A2A, blocking until it listens.
+        """
+
+@typing.final
+class Host:
+    r"""
+    The platform the harness runs on: the native defaults (HTTP, clock, secrets from the
+    environment, keyring or files, the file system, processes).
+    """
+    @staticmethod
+    def native() -> Host:
+        r"""
+        The native host.
+        """
+
+@typing.final
+class Server:
+    r"""
+    A running A2A server for a harness.
+    """
+    @property
+    def address(self) -> builtins.str:
+        r"""
+        Where it listens, `host:port`.
+        """
+    def stop(self) -> None:
+        r"""
+        Stops accepting and lets open streams finish.
+        """
 
 def hello() -> typing.Awaitable[builtins.str]:
     r"""
@@ -18,3 +160,371 @@ def hello_sync() -> builtins.str:
     Return a greeting from the harness, blocking until it is ready.
     """
 
+
+# --- The A2A 1.0 JSON binding requests and events cross as.
+
+Role = typing.Literal["ROLE_USER", "ROLE_AGENT", "ROLE_UNSPECIFIED"]
+TaskState = typing.Literal[
+    "TASK_STATE_UNSPECIFIED",
+    "TASK_STATE_SUBMITTED",
+    "TASK_STATE_WORKING",
+    "TASK_STATE_COMPLETED",
+    "TASK_STATE_FAILED",
+    "TASK_STATE_CANCELED",
+    "TASK_STATE_INPUT_REQUIRED",
+    "TASK_STATE_REJECTED",
+    "TASK_STATE_AUTH_REQUIRED",
+]
+
+class _PartCommon(typing.TypedDict, total=False):
+    filename: str
+    mediaType: str
+    metadata: dict[str, typing.Any]
+
+class TextPart(_PartCommon):
+    text: str
+
+class RawPart(_PartCommon):
+    raw: str
+    r"""Base64."""
+
+class UrlPart(_PartCommon):
+    url: str
+
+class DataPart(_PartCommon):
+    data: typing.Any
+
+Part = TextPart | RawPart | UrlPart | DataPart
+
+class Message(typing.TypedDict):
+    messageId: str
+    role: Role
+    parts: list[Part]
+    contextId: typing_extensions.NotRequired[str]
+    taskId: typing_extensions.NotRequired[str]
+    metadata: typing_extensions.NotRequired[dict[str, typing.Any]]
+    extensions: typing_extensions.NotRequired[list[str]]
+    referenceTaskIds: typing_extensions.NotRequired[list[str]]
+
+class TaskStatus(typing.TypedDict):
+    state: TaskState
+    message: typing_extensions.NotRequired[Message]
+    timestamp: typing_extensions.NotRequired[str]
+
+class Artifact(typing.TypedDict):
+    artifactId: str
+    parts: list[Part]
+    name: typing_extensions.NotRequired[str]
+    description: typing_extensions.NotRequired[str]
+    metadata: typing_extensions.NotRequired[dict[str, typing.Any]]
+    extensions: typing_extensions.NotRequired[list[str]]
+
+class Task(typing.TypedDict):
+    id: str
+    contextId: str
+    status: TaskStatus
+    artifacts: typing_extensions.NotRequired[list[Artifact]]
+    history: typing_extensions.NotRequired[list[Message]]
+    metadata: typing_extensions.NotRequired[dict[str, typing.Any]]
+
+class TaskStatusUpdateEvent(typing.TypedDict):
+    taskId: str
+    contextId: str
+    status: TaskStatus
+    metadata: typing_extensions.NotRequired[dict[str, typing.Any]]
+
+class TaskArtifactUpdateEvent(typing.TypedDict):
+    taskId: str
+    contextId: str
+    artifact: Artifact
+    append: typing_extensions.NotRequired[bool]
+    lastChunk: typing_extensions.NotRequired[bool]
+    metadata: typing_extensions.NotRequired[dict[str, typing.Any]]
+
+class TaskEvent(typing.TypedDict):
+    task: Task
+
+class MessageEvent(typing.TypedDict):
+    message: Message
+
+class StatusUpdateEvent(typing.TypedDict):
+    statusUpdate: TaskStatusUpdateEvent
+
+class ArtifactUpdateEvent(typing.TypedDict):
+    artifactUpdate: TaskArtifactUpdateEvent
+
+StreamResponse = TaskEvent | MessageEvent | StatusUpdateEvent | ArtifactUpdateEvent
+
+class SendMessageConfiguration(typing.TypedDict, total=False):
+    acceptedOutputModes: list[str]
+    historyLength: int
+    returnImmediately: bool
+
+class SendMessageRequest(typing.TypedDict):
+    message: Message
+    configuration: typing_extensions.NotRequired[SendMessageConfiguration]
+    metadata: typing_extensions.NotRequired[dict[str, typing.Any]]
+    tenant: typing_extensions.NotRequired[str]
+
+# --- The configuration as dicts, generated from rusty-harness.schema.json.
+
+class AgentConfig(typing.TypedDict):
+    r"""`[agent]`."""
+    description: typing_extensions.NotRequired[builtins.str]
+    r"""One sentence for the agent card."""
+    name: typing_extensions.NotRequired[builtins.str]
+    r"""The agent's name, as the agent card shows it."""
+    system_prompt: typing_extensions.NotRequired[builtins.str | None]
+    r"""A prompt fragment reference (`file:` or a registered id) replacing the default
+system prompt (R7.2)."""
+
+class CompactionConfig(typing.TypedDict):
+    r"""`[context.compaction]`."""
+    keep_recent_turns: typing_extensions.NotRequired[builtins.int]
+    r"""Recent turns kept verbatim (R16.2)."""
+    model: typing_extensions.NotRequired[builtins.str | None]
+    r"""The model alias that summarises; the active model when absent."""
+    threshold: typing_extensions.NotRequired[builtins.float]
+    r"""Compact when the estimate exceeds this fraction of the window (R16.1)."""
+
+class ContextConfig(typing.TypedDict):
+    r"""`[context]`."""
+    compaction: typing_extensions.NotRequired[CompactionConfig]
+    r"""Compaction (R16)."""
+    order: typing_extensions.NotRequired[builtins.list[builtins.str]]
+    r"""The positions in order (R15.1)."""
+
+class DurableConfig(typing.TypedDict):
+    r"""`[durable]`."""
+    mode: typing_extensions.NotRequired[DurableMode]
+    r"""The mode."""
+    retry: typing_extensions.NotRequired[RetryConfig]
+    r"""Activity retries (R22.3)."""
+    temporal: typing_extensions.NotRequired[TemporalConfig]
+    r"""The Temporal connection for `remote` (and the task queue for both Temporal modes)."""
+
+DurableMode = typing.Literal["none"] | typing.Literal["embedded"] | typing.Literal["remote"]
+
+Duration = builtins.str
+
+class HooksConfig(typing.TypedDict):
+    r"""`[hooks]`."""
+    order: typing_extensions.NotRequired[builtins.list[builtins.str]]
+    r"""Hook ids in the order they run when priorities tie (R4.5)."""
+    policies: typing_extensions.NotRequired[builtins.dict[builtins.str, builtins.str]]
+    r"""Failure policy per point, `fail-closed` or `log-and-continue` (R4.6); the
+security-relevant points cannot be lowered."""
+
+class LimitsConfig(typing.TypedDict):
+    r"""`[server.limits]`."""
+    requests_per_minute: typing_extensions.NotRequired[builtins.int]
+    r"""Requests per minute per caller."""
+    streams_per_caller: typing_extensions.NotRequired[builtins.int]
+    r"""Open streams per caller."""
+
+class LoopConfig(typing.TypedDict):
+    r"""`[loop]`."""
+    heartbeat_interval: typing_extensions.NotRequired[Duration]
+    r"""How often the heartbeat ticks (R23.1)."""
+    idle_timeout: typing_extensions.NotRequired[Duration | None]
+    r"""How long a long-running task waits for the next turn before the idle outcome."""
+    max_iterations: typing_extensions.NotRequired[builtins.int]
+    r"""Model calls per task before the limit outcome (R11.4)."""
+    max_tokens: typing_extensions.NotRequired[builtins.int | None]
+    r"""Total tokens per task, when set."""
+    on_limit: typing_extensions.NotRequired[builtins.str]
+    r"""`fail` or `input-required` when a limit is reached."""
+    signal_grace: typing_extensions.NotRequired[Duration]
+    r"""How long a signalled inbox event may wait before the heartbeat re-signals it."""
+    stall_after: typing_extensions.NotRequired[Duration]
+    r"""A task that has not progressed for this long is stalled (R23.3)."""
+    wall_clock: typing_extensions.NotRequired[Duration | None]
+    r"""Wall clock per task, when set."""
+
+class ModelConfig(typing.TypedDict):
+    r"""`[models.<alias>]`."""
+    api_key: SecretRef
+    r"""The credential, by reference."""
+    base_url: typing_extensions.NotRequired[builtins.str | None]
+    r"""The API base URL for `OpenAI`-compatible providers; the provider's own when absent."""
+    effort: typing_extensions.NotRequired[builtins.str | None]
+    r"""The default reasoning effort (`low`, `medium`, `high`)."""
+    model: builtins.str
+    r"""The model id the provider knows."""
+    provider: ModelProvider
+    r"""The provider."""
+    retry: typing_extensions.NotRequired[RetryConfig]
+    r"""Retry policy for retryable provider errors (R9.6)."""
+
+ModelProvider = typing.Literal["openai"] | typing.Literal["anthropic"]
+
+class O11yConfig(typing.TypedDict):
+    r"""`[o11y]`."""
+    langfuse: typing_extensions.NotRequired[builtins.bool]
+    r"""Add Langfuse's generation attributes to the spans (R24.3)."""
+    log_level: typing_extensions.NotRequired[builtins.str]
+    r"""The log level."""
+    otlp_endpoint: typing_extensions.NotRequired[builtins.str | None]
+    r"""The OTLP endpoint; no export when absent (R24.2)."""
+
+OversizePolicyConfig = typing.Literal["truncate"] | typing.Literal["summarise"]
+
+class PersistenceConfig(typing.TypedDict):
+    r"""`[persistence]`."""
+    path: typing_extensions.NotRequired[builtins.str | None]
+    r"""The data directory for the file store."""
+    store: typing_extensions.NotRequired[builtins.str]
+    r"""`memory` or `file`."""
+
+class PluginsConfig(typing.TypedDict):
+    r"""`[plugins]`."""
+    paths: typing_extensions.NotRequired[builtins.list[builtins.str]]
+    r"""Directories scanned for Agent Plugins."""
+
+class PushConfig(typing.TypedDict):
+    r"""`[server.push]`."""
+    allow_hosts: typing_extensions.NotRequired[builtins.list[builtins.str]]
+    r"""Hosts a push-notification webhook may name; empty refuses every push config."""
+
+class RetryConfig(typing.TypedDict):
+    r"""A retry policy with exponential backoff (R9.6, R22.3)."""
+    coefficient: typing_extensions.NotRequired[builtins.int]
+    r"""Multiplier per attempt."""
+    initial: typing_extensions.NotRequired[Duration]
+    r"""The first wait."""
+    max_attempts: typing_extensions.NotRequired[builtins.int]
+    r"""Attempts in total; always finite."""
+    max_interval: typing_extensions.NotRequired[Duration]
+    r"""The longest wait."""
+
+SecretRef = builtins.str
+
+class SecuritySchemeConfigBearer(typing.TypedDict):
+    r"""A bearer token every caller must present."""
+    scheme: typing.Literal["bearer"]
+    token: SecretRef
+    r"""The token, by reference."""
+
+class SecuritySchemeConfigApiKey(typing.TypedDict):
+    r"""An API key in a header."""
+    header: builtins.str
+    r"""The header name."""
+    key: SecretRef
+    r"""The key, by reference."""
+    scheme: typing.Literal["api-key"]
+
+SecuritySchemeConfig = SecuritySchemeConfigBearer | SecuritySchemeConfigApiKey
+
+class ServerConfig(typing.TypedDict):
+    r"""`[server]`."""
+    allow_origins: typing_extensions.NotRequired[builtins.list[builtins.str]]
+    r"""Browser origins allowed to call the server (CORS, R25.1): a surface served from
+another origin, such as the web renderer's dev server. Empty allows any origin
+while the server is loopback-only and none otherwise (fail-closed)."""
+    bind: typing_extensions.NotRequired[builtins.str]
+    r"""The socket to bind. Without a security scheme only a loopback address is accepted."""
+    bindings: typing_extensions.NotRequired[builtins.list[builtins.str]]
+    r"""The bindings to serve: `jsonrpc`, `rest` and, with the feature, `grpc`."""
+    limits: typing_extensions.NotRequired[LimitsConfig]
+    r"""Per-caller limits (abuse 8)."""
+    public_url: typing_extensions.NotRequired[builtins.str | None]
+    r"""The URL clients reach the server at, for the agent card."""
+    push: typing_extensions.NotRequired[PushConfig]
+    r"""Push notifications (abuse 9)."""
+    security: typing_extensions.NotRequired[SecuritySchemeConfig | None]
+    r"""Authentication (R19.4, Q10); absent means loopback only."""
+
+class SubAgentConfig(typing.TypedDict):
+    r"""`[agents.<name>]`."""
+    api_key: typing_extensions.NotRequired[SecretRef | None]
+    r"""The credential to present, by reference."""
+    card_url: builtins.str
+    r"""Where the sub-agent's A2A agent card is served."""
+
+class SystemOneConfig(typing.TypedDict):
+    r"""`[system_one.<alias>]`."""
+    api_key: typing_extensions.NotRequired[SecretRef | None]
+    r"""The credential, by reference."""
+    provider: builtins.str
+    r"""The provider; `http` is the generic typed classifier endpoint (Q4)."""
+    url: builtins.str
+    r"""The endpoint."""
+
+class TemporalConfig(typing.TypedDict):
+    r"""`[durable.temporal]`."""
+    address: typing_extensions.NotRequired[SecretRef | None]
+    r"""The service address, by reference (it may embed an account id)."""
+    api_key: typing_extensions.NotRequired[SecretRef | None]
+    r"""The API key, by reference."""
+    from_env: typing_extensions.NotRequired[builtins.bool]
+    r"""Read `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` and `TEMPORAL_API_KEY` through the
+SDK's own environment loader instead of the references above."""
+    namespace: typing_extensions.NotRequired[SecretRef | None]
+    r"""The namespace, by reference."""
+    task_queue: typing_extensions.NotRequired[builtins.str]
+    r"""The task queue."""
+
+class ToolsConfig(typing.TypedDict):
+    r"""`[tools]`."""
+    max_result_bytes: typing_extensions.NotRequired[builtins.int]
+    r"""A tool result larger than this, in bytes, goes through the oversize policy (R8.6)."""
+    oversize: typing_extensions.NotRequired[OversizePolicyConfig]
+    r"""`truncate` (keep the head and the tail) or `summarise` (one call to the `default`
+model with `prompts/tool/summarise-result.md`)."""
+
+class TuiConfig(typing.TypedDict):
+    r"""`[tui]`."""
+    push_to_talk_key: typing_extensions.NotRequired[builtins.str]
+    r"""The push-to-talk key (R27.5)."""
+
+class VoiceConfig(typing.TypedDict):
+    r"""`[voice]`."""
+    api_key: typing_extensions.NotRequired[SecretRef | None]
+    r"""The credential, by reference."""
+    base_url: typing_extensions.NotRequired[builtins.str | None]
+    r"""The API base (`https://api.openai.com/v1` when absent)."""
+    model: typing_extensions.NotRequired[builtins.str | None]
+    r"""The model."""
+    provider: typing_extensions.NotRequired[builtins.str | None]
+    r"""`openai-realtime`, or absent for no voice."""
+    speech_model: typing_extensions.NotRequired[builtins.str | None]
+    r"""The synthesis model (`gpt-4o-mini-tts` when absent)."""
+    transcribe_model: typing_extensions.NotRequired[builtins.str | None]
+    r"""The streaming transcription model (`gpt-live-transcribe` when absent)."""
+    voice: typing_extensions.NotRequired[builtins.str | None]
+    r"""The voice the model speaks with (`marin` when absent)."""
+
+class ConfigDict(typing.TypedDict):
+    r"""The whole configuration (design.md § Data models § Configuration)."""
+    agent: typing_extensions.NotRequired[AgentConfig]
+    r"""The agent this harness serves."""
+    agents: typing_extensions.NotRequired[builtins.dict[builtins.str, SubAgentConfig]]
+    r"""Sub-agents by name."""
+    context: typing_extensions.NotRequired[ContextConfig]
+    r"""The context window."""
+    durable: typing_extensions.NotRequired[DurableConfig]
+    r"""Durable execution."""
+    hooks: typing_extensions.NotRequired[HooksConfig]
+    r"""Hook ordering and policies."""
+    locale: typing_extensions.NotRequired[builtins.str | None]
+    r"""The locale for user-facing strings (R33.8); `LANG` then `en` when absent."""
+    loop: typing_extensions.NotRequired[LoopConfig]
+    r"""The core loop's limits."""
+    models: typing_extensions.NotRequired[builtins.dict[builtins.str, ModelConfig]]
+    r"""Language models by alias; `default` is the one the loop starts with."""
+    o11y: typing_extensions.NotRequired[O11yConfig]
+    r"""Observability."""
+    persistence: typing_extensions.NotRequired[PersistenceConfig]
+    r"""The persistence store."""
+    plugins: typing_extensions.NotRequired[PluginsConfig]
+    r"""Plugin discovery."""
+    server: typing_extensions.NotRequired[ServerConfig]
+    r"""The A2A server."""
+    system_one: typing_extensions.NotRequired[builtins.dict[builtins.str, SystemOneConfig]]
+    r"""System One models by alias."""
+    tools: typing_extensions.NotRequired[ToolsConfig]
+    r"""Tool execution."""
+    tui: typing_extensions.NotRequired[TuiConfig]
+    r"""The terminal UI."""
+    voice: typing_extensions.NotRequired[VoiceConfig]
+    r"""Voice."""

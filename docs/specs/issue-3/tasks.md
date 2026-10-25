@@ -287,7 +287,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A duplicate inbox signal applies the event once`,
     `Scenario: A follow-up to a completed task starts a new task with referenceTaskIds`;
     T8 — `abuse_inbox_event_for_a_terminal_task_is_rejected_without_creating_one`
-- [ ] 23. Channels API, per-subscriber projection and push notifications: the
+- [x] 23. Channels API, per-subscriber projection and push notifications: the
   `channels/v1` handling on the server, `visibility: members` redaction in
   `tail_events`, push configs through the SDK's `HttpPushSender` with the operator
   allowlist. 🔒 boundary 2, abuse 9.

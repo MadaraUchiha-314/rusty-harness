@@ -65,6 +65,75 @@ impl HarnessExecutor {
     }
 }
 
+/// The task's log as a stream for `viewer`: the Task snapshot first (redacted for a
+/// non-member of a channel), then the stored events from `from` without the raw
+/// `Message` entries, following live commits until the turn ends (R19.7, R19.8).
+pub async fn log_stream(
+    store: Arc<dyn PersistenceStore>,
+    task: String,
+    from: u64,
+    viewer: Caller,
+) -> BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>> {
+    let first: Vec<Result<a2a::StreamResponse, a2a::A2AError>> =
+        match store.a2a_task(&task, &viewer).await {
+            Ok(Some(mut t)) => {
+                let _ = crate::app_service::channels_api::redact_for_viewer(
+                    store.as_ref(),
+                    &mut t,
+                    &viewer,
+                )
+                .await;
+                vec![Ok(a2a::StreamResponse::Task(t))]
+            }
+            Ok(None) => vec![Err(a2a::A2AError::task_not_found(&task))],
+            Err(e) => vec![Err(a2a::A2AError::internal(e.to_string()))],
+        };
+    let is_message = |e: &crate::harness::core_loop::persistence::StoredEvent| {
+        matches!(e.response, a2a::StreamResponse::Message(_))
+    };
+    let live = store.get_task(&task).await.ok().flatten().is_some_and(|r| {
+        r.state == a2a::TaskState::Working || r.state == a2a::TaskState::Submitted
+    });
+    if !live {
+        let events = store
+            .events(&task, from, usize::MAX, &viewer)
+            .await
+            .unwrap_or_default();
+        return futures::stream::iter(
+            first
+                .into_iter()
+                .chain(
+                    events
+                        .into_iter()
+                        .filter(|e| !is_message(e))
+                        .map(|e| Ok(e.response)),
+                )
+                .collect::<Vec<_>>(),
+        )
+        .boxed();
+    }
+    let tail = store
+        .tail_events(&task, from, &viewer)
+        .filter(move |r| futures::future::ready(!matches!(r, Ok(e) if is_message(e))))
+        .map(|r| {
+            r.map(|e| e.response)
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))
+        });
+    futures::stream::iter(first)
+        .chain(futures::stream::unfold(
+            (tail, false),
+            |(mut tail, done)| async move {
+                if done {
+                    return None;
+                }
+                let item = tail.next().await?;
+                let stop = matches!(&item, Ok(e) if turn_ends(e));
+                Some((item, (tail, stop)))
+            },
+        ))
+        .boxed()
+}
+
 /// Ends a tail after the event that leaves the task waiting or terminal: one turn per
 /// request on the wire (R21.3).
 fn turn_ends(event: &a2a::StreamResponse) -> bool {
@@ -394,6 +463,100 @@ impl TaskStore for SdkTaskStore {
     }
 }
 
+/// The SDK's push-config store behind the operator's allowlist (abuse 9): a webhook host
+/// outside `[server.push] allow_hosts` is refused at save time; an empty list refuses
+/// every push config; the SDK's own SSRF guard screens the URL and every redirect hop.
+pub struct AllowlistedPushStore {
+    inner: a2a_server::InMemoryPushConfigStore,
+    allow_hosts: Vec<String>,
+}
+
+impl core::fmt::Debug for AllowlistedPushStore {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AllowlistedPushStore")
+            .field("allow_hosts", &self.allow_hosts)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AllowlistedPushStore {
+    /// A store allowing `allow_hosts` (exact, case-insensitive host names).
+    #[must_use]
+    pub fn new(allow_hosts: Vec<String>) -> Self {
+        Self {
+            inner: a2a_server::InMemoryPushConfigStore::new(),
+            allow_hosts: allow_hosts
+                .into_iter()
+                .map(|h| h.to_ascii_lowercase())
+                .collect(),
+        }
+    }
+
+    /// Whether `url` may receive pushes: `https` (or `http`), a host on the allowlist,
+    /// never an IP literal.
+    ///
+    /// # Errors
+    ///
+    /// [`a2a::A2AError`] (`InvalidParams`) naming the rule.
+    pub fn check(&self, url: &str) -> Result<(), a2a::A2AError> {
+        let parsed: url::Url = url
+            .parse()
+            .map_err(|e| a2a::A2AError::invalid_params(format!("push url: {e}")))?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(a2a::A2AError::invalid_params(
+                "push url: http or https only",
+            ));
+        }
+        let Some(host) = parsed.host() else {
+            return Err(a2a::A2AError::invalid_params("push url: no host"));
+        };
+        let name = match host {
+            url::Host::Domain(d) => d.to_ascii_lowercase(),
+            url::Host::Ipv4(_) | url::Host::Ipv6(_) => {
+                return Err(a2a::A2AError::invalid_params(
+                    "push url: an IP literal is never an allowed webhook host",
+                ));
+            }
+        };
+        if !self.allow_hosts.contains(&name) {
+            return Err(a2a::A2AError::invalid_params(format!(
+                "push url: host {name} is not in [server.push] allow_hosts"
+            )));
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl a2a_server::PushConfigStore for AllowlistedPushStore {
+    async fn save(
+        &self,
+        config: a2a::TaskPushNotificationConfig,
+    ) -> Result<a2a::TaskPushNotificationConfig, a2a::A2AError> {
+        self.check(&config.url)?;
+        self.inner.save(config).await
+    }
+    async fn get(
+        &self,
+        task_id: &str,
+        config_id: &str,
+    ) -> Result<a2a::TaskPushNotificationConfig, a2a::A2AError> {
+        self.inner.get(task_id, config_id).await
+    }
+    async fn list(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<a2a::TaskPushNotificationConfig>, a2a::A2AError> {
+        self.inner.list(task_id).await
+    }
+    async fn delete(&self, task_id: &str, config_id: &str) -> Result<(), a2a::A2AError> {
+        self.inner.delete(task_id, config_id).await
+    }
+    async fn delete_all(&self, task_id: &str) -> Result<(), a2a::A2AError> {
+        self.inner.delete_all(task_id).await
+    }
+}
+
 /// Builds the agent card from the configuration and the registry (R19.2).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AgentCardBuilder;
@@ -469,7 +632,7 @@ impl AgentCardBuilder {
         });
         card.capabilities = a2a::AgentCapabilities {
             streaming: Some(true),
-            push_notifications: Some(false),
+            push_notifications: Some(!config.server.push.allow_hosts.is_empty()),
             extensions: Some(extensions),
             extended_agent_card: Some(false),
         };
@@ -604,7 +767,17 @@ impl<H: RequestHandler> RequestHandler for GuardedHandler<H> {
         req: a2a::GetTaskRequest,
     ) -> Result<a2a::Task, a2a::A2AError> {
         self.guard(params, &req.id).await?;
-        self.inner.get_task(params, req).await
+        let caller = Self::caller(params);
+        let mut task = self.inner.get_task(params, req).await?;
+        // A channel's question is for its members (R18.5): others see the state change.
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut task,
+            &caller,
+        )
+        .await
+        .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        Ok(task)
     }
 
     async fn list_tasks(
@@ -644,7 +817,23 @@ impl<H: RequestHandler> RequestHandler for GuardedHandler<H> {
     ) -> Result<BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>, a2a::A2AError> {
         self.guard(params, &req.id).await?;
         let slot = self.slot(params)?;
-        let stream = self.inner.subscribe_to_task(params, req).await?;
+        // Served from the harness's log, not the SDK's execution manager: a waiting task
+        // has no execution there, but its log is the truth (design.md § A2A API server).
+        let caller = Self::caller(params);
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), &req.id, &caller)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        if self
+            .store
+            .get_task(&req.id)
+            .await
+            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
+            .is_none()
+        {
+            return Err(a2a::A2AError::task_not_found(&req.id));
+        }
+        let stream = log_stream(Arc::clone(&self.store), req.id.clone(), 1, viewer).await;
         Ok(Self::hold(stream, slot))
     }
 
@@ -738,7 +927,11 @@ pub async fn router_at(
         SdkTaskStore::new(Arc::clone(&agent)),
     )
     .with_capabilities(card.capabilities.clone())
-    .with_default_input_modes(card.default_input_modes.clone());
+    .with_default_input_modes(card.default_input_modes.clone())
+    .with_push_notifications(
+        AllowlistedPushStore::new(harness.config().server.push.allow_hosts.clone()),
+        a2a_server::HttpPushSender::new(None),
+    );
     let handler = Arc::new(GuardedHandler::new(
         handler,
         Arc::clone(agent.store()),

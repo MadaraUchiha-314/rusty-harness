@@ -445,6 +445,16 @@
       "state": "open",
       "linkedAt": "2026-10-25T03:02:53+00:00",
       "linkedBy": "session"
+    },
+    {
+      "ref": "github:MadaraUchiha-314/rusty-harness#11",
+      "repository": "MadaraUchiha-314/rusty-harness",
+      "number": 11,
+      "url": "https://github.com/MadaraUchiha-314/rusty-harness/issues/11",
+      "stateDir": "pr-loops/MadaraUchiha-314__rusty-harness/pr-11",
+      "state": "open",
+      "linkedAt": "2026-10-25T07:22:41+00:00",
+      "linkedBy": "session"
     }
   ],
   "loop": "pdlc-work-item-loop",

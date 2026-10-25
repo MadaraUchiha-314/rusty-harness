@@ -302,13 +302,26 @@ impl Inbox {
     /// # Errors
     ///
     /// [`InboxError`].
-    pub async fn accept(&self, event: InboxEvent) -> Result<EventRef, InboxError> {
+    pub async fn accept(&self, mut event: InboxEvent) -> Result<EventRef, InboxError> {
         let existing = self.validate(&event).await?;
+        // The event joins the task's trace; a new task's first event names it (R24.1).
+        if event.traceparent.is_none() {
+            event.traceparent = existing
+                .as_ref()
+                .and_then(|r| r.traceparent.clone())
+                .or_else(|| Some(crate::app_service::o11y::trace::for_task(None)));
+        }
         let mut cx = HookCx::new(
             Arc::new(crate::registry::Registry::new()),
             Arc::clone(self.agent.host()),
         );
-        cx.task = existing.as_ref().map(|r| r.id.clone());
+        cx.task = existing
+            .as_ref()
+            .map(|r| r.id.clone())
+            .or_else(|| match &event.target {
+                EventTarget::Task(t) => Some(t.clone()),
+                EventTarget::Context(_) => None,
+            });
         cx.context_id = existing.as_ref().map(|r| r.context_id.clone());
         cx.traceparent.clone_from(&event.traceparent);
         let store = Arc::clone(&self.store);
@@ -368,6 +381,7 @@ impl Inbox {
                 metadata: None,
                 extensions: event.extensions.clone(),
                 inbox_event_id: Some(event.id.clone()),
+                traceparent: event.traceparent.clone(),
             };
             self.agent.open_task(&request).await?;
         }

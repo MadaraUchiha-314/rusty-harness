@@ -43,7 +43,7 @@ use crate::harness::core_loop::task::{
     Transition, transition_with_hooks,
 };
 use crate::harness::hooks::{HookCx, HookDispatcher, HookPoint, Operation};
-use crate::harness::models::llm::{ModelRequest, ModelTurn, collect};
+use crate::harness::models::llm::{ModelError, ModelRequest, ModelTurn, collect};
 use crate::harness::skills::Skill;
 use crate::harness::system_prompt::SystemPrompt;
 use crate::harness::tools::{CancelToken, Executed, OversizePolicy, ToolCall, ToolExecutor};
@@ -86,6 +86,9 @@ pub struct AgentRequest {
     /// applies it (R20.5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inbox_event_id: Option<String>,
+    /// The W3C `traceparent` the request arrived with; a new task adopts it (R24.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traceparent: Option<String>,
 }
 
 /// The agent's input and output schemas (sherma's `input_schema` / `output_schema`).
@@ -632,6 +635,7 @@ impl LocalAgent {
         let mut cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
         cx.task = Some(task.id.clone());
         cx.context_id = Some(task.context_id.clone());
+        cx.traceparent.clone_from(&task.traceparent);
         cx
     }
 
@@ -733,8 +737,12 @@ impl LocalAgent {
                 .unwrap_or_default(),
             model: self.router.selection(),
         };
-        let cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
-        let record = self
+        let traceparent = crate::app_service::o11y::trace::for_task(request.traceparent.as_deref());
+        let mut cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
+        cx.task = Some(draft.id.clone());
+        cx.context_id = Some(draft.context_id.clone());
+        cx.traceparent = Some(traceparent.clone());
+        let mut record = self
             .dispatcher
             .run::<crate::harness::core_loop::task::TaskCreate, _, _>(
                 &cx,
@@ -742,6 +750,7 @@ impl LocalAgent {
                 move |d| async move { Ok(TaskRecord::new(d, at)) },
             )
             .await?;
+        record.traceparent.get_or_insert(traceparent);
         let history = vec![Turn::new(HistoryEntry::User { text })];
         let attempt = Attempt { iteration: 0, n: 1 };
         let mut commit = TaskCommit::of(record.clone()).with_events([
@@ -819,7 +828,10 @@ impl LocalAgent {
                         received_at: at,
                         delivery: crate::app_service::inbox::DeliveryKind::Interrupt,
                         extensions: request.extensions.clone(),
-                        traceparent: None,
+                        traceparent: request
+                            .traceparent
+                            .clone()
+                            .or_else(|| record.traceparent.clone()),
                     },
                 );
                 Ok((record, false))
@@ -1069,33 +1081,44 @@ impl LocalAgent {
 
         // 2. model.call
         let request = built.request;
+        let model_error: Arc<Mutex<Option<ModelError>>> = Arc::default();
+        let sink = Arc::clone(&model_error);
         let turn = match self
             .dispatcher
             .run::<ModelCall, _, _>(&cx, request, move |request| async move {
-                let events = llm
-                    .stream(request)
-                    .await
-                    .map_err(|e| HarnessError::Internal(e.to_string()))?;
-                collect(events, Some(Instant::now()))
-                    .await
-                    .map_err(|e| HarnessError::Internal(e.to_string()))
+                let outcome = async {
+                    let events = llm.stream(request).await?;
+                    collect(events, Some(Instant::now())).await
+                }
+                .await;
+                outcome.map_err(|e| {
+                    let text = e.to_string();
+                    *sink.lock().unwrap_or_else(PoisonError::into_inner) = Some(e);
+                    HarnessError::Internal(text)
+                })
             })
             .await
         {
             Ok(turn) => turn,
             Err(HarnessError::Vetoed(v)) => {
-                let record = self.change(record, Transition::Fail).await?;
-                self.store
-                    .commit(
-                        TaskCommit::of(record.clone())
-                            .with_events([status_event(&record, attempt, 1)]),
-                    )
-                    .await?;
-                return Ok(IterationOutcome::Stopped {
-                    outcome: LoopOutcome::Failed(v.reason),
-                });
+                return self.fail_task(record, attempt, "vetoed", v.reason).await;
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                let provider = model_error
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take();
+                return match provider {
+                    // A non-retryable provider error is the task's typed error (R9.6);
+                    // a retryable one that ran out of attempts is an infrastructure
+                    // failure durable execution may retry.
+                    Some(err @ (ModelError::NonRetryable { .. } | ModelError::Decode(_))) => {
+                        self.fail_task(record, attempt, "model", err.to_string())
+                            .await
+                    }
+                    _ => Err(e.into()),
+                };
+            }
         };
         if let Some(usage) = &turn.usage {
             ratio.learn(chars, usage);
@@ -1472,6 +1495,53 @@ impl LocalAgent {
         }
     }
 
+    /// Fails `record` with a typed error on its status message (R9.6): the text is the
+    /// reason, the `kind` rides on the task extension's metadata.
+    async fn fail_task(
+        &self,
+        mut record: TaskRecord,
+        attempt: Attempt,
+        kind: &str,
+        reason: String,
+    ) -> Result<IterationOutcome, AgentError> {
+        let mut message = a2a::Message::new(a2a::Role::Agent, vec![a2a::Part::text(&reason)]);
+        message.task_id = Some(record.id.clone());
+        message.context_id = Some(record.context_id.clone());
+        message.metadata = Some(HashMap::from([(
+            TASK_EXT.to_owned(),
+            serde_json::json!({ "error": { "kind": kind, "message": reason } }),
+        )]));
+        record.status_message = Some(message);
+        let record = self.change(record, Transition::Fail).await?;
+        self.store
+            .commit(TaskCommit::of(record.clone()).with_events([status_event(&record, attempt, 1)]))
+            .await?;
+        Ok(IterationOutcome::Stopped {
+            outcome: LoopOutcome::Failed(reason),
+        })
+    }
+
+    /// Fails a task that is not running, after durable execution gave up on it (R9.6,
+    /// R22.6): a task never stays `working` with nobody driving it. A terminal or
+    /// waiting task is returned unchanged.
+    ///
+    /// # Errors
+    ///
+    /// A store failure.
+    pub async fn fail(&self, task: &TaskId, reason: &str) -> Result<a2a::Task, AgentError> {
+        let record = self.record(task).await?;
+        if record.state != a2a::TaskState::Working || self.mailbox.is_running(task) {
+            return Ok(record.to_a2a(Vec::new()));
+        }
+        let attempt = Attempt {
+            iteration: record.iteration,
+            n: 1,
+        };
+        self.fail_task(record, attempt, "infrastructure", reason.to_owned())
+            .await?;
+        Ok(self.record(task).await?.to_a2a(Vec::new()))
+    }
+
     async fn limit(&self, record: TaskRecord, limit: Limit) -> Result<LoopOutcome, AgentError> {
         let attempt = Attempt {
             iteration: record.iteration,
@@ -1705,8 +1775,11 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn rig(turns: Vec<Vec<ModelEvent>>) -> Rig {
+        rig_with(Arc::new(RecordedLlm::new("default", turns)))
+    }
+
+    pub(crate) fn rig_with(llm: Arc<RecordedLlm>) -> Rig {
         let registry = Arc::new(Registry::new());
-        let llm = Arc::new(RecordedLlm::new("default", turns));
         let as_llm: Arc<dyn Llm> = llm.clone();
         registry.register(as_llm).unwrap();
         let write = Arc::new(Fixture::new(
@@ -1766,7 +1839,77 @@ pub(crate) mod tests {
             metadata: None,
             extensions: vec![],
             inbox_event_id: None,
+            traceparent: None,
         }
+    }
+
+    /// R9.6: a non-retryable provider error fails the task with a typed error on its
+    /// status, instead of leaving it `working` for durable execution to retry forever.
+    #[tokio::test]
+    async fn a_non_retryable_model_error_fails_the_task_with_a_typed_error() {
+        let r = rig_with(Arc::new(RecordedLlm::failing_then(
+            "default",
+            1,
+            false,
+            text_turn("never reached"),
+        )));
+        r.agent
+            .open_task(&request("t-fail", "hi", false))
+            .await
+            .unwrap();
+        let outcome = r
+            .agent
+            .run(&"t-fail".into())
+            .await
+            .expect("the loop decided");
+        assert!(matches!(outcome, LoopOutcome::Failed(_)), "{outcome:?}");
+        let record = r
+            .agent
+            .store()
+            .get_task(&"t-fail".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.state, a2a::TaskState::Failed);
+        let status = record.status_message.expect("a status message");
+        assert!(
+            status.text().is_some_and(|t| !t.is_empty()),
+            "the reason is the text"
+        );
+        assert_eq!(
+            status.metadata.as_ref().unwrap()[TASK_EXT]["error"]["kind"],
+            "model"
+        );
+        // Retryable failures stay infrastructure failures: the durable layer retries.
+        let r = rig_with(Arc::new(RecordedLlm::failing_then(
+            "default",
+            1,
+            true,
+            text_turn("later"),
+        )));
+        r.agent
+            .open_task(&request("t-retry", "hi", false))
+            .await
+            .unwrap();
+        assert!(r.agent.run(&"t-retry".into()).await.is_err());
+        let record = r
+            .agent
+            .store()
+            .get_task(&"t-retry".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.state, a2a::TaskState::Working);
+        assert_eq!(
+            r.agent
+                .fail(&"t-retry".into(), "gave up")
+                .await
+                .unwrap()
+                .status
+                .state,
+            a2a::TaskState::Failed,
+            "durable execution fails it on the record when it gives up"
+        );
     }
 
     async fn send(agent: &LocalAgent, req: AgentRequest) -> Vec<a2a::StreamResponse> {

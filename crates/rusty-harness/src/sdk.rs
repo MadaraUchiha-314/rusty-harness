@@ -305,6 +305,9 @@ impl HarnessBuilder {
         );
         if tracing {
             install_tracing(&dispatcher);
+            if config.o11y.langfuse {
+                crate::app_service::o11y::LangfuseHooks::install(&dispatcher);
+            }
         }
 
         // Sub-agents (R17.1).
@@ -452,6 +455,10 @@ fn install_tracing(dispatcher: &HookDispatcher) {
     TracingHooks::install::<crate::harness::channels::ParticipantAsk>(dispatcher);
     TracingHooks::install::<crate::harness::channels::ParticipantDelegate>(dispatcher);
     TracingHooks::install::<crate::harness::skills::SkillInvoke>(dispatcher);
+    TracingHooks::install::<crate::app_service::inbox::InboxAccept>(dispatcher);
+    TracingHooks::install::<crate::app_service::inbox::InboxDeliver>(dispatcher);
+    TracingHooks::install::<crate::app_service::heartbeat::HeartbeatTick>(dispatcher);
+    TracingHooks::install::<crate::app_service::heartbeat::TaskStalled>(dispatcher);
 }
 
 /// A built harness: the agent and the pieces behind it.

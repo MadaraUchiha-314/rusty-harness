@@ -107,6 +107,8 @@ uuid = { workspace = true, features = ["js"] }
 
 # Native-only: tests and doctests run under tokio behind `rt-tokio`.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+opentelemetry-proto = { workspace = true }
+prost = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
 
 # The `rusty-harness` binary (R27.1, R30.1): everything a user installs, behind `cli`.

@@ -268,6 +268,7 @@ harness_async_trait! {
                 metadata: request.metadata,
                 extensions,
                 inbox_event_id: None,
+                traceparent: None,
             };
             let local = Arc::clone(&self.local);
             let events: Vec<Result<a2a::StreamResponse, a2a::A2AError>> = local
@@ -514,6 +515,7 @@ harness_async_trait! {
                         metadata: None,
                         extensions: vec![TASK_EXT.to_owned()],
                         inbox_event_id: None,
+                        traceparent: None,
                     };
                     let stream = agent.send_message(request).map(|r| r.map_err(|e| e.to_a2a()));
                     fold_reply(stream).await.map_err(|e| HarnessError::Internal(e.to_string()))

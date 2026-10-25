@@ -45,6 +45,10 @@ flowchart TD
   turns, keep pinned and recent ones verbatim, and persist the summary.
 - WHEN the harness restarts in mode `none` THEN it SHALL resume every non-terminal
   task from its last persisted iteration.
+- WHEN the model fails with a non-retryable error THEN the task SHALL end `failed` with a
+  typed error on its status message (`kind: model`, the reason as text); a retryable error
+  that exhausts the model's attempts is an infrastructure failure durable execution
+  retries, and a task durable execution gives up on SHALL be failed on the record (R9.6).
 
 ## Design
 

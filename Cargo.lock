@@ -1445,7 +1445,6 @@ dependencies = [
  "prost",
  "reqwest",
  "thiserror",
- "tokio",
 ]
 
 [[package]]
@@ -2195,6 +2194,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -2498,7 +2498,9 @@ dependencies = [
  "http",
  "opentelemetry",
  "opentelemetry-otlp",
+ "opentelemetry-proto",
  "opentelemetry_sdk",
+ "prost",
  "reqwest",
  "rmcp",
  "schemars",

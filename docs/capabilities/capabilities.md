@@ -17,3 +17,4 @@ behaviour. Add one line per capability doc here.
 | [The core loop](loop.md) | sherma's agent in A2A types, four hookable steps, limits, context positions and compaction |
 | [Sub-agents, participants and channels](channels.md) | every sub-agent over A2A through one tool; asks through owned channels |
 | [Commands and the system prompt](commands.md) | `/commands` from people only; the prompt is a plan of fragments |
+| [Observability](observability.md) | one persisted trace per task over OTLP; Langfuse as hooks; logs without credentials |

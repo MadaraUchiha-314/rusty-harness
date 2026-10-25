@@ -79,9 +79,14 @@ impl<R: Runtime + MaybeSendSync + 'static> InProcessExecution<R> {
                 Ok(outcome) => return outcome,
                 Err(error) => {
                     attempt += 1;
-                    match retry.backoff(attempt) {
-                        Some(wait) => runtime.sleep(wait).await,
-                        None => return LoopOutcome::Failed(error.to_string()),
+                    if let Some(wait) = retry.backoff(attempt) {
+                        runtime.sleep(wait).await;
+                    } else {
+                        // Out of attempts: the task fails on the record, so callers
+                        // waiting on its stream learn of it (R9.6).
+                        let reason = error.to_string();
+                        let _ = agent.fail(task, &reason).await;
+                        return LoopOutcome::Failed(reason);
                     }
                 }
             }

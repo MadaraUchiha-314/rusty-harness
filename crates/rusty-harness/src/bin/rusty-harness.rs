@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use clap::Parser;
 use rusty_harness::HarnessBuilder;
 use rusty_harness::app_service::a2a_server::serve;
+use rusty_harness::app_service::o11y;
 use rusty_harness::assets::{Catalog, FmtArgs, keys};
 use rusty_harness::config::{Config, ConfigSources, DurableMode};
 use rusty_harness::host::{FileSystem, Host, TokioFs};
@@ -154,9 +155,21 @@ async fn run(cli: Cli) -> i32 {
         );
     }
 
+    // Logs and spans per `[o11y]` (R24.2, R24.4), before anything else runs.
+    let host = Host::native();
+    let o11y = match o11y::init(&config.o11y, &host, o11y::Scope::Global) {
+        Ok(guard) => guard,
+        Err(e) => {
+            say.error(
+                keys::cli::error::STARTUP,
+                &FmtArgs::new().text("reason", e.to_string()),
+            );
+            return 2;
+        }
+    };
+
     // Startup checks (fail-closed list): every credential reference resolves, and a
     // durable mode this build cannot run refuses to start.
-    let host = Host::native();
     let secrets = host.secrets().expect("the native host resolves secrets");
     for (name, reference) in config.secret_refs() {
         match secrets.resolve(&reference).await {
@@ -221,7 +234,7 @@ async fn run(cli: Cli) -> i32 {
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
     };
-    match server.run(shutdown).await {
+    let code = match server.run(shutdown).await {
         Ok(()) => 0,
         Err(e) => {
             say.error(
@@ -230,7 +243,9 @@ async fn run(cli: Cli) -> i32 {
             );
             1
         }
-    }
+    };
+    o11y.flush();
+    code
 }
 
 #[cfg(test)]

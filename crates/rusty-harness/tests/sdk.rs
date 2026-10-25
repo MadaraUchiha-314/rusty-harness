@@ -74,6 +74,7 @@ async fn the_harness_is_usable_from_rust_in_process() {
         metadata: None,
         extensions: vec![],
         inbox_event_id: None,
+        traceparent: None,
     };
     let events: Vec<_> = harness.agent().send_message(request).collect().await;
     assert!(

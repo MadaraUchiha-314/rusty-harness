@@ -312,7 +312,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `bin::tests` (argument precedence); T6 — `snapshot_first_run_output`
     (`NO_COLOR`); T8 — `abuse_remote_durable_unreachable_refuses_to_start` (completed in
     task 30)
-- [ ] 26. Observability end to end: one trace per task across request, inbox and loop,
+- [x] 26. Observability end to end: one trace per task across request, inbox and loop,
   Langfuse configuration of the hook set, canary extended to A2A responses, the card and
   the store.
   - _Depends on:_ 23

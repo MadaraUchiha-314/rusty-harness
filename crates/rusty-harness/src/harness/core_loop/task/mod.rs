@@ -389,6 +389,9 @@ pub struct TaskRecord {
     pub applied_events: Vec<String>,
     /// Suspended tool calls.
     pub pending_calls: Vec<PendingCall>,
+    /// The W3C `traceparent` every operation of the task joins (R24.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traceparent: Option<String>,
     /// Optimistic-concurrency version.
     pub version: Version,
 }
@@ -483,6 +486,7 @@ impl TaskRecord {
     #[must_use]
     pub fn new(draft: TaskDraft, now: DateTime<Utc>) -> Self {
         Self {
+            traceparent: None,
             id: draft.id,
             context_id: draft.context_id,
             name: draft.name,

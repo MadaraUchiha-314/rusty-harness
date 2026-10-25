@@ -161,6 +161,12 @@ impl AgentExecutor for HarnessExecutor {
                 a2a::A2AError::invalid_params("execute without a message"),
             )]));
         };
+        let traceparent = crate::app_service::o11y::trace::incoming(
+            ctx.service_params
+                .get(crate::app_service::o11y::trace::HEADER)
+                .and_then(|v| v.first())
+                .map(String::as_str),
+        );
         let request = AgentRequest {
             message,
             call: CallContext {
@@ -177,6 +183,7 @@ impl AgentExecutor for HarnessExecutor {
             metadata: ctx.metadata,
             extensions: protocol_gap::active_extensions(&ctx.service_params),
             inbox_event_id: None,
+            traceparent,
         };
         let task = ctx.task_id;
         Box::pin(
@@ -204,7 +211,7 @@ impl AgentExecutor for HarnessExecutor {
                         .map_or_else(|_| chrono::Utc::now(), |c| c.now()),
                     delivery: crate::app_service::inbox::DeliveryKind::Interrupt,
                     extensions: request.extensions.clone(),
-                    traceparent: request.call.service_params.get("traceparent").cloned(),
+                    traceparent: request.traceparent.clone(),
                 };
                 if let Err(e) = inbox.accept(event).await {
                     return futures::stream::iter(vec![Err(e.to_a2a())]).boxed();

@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, TimeZone, Utc};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::Color;
@@ -68,6 +68,9 @@ fn options() -> TuiOptions {
             durable: "remote".into(),
         },
         mono: false,
+        voice: false,
+        push_to_talk: ' ',
+        hold: false,
     }
 }
 
@@ -549,6 +552,143 @@ fn tui_snapshot_first() {
         text.contains("Type a message to start a task. Prefix with / for commands."),
         "{text}"
     );
+}
+
+fn voiced(hold: bool) -> App {
+    let mut opts = options();
+    opts.voice = true;
+    opts.hold = hold;
+    let mut app = App::new(opts);
+    app.apply(working_task(), at(12, 30));
+    app.apply(
+        status(
+            a2a::TaskState::InputRequired,
+            Some(agent_text(
+                "m3",
+                "Done: the draft is attached as release-notes-q4.md. Tell me what to change, or complete.",
+            )),
+            Some(json!({ "kind": "awaiting-next-turn" })),
+            plan(3, 1),
+            at(12, 35),
+        ),
+        at(12, 35),
+    );
+    app
+}
+
+fn space(kind: KeyEventKind) -> KeyEvent {
+    KeyEvent::new_with_kind(KeyCode::Char(' '), KeyModifiers::NONE, kind)
+}
+
+#[test]
+fn tui_snapshot_voice() {
+    let mut app = voiced(true);
+    assert_eq!(
+        app.key(space(KeyEventKind::Press), at(12, 36)),
+        vec![Outgoing::StartListening]
+    );
+    app.tick(at(12, 36) + chrono::Duration::seconds(4));
+    let text = snapshot("voice", app);
+    assert!(
+        text.contains("● listening 0:04 · release space to send"),
+        "{text}"
+    );
+    assert!(
+        text.contains("space  held (kitty keyboard protocol)"),
+        "{text}"
+    );
+}
+
+/// Scenario: Push-to-talk holds with key releases and toggles without them
+#[test]
+fn push_to_talk_holds_with_releases_and_toggles_without() {
+    // Held: press starts, repeats are ignored, release sends.
+    let mut app = voiced(true);
+    assert_eq!(
+        app.key(space(KeyEventKind::Press), at(12, 36)),
+        vec![Outgoing::StartListening]
+    );
+    assert_eq!(app.key(space(KeyEventKind::Repeat), at(12, 36)), vec![]);
+    assert_eq!(
+        app.key(space(KeyEventKind::Release), at(12, 37)),
+        vec![Outgoing::StopListening { send: true }]
+    );
+    assert!(app.listening.is_none());
+
+    // Toggled: a press starts, the release is ignored, the next press sends.
+    let mut app = voiced(false);
+    assert_eq!(
+        app.key(space(KeyEventKind::Press), at(12, 36)),
+        vec![Outgoing::StartListening]
+    );
+    assert_eq!(app.key(space(KeyEventKind::Release), at(12, 36)), vec![]);
+    assert_eq!(
+        app.key(space(KeyEventKind::Press), at(12, 37)),
+        vec![Outgoing::StopListening { send: true }]
+    );
+
+    // Esc drops a capture.
+    let mut app = voiced(false);
+    app.key(space(KeyEventKind::Press), at(12, 36));
+    assert_eq!(
+        app.key(key(KeyCode::Esc), at(12, 36)),
+        vec![Outgoing::StopListening { send: false }]
+    );
+
+    // With text in the composer, space is a space.
+    let mut app = voiced(true);
+    type_text(&mut app, "add", at(12, 36));
+    assert_eq!(app.key(space(KeyEventKind::Press), at(12, 36)), vec![]);
+    assert_eq!(app.composer, "add ");
+
+    // Without a microphone, space types.
+    let mut app = App::new(options());
+    assert_eq!(app.key(space(KeyEventKind::Press), at(12, 36)), vec![]);
+    assert_eq!(app.composer, " ");
+}
+
+#[test]
+fn a_capture_is_sent_as_a_voice_part_and_a_spoken_reply_is_queued_for_playback() {
+    use rusty_harness::harness::models::speech::{VOICE_EXT, audio_of};
+    let mut app = voiced(true);
+    let message = app.spoken_message(vec![1, 2, 3, 4], at(12, 37));
+    assert_eq!(message.task_id.as_deref(), Some(TASK));
+    let (meta, bytes) = audio_of(&message.parts[0]).expect("a voice/v1 part");
+    assert_eq!(bytes.as_ref(), [1, 2, 3, 4]);
+    assert!(meta.is_final);
+    assert_eq!(message.parts[0].media_type.as_deref(), Some("audio/pcm"));
+    assert!(
+        message.parts[0]
+            .metadata
+            .as_ref()
+            .unwrap()
+            .contains_key(VOICE_EXT)
+    );
+
+    let mut part = a2a::Part::data(Value::Null).with_media_type("audio/pcm");
+    part.content = a2a::PartContent::Raw(vec![9, 8, 7]);
+    app.apply(
+        a2a::StreamResponse::ArtifactUpdate(a2a::TaskArtifactUpdateEvent {
+            task_id: TASK.into(),
+            context_id: CONTEXT.into(),
+            artifact: a2a::Artifact {
+                artifact_id: "speech-3-1".into(),
+                name: Some("reply.pcm".into()),
+                description: Some("the reply, spoken".into()),
+                parts: vec![part],
+                metadata: None,
+                extensions: None,
+            },
+            append: None,
+            last_chunk: Some(true),
+            metadata: None,
+        }),
+        at(12, 38),
+    );
+    let queued = app.take_playback();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].as_ref(), [9, 8, 7]);
+    assert!(app.take_playback().is_empty(), "played once");
 }
 
 /// Scenario: A command token is highlighted in the composer and in a sent message

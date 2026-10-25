@@ -125,7 +125,11 @@ function TurnView({
           <MessageContent>
             {turn.role === "user" ? (
               <p className="whitespace-pre-wrap">
-                <Highlight text={turn.text} commands={commands} />
+                {turn.text ? (
+                  <Highlight text={turn.text} commands={commands} />
+                ) : (
+                  t("web.voice.sent")
+                )}
               </p>
             ) : turn.a2ui.length > 0 ? (
               <A2uiBlock messages={turn.a2ui} onAction={(action) => onA2uiAction(turn, action)} />

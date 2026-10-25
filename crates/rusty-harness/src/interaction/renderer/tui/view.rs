@@ -506,7 +506,25 @@ fn draw_composer(app: &App, frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     let mut lines = Vec::new();
     let in_form = app.mode == Mode::Form;
     let prompt = Span::styled("› ", theme.accent());
-    if in_form {
+    if let Some(since) = app.listening {
+        // Push-to-talk is capturing (R27.5): a timer and how to send.
+        let elapsed = app.now.map_or(0, |now| (now - since).num_seconds().max(0));
+        let key = if app.options().hold {
+            keys::tui::voice::LISTENING_HOLD
+        } else {
+            keys::tui::voice::LISTENING_TOGGLE
+        };
+        let text = app.text_with(
+            key,
+            &FmtArgs::new()
+                .text("elapsed", format!("{}:{:02}", elapsed / 60, elapsed % 60))
+                .text("key", ptt_label(app)),
+        );
+        lines.push(Line::from(vec![
+            Span::styled("● ", theme.err()),
+            Span::styled(text, theme.bold()),
+        ]));
+    } else if in_form {
         lines.push(Line::from(vec![
             prompt,
             Span::styled(app.text(keys::tui::a2ui::ANSWER_HINT), theme.dim()),
@@ -565,8 +583,25 @@ fn draw_hints(app: &App, frame: &mut Frame<'_>, area: Rect, theme: Theme) {
             spans.extend(hint("n", app.text(keys::tui::confirm::NO)));
             spans.extend(hint("x", app.text(keys::tui::confirm::CANCEL_INSTEAD)));
         }
+        Mode::Chat if app.listening.is_some() => {
+            let held = if app.options().hold {
+                keys::tui::voice::HINT_HOLD
+            } else {
+                keys::tui::voice::HINT_TOGGLE
+            };
+            spans.extend(hint(&ptt_label(app), app.text(held)));
+            spans.extend(hint("esc", app.text(keys::tui::hint::BACK)));
+        }
         Mode::Chat => {
             spans.extend(hint("enter", app.text(keys::tui::hint::SEND)));
+            if app.options().voice {
+                let talk = if app.options().hold {
+                    keys::tui::hint::HOLD_TO_TALK
+                } else {
+                    keys::tui::hint::PRESS_TO_TALK
+                };
+                spans.extend(hint(&ptt_label(app), app.text(talk)));
+            }
             spans.extend(hint("/", app.text(keys::tui::hint::COMMANDS)));
             spans.extend(hint("^c", app.text(keys::tui::hint::COMPLETE)));
             spans.extend(hint("^x", app.text(keys::tui::hint::CANCEL)));
@@ -585,6 +620,14 @@ fn draw_hints(app: &App, frame: &mut Frame<'_>, area: Rect, theme: Theme) {
         .title_bottom(Line::from(spans))
         .title_bottom(Line::from(Span::styled(format!("{right} "), theme.dim())).right_aligned());
     frame.render_widget(block, area);
+}
+
+/// The push-to-talk key as the hints name it.
+fn ptt_label(app: &App) -> String {
+    match app.options().push_to_talk {
+        ' ' => "space".into(),
+        c => c.to_string(),
+    }
 }
 
 fn popup(area: Rect, width: u16, height: u16) -> Rect {

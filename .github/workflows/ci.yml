@@ -24,6 +24,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: ALSA headers for the `audio` feature (cpal)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev > /dev/null
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -53,6 +55,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+      - name: ALSA headers for the `audio` feature (cpal)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev > /dev/null
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.toolchain }}
@@ -156,6 +160,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
+      - name: ALSA headers for the `audio` feature (cpal)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev > /dev/null
       - uses: Swatinem/rust-cache@v2
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile

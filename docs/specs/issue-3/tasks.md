@@ -445,7 +445,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `models::speech::tests` against a mock `WebSocketClient` (event
     framing, chunk sequencing); T6 — `snapshot_realtime_session_config`; T8 — the canary
     scenario, fourth leg (voice session)
-- [ ] 40. Voice on the surfaces: web microphone capture (`MediaRecorder`) and playback
+- [x] 40. Voice on the surfaces: web microphone capture (`MediaRecorder`) and playback
   (`AudioContext`) through the voice button; TUI push-to-talk with the kitty keyboard
   protocol hold and the toggle fallback, `Host::microphone`/`speaker` on `cpal` behind
   `audio`, streamed playback.

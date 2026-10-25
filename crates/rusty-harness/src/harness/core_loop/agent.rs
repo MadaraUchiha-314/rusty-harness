@@ -500,6 +500,8 @@ pub struct LocalAgent {
     mailbox: Mailbox,
     ratios: Mutex<BTreeMap<String, TokenRatio>>,
     last_boundary: Mutex<Option<DateTime<Utc>>>,
+    /// The voice a spoken turn is answered in (`[voice] voice`, R28.4).
+    voice: crate::harness::models::speech::VoiceId,
 }
 
 impl core::fmt::Debug for LocalAgent {
@@ -799,6 +801,11 @@ impl LocalAgent {
             mailbox: Mailbox::default(),
             ratios: Mutex::new(BTreeMap::new()),
             last_boundary: Mutex::new(None),
+            voice: crate::harness::models::speech::VoiceId(
+                config.voice.voice.clone().unwrap_or_else(|| {
+                    crate::harness::models::speech::openai::DEFAULT_VOICE.into()
+                }),
+            ),
         }
     }
 
@@ -993,16 +1000,148 @@ impl LocalAgent {
         self.record(&record.id).await
     }
 
+    /// The message as the model will take it: `voice/v1` audio transcribed through the
+    /// registered `SpeechToText` when the selected model cannot hear (R28.3), each
+    /// transcript a text part that keeps the audio's `voice/v1` metadata. A model that
+    /// hears, or a harness without speech-to-text, gets the message unchanged.
+    ///
+    /// # Errors
+    ///
+    /// [`AgentError::Model`] when transcription fails.
+    async fn hear(&self, message: &a2a::Message) -> Result<a2a::Message, AgentError> {
+        use crate::harness::models::speech::{SpeechToText, TranscriptEvent, audio_of};
+        if !message.parts.iter().any(|p| audio_of(p).is_some()) {
+            return Ok(message.clone());
+        }
+        let hears = self.router.current().is_ok_and(|llm| {
+            llm.capabilities()
+                .input_modalities
+                .contains(&Modality::Audio)
+        });
+        let Ok(stt) = self.registry.latest::<dyn SpeechToText>("default") else {
+            return Ok(message.clone());
+        };
+        if hears {
+            return Ok(message.clone());
+        }
+        let mut transcribed = message.clone();
+        for part in &mut transcribed.parts {
+            let Some((meta, bytes)) = audio_of(part) else {
+                continue;
+            };
+            let audio =
+                crate::runtime::boxed_stream(futures::stream::once(async move { Ok(bytes) }));
+            let mut events = stt
+                .transcribe(crate::harness::models::speech::openai::PCM24K, audio)
+                .await
+                .map_err(|e| AgentError::Model(e.to_string()))?;
+            let mut deltas = String::new();
+            let mut text = None;
+            while let Some(event) = futures::StreamExt::next(&mut events).await {
+                match event.map_err(|e| AgentError::Model(e.to_string()))? {
+                    TranscriptEvent::Delta { text: d } => deltas.push_str(&d),
+                    TranscriptEvent::Final { text: t } => text = Some(t),
+                }
+            }
+            let mut transcript = a2a::Part::text(text.unwrap_or(deltas));
+            transcript.metadata = Some(HashMap::from([(
+                crate::harness::models::speech::VOICE_EXT.to_owned(),
+                serde_json::to_value(&meta).unwrap_or(Value::Null),
+            )]));
+            *part = transcript;
+        }
+        Ok(transcribed)
+    }
+
+    /// The reply in speech, when the participant's last turn was spoken and a
+    /// `TextToSpeech` is registered (R28.4); `None` otherwise. A synthesis failure is
+    /// logged and the text reply stands alone.
+    async fn speak(
+        &self,
+        record: &TaskRecord,
+        attempt: Attempt,
+        reply: &a2a::Message,
+    ) -> Option<a2a::Artifact> {
+        use crate::harness::models::speech::{
+            AudioChunk, TextToSpeech, VOICE_EXT, VoiceMeta, audio_part,
+        };
+        let tts = self.registry.latest::<dyn TextToSpeech>("default").ok()?;
+        let events = self
+            .store
+            .events(&record.id, 1, usize::MAX, &Caller::system("voice"))
+            .await
+            .ok()?;
+        let last_user = events.iter().rev().find_map(|e| match &e.response {
+            a2a::StreamResponse::Message(m) if m.role == a2a::Role::User => Some(m),
+            _ => None,
+        })?;
+        let spoken = last_user.parts.iter().any(|p| {
+            p.metadata
+                .as_ref()
+                .is_some_and(|m| m.contains_key(VOICE_EXT))
+        });
+        let text = message_text(reply);
+        if !spoken || text.trim().is_empty() {
+            return None;
+        }
+        let stream = match tts.synthesise(text, self.voice.clone()).await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(task = %record.id, error = %e, "speech synthesis failed; the reply stays text");
+                return None;
+            }
+        };
+        let chunks: Vec<Result<AudioChunk, _>> = futures::StreamExt::collect(stream).await;
+        let mut data = Vec::new();
+        for chunk in chunks {
+            match chunk {
+                Ok(c) => data.extend_from_slice(&c.data),
+                Err(e) => {
+                    tracing::warn!(task = %record.id, error = %e, "speech synthesis failed; the reply stays text");
+                    return None;
+                }
+            }
+        }
+        let chunk = AudioChunk {
+            format: crate::harness::models::speech::openai::PCM24K,
+            data: Bytes::from(data),
+            seq: 1,
+        };
+        let meta = VoiceMeta {
+            seq: 1,
+            attempt,
+            format: "pcm16@24k".into(),
+            is_final: true,
+            session: record.id.clone(),
+        };
+        Some(a2a::Artifact {
+            artifact_id: format!("speech-{}-{}", attempt.iteration, attempt.n),
+            name: Some("reply.pcm".into()),
+            description: Some("the reply, spoken".into()),
+            parts: vec![audio_part(&chunk, &meta)],
+            metadata: None,
+            extensions: None,
+        })
+    }
+
     /// Creates the task for a first message, or applies a follow-up to an existing one
     /// (R20.6, R21.5, R21.6). Returns the record and whether the loop should run now.
     ///
     /// # Errors
     ///
-    /// [`AgentError::Unsupported`] for a terminal task or a context mismatch.
+    /// [`AgentError::Unsupported`] for a terminal task or a context mismatch,
+    /// [`AgentError::UnsupportedModality`] for media the model cannot take.
     pub async fn open_task(
         &self,
         request: &AgentRequest,
     ) -> Result<(TaskRecord, bool), AgentError> {
+        // Speech the model cannot hear is transcribed first (R28.3); the log keeps the
+        // transcript, marked as spoken.
+        let heard = AgentRequest {
+            message: self.hear(&request.message).await?,
+            ..request.clone()
+        };
+        let request = &heard;
         // Media the selected model cannot take is refused before anything is stored,
         // naming the modality (R28.1).
         if let Some(missing) = request
@@ -1587,10 +1726,18 @@ impl LocalAgent {
                 .await?;
             record.status_message = Some(delivery.message.clone());
             let record = self.change(record, Transition::Delivered).await?;
+            // A spoken turn is answered in speech too (R28.4): the reply's text,
+            // synthesised, as an audio artifact next to the message.
+            let spoken = self.speak(&record, attempt, &delivery.message).await;
             let mut commit = TaskCommit::of(record.clone()).with_events([
                 message_event(&record, attempt, 0, delivery.message, now(&self.host)),
                 status_event(&record, attempt, 1),
             ]);
+            if let Some(artifact) = spoken {
+                commit
+                    .events
+                    .push(artifact_event(&record, attempt, 0, artifact));
+            }
             commit.blobs.push(Self::history_blob(task, &history));
             self.store.commit(commit).await?;
             if record.is_terminal() {

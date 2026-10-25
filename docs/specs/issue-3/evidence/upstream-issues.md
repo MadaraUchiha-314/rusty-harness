@@ -47,3 +47,18 @@ the SDK ships a feature, the matching piece of `protocol_gap` is deleted.
   agent accent, which meets AA in both themes.
 - **To file against:** <https://github.com/google/A2UI> (`web_core`, basic catalog).
 - **Status:** draft, to be filed.
+
+## 4. `@a2a-js/sdk` 1.3 needs Node's `Buffer` in the browser for raw parts
+
+- **Where:** `Part.fromJSON`/`toJSON` (and so `SendMessageRequest.fromJSON` and every
+  streamed event carrying a raw part) call `Buffer.from` for the `raw` field; a browser
+  has no `Buffer`, so a page receiving an image artifact or sending an audio part throws
+  `ReferenceError: Buffer is not defined` (`web/tests/visual/states.spec.ts`, the voice
+  state, found it).
+- **Spec:** A2A 1.0 ProtoJSON: `raw` is base64; `atob`/`btoa` or `Uint8Array.fromBase64`
+  suffice in a browser.
+- **Our workaround:** `web/src/polyfills.ts` installs the `buffer` package as
+  `globalThis.Buffer` before the SDK loads (design.md D1: polyfill, no hand-rolled
+  client).
+- **To file against:** <https://github.com/a2aproject/a2a-js>.
+- **Status:** draft, to be filed.

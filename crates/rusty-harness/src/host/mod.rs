@@ -22,6 +22,10 @@ mod types;
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
 mod native;
 
+/// Microphone and speaker on `cpal` (R27.5, R28.6).
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+pub mod audio;
+
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
 pub use native::{
     NativeSecrets, OsRng, ReqwestHttp, SystemClock, TokioFs, TokioProcess, TungsteniteClient,

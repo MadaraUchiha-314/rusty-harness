@@ -1,6 +1,7 @@
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
   PromptInputProvider,
   PromptInputSubmit,
@@ -17,7 +18,9 @@ import {
 } from "@/components/ui/command";
 import { t } from "@/i18n";
 import { commandTokens } from "@/store/task";
-import { useState } from "react";
+import { MicIcon, SquareIcon } from "lucide-react";
+import { useRef, useState } from "react";
+import { record, type Recording } from "@/voice";
 
 export interface CommandInfo {
   name: string;
@@ -51,16 +54,83 @@ function Palette({
   );
 }
 
+/** The voice button (R26.4): press to record, press again to send; Esc drops. */
+function VoiceButton({
+  disabled,
+  onSpeak,
+  onError,
+}: {
+  disabled: boolean;
+  onSpeak: (pcm: Uint8Array) => void;
+  onError: (reason: string) => void;
+}) {
+  const recording = useRef<Recording | undefined>(undefined);
+  const [listening, setListening] = useState(false);
+  const toggle = async () => {
+    if (recording.current) {
+      const current = recording.current;
+      recording.current = undefined;
+      setListening(false);
+      try {
+        onSpeak(await current.stop());
+      } catch (e) {
+        onError(String(e));
+      }
+      return;
+    }
+    try {
+      recording.current = await record();
+      setListening(true);
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+  return (
+    <>
+      {listening && (
+        <span className="text-xs text-danger" role="status" data-testid="voice-listening">
+          {t("web.voice.listening")}
+        </span>
+      )}
+      <PromptInputButton
+        type="button"
+        disabled={disabled}
+        aria-pressed={listening}
+        aria-label={listening ? t("web.voice.stop") : t("web.voice.start")}
+        title={listening ? t("web.voice.stop") : t("web.voice.start")}
+        data-testid="voice"
+        className={listening ? "bg-danger-soft text-danger" : undefined}
+        onClick={() => {
+          void toggle();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && recording.current) {
+            recording.current.cancel();
+            recording.current = undefined;
+            setListening(false);
+          }
+        }}
+      >
+        {listening ? <SquareIcon className="size-4" /> : <MicIcon className="size-4" />}
+      </PromptInputButton>
+    </>
+  );
+}
+
 function Inner({
   agent,
   commands,
   busy,
   disabled,
+  onSpeak,
+  onError,
 }: {
   agent: string;
   commands: readonly CommandInfo[];
   busy: boolean;
   disabled: boolean;
+  onSpeak?: ((pcm: Uint8Array) => void) | undefined;
+  onError?: ((reason: string) => void) | undefined;
 }) {
   const controller = usePromptInputController();
   const value = controller.textInput.value;
@@ -104,6 +174,9 @@ function Inner({
           )}
           <span className="text-muted-foreground text-xs">{t("web.composer.hint")}</span>
         </PromptInputTools>
+        {onSpeak && (
+          <VoiceButton disabled={disabled} onSpeak={onSpeak} onError={onError ?? (() => {})} />
+        )}
         <PromptInputSubmit
           status={busy ? "streaming" : undefined}
           disabled={disabled || value.trim().length === 0}
@@ -122,12 +195,16 @@ export function Composer({
   busy,
   disabled,
   onSend,
+  onSpeak,
+  onError,
 }: {
   agent: string;
   commands: readonly CommandInfo[];
   busy: boolean;
   disabled: boolean;
   onSend: (text: string) => void;
+  onSpeak?: (pcm: Uint8Array) => void;
+  onError?: (reason: string) => void;
 }) {
   return (
     <PromptInputProvider>
@@ -137,7 +214,14 @@ export function Composer({
           if (text.trim()) onSend(text.trim());
         }}
       >
-        <Inner agent={agent} commands={commands} busy={busy} disabled={disabled} />
+        <Inner
+          agent={agent}
+          commands={commands}
+          busy={busy}
+          disabled={disabled}
+          onSpeak={onSpeak}
+          onError={onError}
+        />
       </PromptInput>
     </PromptInputProvider>
   );

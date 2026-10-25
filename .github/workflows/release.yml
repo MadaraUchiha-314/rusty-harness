@@ -160,6 +160,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run --cwd docs build
+      - name: ALSA headers for the `audio` feature (cpal)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev > /dev/null
       - name: API reference
         run: |
           cargo doc --no-deps --all-features -p rusty_harness

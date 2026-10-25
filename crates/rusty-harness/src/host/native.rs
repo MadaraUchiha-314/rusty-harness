@@ -238,15 +238,19 @@ impl Host {
     /// and report [`crate::HarnessError::Unsupported`] until then.
     #[must_use]
     pub fn native() -> Host {
-        Host::builder()
+        let builder = Host::builder()
             .http(Arc::new(ReqwestHttp::default()))
             .websocket(Arc::new(TungsteniteClient))
             .clock(Arc::new(SystemClock))
             .rng(Arc::new(OsRng))
             .secrets(Arc::new(NativeSecrets))
             .fs(Arc::new(TokioFs))
-            .process(Arc::new(TokioProcess))
-            .build()
+            .process(Arc::new(TokioProcess));
+        #[cfg(feature = "audio")]
+        let builder = builder
+            .microphone(Arc::new(super::audio::CpalMicrophone))
+            .speaker(Arc::new(super::audio::CpalSpeaker));
+        builder.build()
     }
 }
 
@@ -336,6 +340,7 @@ pub fn scrubbed_env(extra: impl IntoIterator<Item = (String, String)>) -> BTreeM
 #[cfg(test)]
 mod tests {
     use super::{NativeSecrets, TokioFs, TokioProcess, scrubbed_env};
+    #[cfg(not(feature = "audio"))]
     use crate::error::Capability;
     use crate::host::{Command, FileSystem, Host, ProcessSpawner, SecretRef, SecretResolver};
     use bytes::Bytes;
@@ -423,9 +428,12 @@ mod tests {
         assert!(host.http().is_ok() && host.clock().is_ok() && host.rng().is_ok());
         assert!(host.secrets().is_ok() && host.fs().is_ok() && host.process().is_ok());
         assert!(host.websocket().is_ok(), "M6 supplies WebSockets");
+        #[cfg(not(feature = "audio"))]
         assert!(matches!(
             host.microphone(),
             Err(crate::HarnessError::Unsupported(Capability::Microphone))
         ));
+        #[cfg(feature = "audio")]
+        assert!(host.microphone().is_ok() && host.speaker().is_ok());
     }
 }

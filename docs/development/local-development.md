@@ -9,6 +9,7 @@
 | Python | [`uv`](https://docs.astral.sh/uv/) — it fetches the Python it needs |
 | JavaScript | [`bun`](https://bun.sh) |
 | Hooks | [`prek`](https://github.com/j178/prek) or `pre-commit` (`uv tool install pre-commit`) |
+| Audio (Linux) | ALSA headers for the `audio` feature (`cpal`): `libasound2-dev` (Debian/Ubuntu), `alsa-lib-devel` (Fedora), `alsa-lib` (Arch) |
 
 Install the JS dependencies for the whole repository once, from the root:
 

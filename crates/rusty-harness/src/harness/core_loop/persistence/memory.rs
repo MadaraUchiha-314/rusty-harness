@@ -334,6 +334,11 @@ harness_async_trait! {
             if matches!(status, InboxStatus::Applied { .. }) {
                 return Err(StoreError::Corrupt("Applied is written by commit, not mark_inbox".into()));
             }
+            // An event the loop already applied stays applied: a signal that lands after
+            // the apply (the forwarder racing the loop) changes nothing (R20.5).
+            if matches!(stored.status, InboxStatus::Applied { .. }) {
+                return Ok(());
+            }
             stored.status = status;
             Ok(())
         }

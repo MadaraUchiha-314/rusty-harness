@@ -15,6 +15,8 @@ use crate::app_service::inbox::EventRef;
 use crate::config::DurableMode;
 use crate::harness::core_loop::agent::LocalAgent;
 use crate::harness::core_loop::task::{ParticipantId, TaskId};
+use crate::harness::core_loop::task::{StateChange, StateChanged, TaskStateChange, Transition};
+use crate::harness::hooks::{Hook, HookCx, HookError, HookOrder, PostHook};
 use crate::harness_async_trait;
 use crate::registry::{Entity, EntityId, EntityKind};
 use std::time::Duration;
@@ -28,6 +30,53 @@ pub struct TemporalExecution {
     timeouts: ActivityTimeouts,
     heartbeat_every: Duration,
     workers: Mutex<Vec<TemporalWorker>>,
+    signaller: std::sync::atomic::AtomicBool,
+}
+
+/// Tells a task's workflow about a cancel or complete decided anywhere in the harness (a
+/// parent's terminal state cancelling its sub-tasks, a stall policy, an operator): the
+/// record changed first; the workflow stops what it drives and returns (R22.6, R12.4).
+struct WorkflowSignaller {
+    connection: Arc<TemporalConnection>,
+}
+
+#[async_trait::async_trait]
+impl PostHook<TaskStateChange> for WorkflowSignaller {
+    async fn post(
+        &self,
+        _cx: &HookCx,
+        input: &StateChange,
+        output: StateChanged,
+    ) -> Result<StateChanged, HookError> {
+        let handle = self
+            .connection
+            .client()
+            .get_workflow_handle::<super::workflow::TaskWorkflowRun>(input.task.id.clone());
+        match &input.transition {
+            Transition::Cancel => {
+                let _ = handle
+                    .signal(
+                        TaskWorkflow::cancel,
+                        CancelReason::Policy {
+                            reason: "task.state_change".into(),
+                        },
+                        WorkflowSignalOptions::default(),
+                    )
+                    .await;
+            }
+            Transition::Complete => {
+                let _ = handle
+                    .signal(
+                        TaskWorkflow::complete,
+                        "service".to_owned(),
+                        WorkflowSignalOptions::default(),
+                    )
+                    .await;
+            }
+            _ => {}
+        }
+        Ok(output)
+    }
 }
 
 /// What a worker polls for. One process normally runs both; the chaos tests split them
@@ -71,6 +120,7 @@ impl TemporalExecution {
             timeouts: ActivityTimeouts::default(),
             heartbeat_every: Duration::from_secs(5),
             workers: Mutex::new(Vec::new()),
+            signaller: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -103,6 +153,18 @@ impl TemporalExecution {
     ///
     /// [`DurableError::Failed`] when the worker cannot be created.
     pub fn start_worker_with(&self, roles: WorkerRoles) -> Result<(), DurableError> {
+        if !self
+            .signaller
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.agent.hooks().register::<TaskStateChange>(
+                EntityId::new(format!("{}.signaller", self.id.id)),
+                Hook::Post(Arc::new(WorkflowSignaller {
+                    connection: Arc::clone(&self.connection),
+                })),
+                HookOrder::default(),
+            );
+        }
         let builder = WorkerOptions::new(self.connection.task_queue().to_owned());
         let activities = TaskActivities {
             agent: Arc::clone(&self.agent),

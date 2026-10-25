@@ -13,6 +13,7 @@
 //! on the sub-agent's implementation (R17.4).
 
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::StreamExt as _;
@@ -24,7 +25,9 @@ use crate::harness::core_loop::agent::{
     Agent, AgentError, AgentRequest, AgentSchemas, CallContext, LocalAgent,
 };
 use crate::harness::core_loop::persistence::{PersistenceStore, TaskCommit};
-use crate::harness::core_loop::task::{Caller, PendingCall, ResumeOn, TASK_EXT, TaskId, TaskRef};
+use crate::harness::core_loop::task::{
+    Caller, ContextId, PendingCall, ResumeOn, TASK_EXT, TaskId, TaskRef,
+};
 use crate::harness::hooks::{HookCx, HookDispatcher, HookPoint, Operation};
 use crate::harness::tools::{Idempotency, Tool, ToolCx, ToolDescriptor, ToolError, ToolOutput};
 use crate::harness_async_trait;
@@ -50,6 +53,23 @@ harness_async_trait! {
         async fn get_task(&self, request: a2a::GetTaskRequest) -> Result<a2a::Task, a2a::A2AError>;
         /// `CancelTask`.
         async fn cancel_task(&self, request: a2a::CancelTaskRequest) -> Result<a2a::Task, a2a::A2AError>;
+        /// `ListTasks`, for the outbound reconciliation by context (R17.4).
+        async fn list_tasks(&self, request: a2a::ListTasksRequest) -> Result<a2a::ListTasksResponse, a2a::A2AError>;
+    }
+}
+
+/// A `ListTasks` request for one context, nothing else filtered.
+#[must_use]
+pub fn list_by_context(context_id: &str) -> a2a::ListTasksRequest {
+    a2a::ListTasksRequest {
+        context_id: Some(context_id.to_owned()),
+        status: None,
+        page_size: None,
+        page_token: None,
+        history_length: None,
+        status_timestamp_after: None,
+        include_artifacts: None,
+        tenant: None,
     }
 }
 
@@ -233,6 +253,14 @@ harness_async_trait! {
                 .await
                 .map_err(|e| AgentError::Unsupported(e.to_string()))
         }
+
+        async fn list_tasks(&self, context_id: &ContextId, _call: CallContext) -> Result<Vec<a2a::Task>, AgentError> {
+            self.transport
+                .list_tasks(list_by_context(context_id))
+                .await
+                .map(|page| page.tasks)
+                .map_err(|e| AgentError::Unsupported(e.to_string()))
+        }
     }
 }
 
@@ -293,6 +321,19 @@ harness_async_trait! {
                 .cancel(&request.id, crate::app_service::durable::CancelReason::Participant { by: self.caller.id.clone() })
                 .await
                 .map_err(|e| e.to_a2a())
+        }
+
+        async fn list_tasks(&self, request: a2a::ListTasksRequest) -> Result<a2a::ListTasksResponse, a2a::A2AError> {
+            let Some(context) = request.context_id else {
+                return Ok(a2a::ListTasksResponse { tasks: Vec::new(), next_page_token: String::new(), page_size: 0, total_size: 0 });
+            };
+            let tasks = self
+                .local
+                .list_tasks(&context, CallContext { task_id: String::new(), context_id: context.clone(), stored_task: None, caller: self.caller.clone(), service_params: BTreeMap::new() })
+                .await
+                .map_err(|e| e.to_a2a())?;
+            let n = i32::try_from(tasks.len()).unwrap_or(i32::MAX);
+            Ok(a2a::ListTasksResponse { tasks, next_page_token: String::new(), page_size: n, total_size: n })
         }
     }
 }
@@ -369,13 +410,43 @@ impl Operation for A2aSend {
 /// # Errors
 ///
 /// The first error the stream yields.
-pub async fn fold_reply<S>(mut stream: S) -> Result<AgentReply, a2a::A2AError>
+pub async fn fold_reply<S>(stream: S) -> Result<AgentReply, a2a::A2AError>
 where
     S: futures::Stream<Item = Result<a2a::StreamResponse, a2a::A2AError>> + Unpin,
 {
+    fold_reply_with(stream, |_| async {}).await
+}
+
+/// [`fold_reply`], calling `on_task` with the peer's task id the first time an event
+/// names it, so a caller can commit it before the reply is complete (R17.4, R22.4).
+///
+/// # Errors
+///
+/// The first error the stream yields.
+pub async fn fold_reply_with<S, F, Fut>(
+    mut stream: S,
+    mut on_task: F,
+) -> Result<AgentReply, a2a::A2AError>
+where
+    S: futures::Stream<Item = Result<a2a::StreamResponse, a2a::A2AError>> + Unpin,
+    F: FnMut(String) -> Fut,
+    Fut: Future<Output = ()>,
+{
     let mut reply = AgentReply::default();
+    let mut announced = false;
     while let Some(event) = stream.next().await {
-        match event? {
+        let event = event?;
+        let named = match &event {
+            a2a::StreamResponse::Task(t) => Some(t.id.clone()),
+            a2a::StreamResponse::Message(m) => m.task_id.clone(),
+            a2a::StreamResponse::StatusUpdate(u) => Some(u.task_id.clone()),
+            a2a::StreamResponse::ArtifactUpdate(a) => Some(a.task_id.clone()),
+        };
+        if !announced && let Some(id) = named {
+            announced = true;
+            on_task(id).await;
+        }
+        match event {
             a2a::StreamResponse::Task(t) => {
                 reply.task_id = Some(t.id.clone());
                 reply.state = Some(t.status.state.clone());
@@ -415,6 +486,22 @@ where
         }
     }
     Ok(reply)
+}
+
+/// What an `agent.call` meant to send, committed before it leaves (`outbound/<task>/<n>/<call>`,
+/// design.md § Durable execution): the deterministic ids a retry reuses, and the peer's
+/// task id as soon as it is known.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OutboundIntent {
+    /// The sub-agent.
+    pub agent: String,
+    /// The message id (`uuid::v5` of the idempotency key).
+    pub message_id: String,
+    /// The context the peer's task lives in (`uuid::v5` of the idempotency key).
+    pub context_id: String,
+    /// The peer's task, once it named it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_task: Option<String>,
 }
 
 /// The agent-visible name of the sub-agent tool.
@@ -481,6 +568,7 @@ harness_async_trait! {
         fn descriptor(&self) -> &ToolDescriptor {
             &self.descriptor
         }
+        #[allow(clippy::too_many_lines)] // one call, read top to bottom: intent, reconciliation, send, link
         async fn call(&self, cx: &ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
             let agent_id = input["agent"].as_str().unwrap_or_default().to_owned();
             let failed = |reason: String| ToolError::Failed { tool: AGENT_CALL_TOOL.into(), reason };
@@ -494,47 +582,107 @@ harness_async_trait! {
                 .await
                 .map_err(|e| failed(e.to_string()))?
                 .ok_or_else(|| failed(format!("task {} not found", cx.task)))?;
-            let sub_task_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, format!("agent.call/{}", cx.idempotency_key).as_bytes()).to_string();
+            // The peer assigns the task id (a server refuses an unknown id a client picked);
+            // the message id and the context are this call's, derived from its idempotency
+            // key, so a retry sends the same message into the same context (R17.4).
             let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text(input["message"].as_str().unwrap_or_default())]);
             message.message_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, format!("agent.call/msg/{}", cx.idempotency_key).as_bytes()).to_string();
-            message.task_id = Some(sub_task_id.clone());
             message.context_id = Some(uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, format!("agent.call/ctx/{}", cx.idempotency_key).as_bytes()).to_string());
             message.metadata = Some(HashMap::from([(TASK_EXT.to_owned(), serde_json::json!({ "mode": "one-shot", "parent": parent.id }))]));
             let outbound = OutboundMessage { agent: agent_id.clone(), parent: parent.id.clone(), message, wait: input["wait"].as_bool().unwrap_or(false) };
+            let context_id = outbound.message.context_id.clone().unwrap_or_default();
+            // The intent (design.md § Durable execution): committed before anything leaves,
+            // so a retry knows what this call meant to send; the peer's task id is added
+            // the moment the peer names it.
+            // `outbound/<task>/<n>/<call>`: the idempotency key is exactly that path.
+            let intent_key = format!("outbound/{}", cx.idempotency_key);
+            let mut intent = match self.store.get_blob(&intent_key).await.map_err(|e| failed(e.to_string()))? {
+                Some(bytes) => serde_json::from_slice::<OutboundIntent>(&bytes).map_err(|e| failed(e.to_string()))?,
+                None => OutboundIntent { agent: agent_id.clone(), message_id: outbound.message.message_id.clone(), context_id: context_id.clone(), peer_task: None },
+            };
+            self.store
+                .put_blob(&intent_key, bytes::Bytes::from(serde_json::to_vec(&intent).map_err(|e| failed(e.to_string()))?))
+                .await
+                .map_err(|e| failed(e.to_string()))?;
+            let caller = cx.caller.clone();
+            // Reconciliation (R17.4): a task already in this call's own context is this
+            // call's earlier attempt; adopt it instead of sending again.
+            let call_cx = CallContext { task_id: String::new(), context_id: context_id.clone(), stored_task: None, caller: caller.clone(), service_params: BTreeMap::new() };
+            let existing = match agent.list_tasks(&context_id, call_cx).await {
+                Ok(tasks) => {
+                    tracing::debug!(agent = %agent_id, context = %context_id, found = tasks.len(), peer_task = ?intent.peer_task, "agent.call: reconciling by context");
+                    tasks.into_iter().find(|t| intent.peer_task.as_ref().is_none_or(|p| *p == t.id))
+                }
+                Err(e) => {
+                    tracing::warn!(agent = %agent_id, context = %context_id, error = %e, "agent.call: ListTasks for the reconciliation failed; sending");
+                    None
+                }
+            };
             let mut hook_cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&cx.host));
             hook_cx.task = Some(cx.task.clone());
-            let caller = cx.caller.clone();
             let agent: Arc<dyn Agent> = agent;
-            let reply = self
-                .dispatcher
-                .run::<A2aSend, _, _>(&hook_cx, outbound.clone(), move |out| async move {
-                    let agent = agent;
-                    let request = AgentRequest {
-                        message: out.message.clone(),
-                        call: CallContext { task_id: out.message.task_id.clone().unwrap_or_default(), context_id: out.message.context_id.clone().unwrap_or_default(), stored_task: None, caller, service_params: BTreeMap::new() },
-                        metadata: None,
-                        extensions: vec![TASK_EXT.to_owned()],
-                        inbox_event_id: None,
-                        traceparent: None,
-                    };
-                    let stream = agent.send_message(request).map(|r| r.map_err(|e| e.to_a2a()));
-                    fold_reply(stream).await.map_err(|e| HarnessError::Internal(e.to_string()))
-                })
-                .await
-                .map_err(|e| match e {
-                    HarnessError::Vetoed(v) => ToolError::Denied { tool: AGENT_CALL_TOOL.into(), reason: v.reason },
-                    other => failed(other.to_string()),
-                })?;
-            // The sub-task link on the parent (R17.3, R12.3); loopback already linked it.
-            let linked = reply.task_id.clone().unwrap_or(sub_task_id);
-            if let Some(mut parent) = self.store.get_task(&cx.task).await.map_err(|e| failed(e.to_string()))? {
+            let reply = if let Some(task) = existing {
+                AgentReply {
+                    task_id: Some(task.id.clone()),
+                    state: Some(task.status.state.clone()),
+                    text: task.status.message.as_ref().and_then(|m| m.text()).unwrap_or_default().to_owned(),
+                    artifacts: task.artifacts.unwrap_or_default(),
+                }
+            } else {
+                let store = Arc::clone(&self.store);
+                let record_peer = {
+                    let mut intent = intent.clone();
+                    let intent_key = intent_key.clone();
+                    move |peer: String| {
+                        let store = Arc::clone(&store);
+                        intent.peer_task = Some(peer);
+                        let bytes = serde_json::to_vec(&intent).unwrap_or_default();
+                        let key = intent_key.clone();
+                        async move {
+                            let _ = store.put_blob(&key, bytes::Bytes::from(bytes)).await;
+                        }
+                    }
+                };
+                self.dispatcher
+                    .run::<A2aSend, _, _>(&hook_cx, outbound.clone(), move |out| async move {
+                        let agent = agent;
+                        let request = AgentRequest {
+                            message: out.message.clone(),
+                            call: CallContext { task_id: out.message.task_id.clone().unwrap_or_default(), context_id: out.message.context_id.clone().unwrap_or_default(), stored_task: None, caller, service_params: BTreeMap::new() },
+                            metadata: None,
+                            extensions: vec![TASK_EXT.to_owned()],
+                            inbox_event_id: None,
+                            traceparent: None,
+                        };
+                        let stream = agent.send_message(request).map(|r| r.map_err(|e| e.to_a2a()));
+                        fold_reply_with(stream, record_peer).await.map_err(|e| HarnessError::Internal(e.to_string()))
+                    })
+                    .await
+                    .map_err(|e| match e {
+                        HarnessError::Vetoed(v) => ToolError::Denied { tool: AGENT_CALL_TOOL.into(), reason: v.reason },
+                        other => failed(other.to_string()),
+                    })?
+            };
+            if intent.peer_task.is_none() && let Some(peer) = &reply.task_id {
+                intent.peer_task = Some(peer.clone());
+                let _ = self.store.put_blob(&intent_key, bytes::Bytes::from(serde_json::to_vec(&intent).unwrap_or_default())).await;
+            }
+            // The sub-task link on the parent (R17.3, R12.3), when the peer answered with a
+            // task; loopback already linked it.
+            let linked = reply.task_id.clone();
+            if let Some(linked) = &linked
+                && let Some(mut parent) = self.store.get_task(&cx.task).await.map_err(|e| failed(e.to_string()))?
+            {
                 let before = parent.sub_tasks.len();
                 parent.link_sub_task(TaskRef { task: linked.clone(), context_id: outbound.message.context_id.clone() });
                 if parent.sub_tasks.len() != before {
                     self.store.commit(TaskCommit::of(parent)).await.map_err(|e| failed(e.to_string()))?;
                 }
             }
-            if outbound.wait && reply.state.as_ref().is_none_or(|s| !s.is_terminal()) {
+            if outbound.wait
+                && let Some(linked) = linked.clone()
+                && reply.state.as_ref().is_none_or(|s| !s.is_terminal())
+            {
                 return Ok(ToolOutput::Suspend { pending: PendingCall { call_id: cx.call_id.clone(), tool: AGENT_CALL_TOOL.into(), resume_on: ResumeOn::SubTask { task: linked } }, message: None });
             }
             Ok(ToolOutput::Value {
@@ -613,6 +761,9 @@ mod tests {
             }
             async fn cancel_task(&self, request: a2a::CancelTaskRequest) -> Result<a2a::Task, a2a::A2AError> {
                 Err(a2a::A2AError::task_not_cancelable(&request.id))
+            }
+            async fn list_tasks(&self, _request: a2a::ListTasksRequest) -> Result<a2a::ListTasksResponse, a2a::A2AError> {
+                Ok(a2a::ListTasksResponse { tasks: Vec::new(), next_page_token: String::new(), page_size: 0, total_size: 0 })
             }
         }
     }
@@ -807,6 +958,112 @@ mod tests {
             local.as_object().unwrap().keys().collect::<Vec<_>>(),
             "same shape"
         );
+    }
+
+    /// A peer that remembers the tasks it created and counts the messages it received.
+    struct Remembering {
+        sends: std::sync::atomic::AtomicUsize,
+        tasks: std::sync::Mutex<Vec<a2a::Task>>,
+    }
+    harness_async_trait! {
+        impl AgentTransport for Remembering {
+            async fn send_streaming_message(&self, request: a2a::SendMessageRequest, _extensions: Vec<String>) -> Result<ResponseStream, a2a::A2AError> {
+                self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let context_id = request.message.context_id.clone().unwrap();
+                let task_id = format!("peer-{}", self.sends.load(std::sync::atomic::Ordering::SeqCst));
+                let mut reply = a2a::Message::new(a2a::Role::Agent, vec![a2a::Part::text("sub result")]);
+                reply.task_id = Some(task_id.clone());
+                let task = a2a::Task { id: task_id.clone(), context_id: context_id.clone(), status: a2a::TaskStatus { state: a2a::TaskState::Completed, message: Some(reply.clone()), timestamp: None }, artifacts: None, history: None, metadata: None };
+                self.tasks.lock().unwrap().push(task.clone());
+                Ok(boxed_stream(futures::stream::iter(vec![Ok(a2a::StreamResponse::Task(task))])))
+            }
+            async fn get_task(&self, request: a2a::GetTaskRequest) -> Result<a2a::Task, a2a::A2AError> {
+                Err(a2a::A2AError::task_not_found(&request.id))
+            }
+            async fn cancel_task(&self, request: a2a::CancelTaskRequest) -> Result<a2a::Task, a2a::A2AError> {
+                Err(a2a::A2AError::task_not_cancelable(&request.id))
+            }
+            async fn list_tasks(&self, request: a2a::ListTasksRequest) -> Result<a2a::ListTasksResponse, a2a::A2AError> {
+                let tasks: Vec<a2a::Task> = self.tasks.lock().unwrap().iter().filter(|t| request.context_id.as_ref().is_none_or(|c| *c == t.context_id)).cloned().collect();
+                let n = i32::try_from(tasks.len()).unwrap();
+                Ok(a2a::ListTasksResponse { tasks, next_page_token: String::new(), page_size: n, total_size: n })
+            }
+        }
+    }
+
+    /// R17.4 / R22.4: a retried `agent.call` (same idempotency key) finds the task its
+    /// earlier attempt created, by the call's own context, and sends nothing again; the
+    /// intent record names the peer's task.
+    #[tokio::test]
+    async fn a_retried_agent_call_adopts_the_task_its_earlier_attempt_created() {
+        let (agent, registry, _llm) = harness(vec![]);
+        let peer_transport = Arc::new(Remembering {
+            sends: std::sync::atomic::AtomicUsize::new(0),
+            tasks: std::sync::Mutex::new(Vec::new()),
+        });
+        let peer: Arc<dyn Agent> = Arc::new(
+            RemoteAgent::new(
+                EntityId::new("peer"),
+                card("peer", "https://peer.example/a2a"),
+                Arc::clone(&peer_transport) as Arc<dyn AgentTransport>,
+            )
+            .unwrap(),
+        );
+        registry.register(peer).unwrap();
+        agent
+            .open_task(&request("parent-x", "go", true))
+            .await
+            .unwrap();
+        let tool = registry
+            .latest::<dyn crate::harness::tools::Tool>(AGENT_CALL_TOOL)
+            .unwrap();
+        let cx = crate::harness::tools::ToolCx {
+            task: "parent-x".into(),
+            call_id: "c9".into(),
+            idempotency_key: "parent-x/1/c9".into(),
+            caller: crate::harness::core_loop::task::Caller::human(
+                "u1",
+                [crate::harness::core_loop::task::Role::Admin],
+            ),
+            host: Arc::clone(agent.host()),
+            cancel: crate::harness::tools::CancelToken::new(),
+        };
+        let input = json!({ "agent": "peer", "message": "sub work" });
+        let first = tool.call(&cx, input.clone()).await.unwrap();
+        let second = tool.call(&cx, input).await.unwrap();
+        let id_of = |out: &crate::harness::tools::ToolOutput| match out {
+            crate::harness::tools::ToolOutput::Value { value } => {
+                value["task_id"].as_str().unwrap().to_owned()
+            }
+            crate::harness::tools::ToolOutput::Suspend { .. } => panic!("not waiting"),
+        };
+        assert_eq!(
+            peer_transport
+                .sends
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the retry sent nothing"
+        );
+        assert_eq!(
+            id_of(&first),
+            id_of(&second),
+            "the retry adopted the earlier task"
+        );
+        let parent = agent
+            .store()
+            .get_task(&"parent-x".into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(parent.sub_tasks.len(), 1);
+        let intent = agent
+            .store()
+            .get_blob(&"outbound/parent-x/1/c9".to_owned())
+            .await
+            .unwrap()
+            .expect("the intent");
+        let intent: super::OutboundIntent = serde_json::from_slice(&intent).unwrap();
+        assert_eq!(intent.peer_task.as_deref(), Some(id_of(&first).as_str()));
     }
 
     #[tokio::test]

@@ -359,7 +359,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `chaos_killing_the_workflow_worker_replays_without_a_repeated_tool_side_effect`,
     `chaos_crashed_activitys_failure_and_retry_hooks_run_on_the_surviving_worker`; T8 —
     `abuse_remote_durable_unreachable_refuses_to_start`
-- [ ] 31. Outbound reconciliation and durable asks: the intent record before
+- [x] 31. Outbound reconciliation and durable asks: the intent record before
   `send_a2a`, `ListTasks`-by-`contextId` reconciliation on retry, the peer task id
   committed on the first `Task` event, suspending tools under the workflow's signal
   wait, sub-task cancellation policy on terminal parents.

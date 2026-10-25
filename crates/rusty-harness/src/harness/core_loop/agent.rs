@@ -33,7 +33,7 @@ use crate::harness::core_loop::context_window::{
     ContextBuilder, ContextInputs, ContextTemplate, HistoryEntry, TokenRatio, Turn, request_chars,
 };
 use crate::harness::core_loop::persistence::{
-    BlobWrite, PersistenceStore, StoreError, StoredEvent, TaskCommit, Visibility,
+    BlobWrite, PersistenceStore, StoreError, StoredEvent, TaskCommit, TaskQuery, Visibility,
 };
 use crate::harness::core_loop::plan::Plan;
 use crate::harness::core_loop::state::AgentState;
@@ -148,6 +148,9 @@ harness_async_trait! {
         fn send_message(&self, request: AgentRequest) -> HarnessStream<'_, Result<a2a::StreamResponse, AgentError>>;
         /// `cancel_task(task_id)`: the task after the stop path.
         async fn cancel_task(&self, task_id: &TaskId, call: CallContext) -> Result<a2a::Task, AgentError>;
+        /// `list_tasks(context_id)`: the tasks of one context the caller may see, for the
+        /// outbound reconciliation (R17.4, design.md § Durable execution).
+        async fn list_tasks(&self, context_id: &ContextId, call: CallContext) -> Result<Vec<a2a::Task>, AgentError>;
     }
 }
 
@@ -2004,6 +2007,21 @@ harness_async_trait! {
                 }
             };
             boxed_stream(futures::StreamExt::flat_map(futures::stream::once(fut), futures::stream::iter))
+        }
+
+        async fn list_tasks(&self, context_id: &ContextId, call: CallContext) -> Result<Vec<a2a::Task>, AgentError> {
+            let query = TaskQuery {
+                viewer: call.caller,
+                states: None,
+                context_id: Some(context_id.clone()),
+                open_only: false,
+                after: None,
+                ..TaskQuery::everyone()
+            };
+            let mut query = query;
+            query.everyone = false;
+            let page = self.store.list_tasks(query).await?;
+            Ok(page.items.into_iter().map(|r| r.to_a2a(Vec::new())).collect())
         }
 
         async fn cancel_task(&self, task_id: &TaskId, call: CallContext) -> Result<a2a::Task, AgentError> {

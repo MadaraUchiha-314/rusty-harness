@@ -158,12 +158,18 @@ fn app_error(err: impl std::fmt::Display) -> ActivityError {
 }
 
 impl TaskActivities {
-    fn cx(&self, task: &TaskId) -> HookCx {
+    /// The hook context of an activity: the task, its context and its trace, so every
+    /// span of the activity joins the task's one trace (R24.1).
+    async fn cx(&self, task: &TaskId) -> HookCx {
         let mut cx = HookCx::new(
             Arc::new(crate::registry::Registry::new()),
             Arc::clone(self.agent.host()),
         );
         cx.task = Some(task.clone());
+        if let Ok(Some(record)) = self.agent.store().get_task(task).await {
+            cx.context_id = Some(record.context_id.clone());
+            cx.traceparent.clone_from(&record.traceparent);
+        }
         cx
     }
 
@@ -180,7 +186,7 @@ impl TaskActivities {
         T: Serialize + serde::de::DeserializeOwned,
     {
         let task = activity.task.clone();
-        let cx = self.cx(&task);
+        let cx = self.cx(&task).await;
         let every = self.heartbeat_every;
         let heartbeats = async {
             loop {
@@ -313,7 +319,7 @@ impl TaskActivities {
         _ctx: ActivityContext,
         query: RetryQuery,
     ) -> Result<RetryDecision, ActivityError> {
-        let cx = self.cx(&query.failure.activity.task);
+        let cx = self.cx(&query.failure.activity.task).await;
         let hooks = self.agent.hooks();
         hooks
             .run::<ActivityFailed, _, _>(&cx, query.failure.clone(), |_| async { Ok(()) })

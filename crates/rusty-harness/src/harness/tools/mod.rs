@@ -511,7 +511,9 @@ impl ToolExecutor {
         let tool_cx = ToolCx {
             task: task.clone(),
             call_id: call.id.clone(),
-            idempotency_key: format!("{task}/{}/{}/{}", attempt.iteration, attempt.n, call.id),
+            // Per iteration and call, never per attempt: a retried call must reuse the key
+            // its earlier attempt used (design.md § Durable execution, R17.4).
+            idempotency_key: format!("{task}/{}/{}", attempt.iteration, call.id),
             caller: caller.clone(),
             host: Arc::clone(&self.host),
             cancel: cancel.clone(),

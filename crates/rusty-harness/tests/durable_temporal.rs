@@ -401,3 +401,223 @@ max_attempts = 3
         );
     }
 }
+
+mod one_trace {
+    //! T2 `Scenario: Spans across a signal and a retry link into one trace` (R24.1): the
+    //! workflow's activities run on the worker's thread, a retry runs on a later attempt,
+    //! a second turn arrives as a signal; every span of the task carries one trace id.
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::net::SocketAddr;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use axum::extract::State;
+    use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+    use prost::Message as _;
+    use rusty_harness::HarnessBuilder;
+    use rusty_harness::app_service::a2a_server::serve;
+    use rusty_harness::app_service::o11y::{self, Scope};
+    use rusty_harness::config::{Config, ConfigSources};
+    use rusty_harness::harness::core_loop::task::TASK_EXT;
+    use rusty_harness::harness::models::llm::testing::RecordedLlm;
+    use rusty_harness::harness::models::llm::{ModelEvent, StopReason};
+    use rusty_harness::host::Host;
+
+    #[derive(Debug, Clone)]
+    struct Exported {
+        trace_id: String,
+        attributes: BTreeMap<String, String>,
+    }
+    type Seen = Arc<Mutex<Vec<Exported>>>;
+
+    const TRACE: &str = "7f1b2c3d4e5f60718293a4b5c6d7e8f9";
+
+    fn hex(bytes: &[u8]) -> String {
+        use core::fmt::Write as _;
+        bytes.iter().fold(String::new(), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        })
+    }
+
+    async fn ingest(State(seen): State<Seen>, body: axum::body::Bytes) -> axum::response::Response {
+        let request = ExportTraceServiceRequest::decode(body).expect("an OTLP protobuf export");
+        let mut spans = Vec::new();
+        for resource in request.resource_spans {
+            for scope in resource.scope_spans {
+                for span in scope.spans {
+                    let attributes = span
+                        .attributes
+                        .iter()
+                        .map(|kv| {
+                            let value = kv
+                                .value
+                                .as_ref()
+                                .and_then(|v| v.value.as_ref())
+                                .map(|v| match v {
+                                    opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue(s) => s.clone(),
+                                    other => format!("{other:?}"),
+                                })
+                                .unwrap_or_default();
+                            (kv.key.clone(), value)
+                        })
+                        .collect();
+                    spans.push(Exported {
+                        trace_id: hex(&span.trace_id),
+                        attributes,
+                    });
+                }
+            }
+        }
+        seen.lock().unwrap().extend(spans);
+        axum::response::IntoResponse::into_response((
+            http::StatusCode::OK,
+            [("content-type", "application/x-protobuf")],
+            Vec::<u8>::new(),
+        ))
+    }
+
+    async fn collector() -> (SocketAddr, Seen) {
+        let seen: Seen = Arc::default();
+        let app = axum::Router::new()
+            .route("/v1/traces", axum::routing::post(ingest))
+            .with_state(Arc::clone(&seen));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (addr, seen)
+    }
+
+    fn text(t: &str) -> Vec<ModelEvent> {
+        vec![
+            ModelEvent::TextDelta { text: t.into() },
+            ModelEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]
+    }
+
+    /// Scenario: Spans across a signal and a retry link into one trace
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[allow(clippy::too_many_lines)]
+    async fn spans_across_a_signal_and_a_retry_link_into_one_trace() {
+        let (collector_addr, seen) = collector().await;
+        let overrides: toml::Table = toml::from_str(&format!(
+            "[server]\nbind = \"127.0.0.1:0\"\n[durable]\nmode = \"embedded\"\n[durable.temporal]\ntask_queue = \"rh-trace-{}\"\n[durable.retry]\ninitial = \"10ms\"\ncoefficient = 2\nmax_interval = \"100ms\"\nmax_attempts = 3\n[o11y]\notlp_endpoint = \"http://{collector_addr}/\"\n",
+            uuid::Uuid::new_v4()
+        ))
+        .unwrap();
+        let config = Config::load(
+            &ConfigSources {
+                file: None,
+                env: false,
+                overrides: Some(overrides),
+            },
+            &rusty_harness::host::TokioFs,
+        )
+        .await
+        .unwrap();
+        let host = Host::testing();
+        let guard = o11y::init(&config.o11y, &host, Scope::Global).expect("subscriber");
+        // The first call fails (retryable), the retry answers; the second turn is a signal.
+        let h = HarnessBuilder::new(config)
+            .host(host)
+            .llm(Arc::new(RecordedLlm::failing_then(
+                "default",
+                1,
+                true,
+                text("first"),
+            )))
+            .build()
+            .await
+            .expect("builds");
+        let server = serve(&h, None).await.expect("binds");
+        let base = format!("http://{}/", server.addr);
+        tokio::spawn(server.run(std::future::pending()));
+        let mut headers = http::HeaderMap::new();
+        headers.insert("A2A-Version", http::HeaderValue::from_static("1.0"));
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .unwrap();
+
+        let mut m = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("hello")]);
+        m.metadata = Some(std::collections::HashMap::from([(
+            TASK_EXT.to_owned(),
+            serde_json::json!({ "mode": "long-running" }),
+        )]));
+        let first: serde_json::Value = client
+            .post(&base)
+            .header("traceparent", format!("00-{TRACE}-00f067aa0ba902b7-01"))
+            .json(&serde_json::json!({"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message": serde_json::to_value(&m).unwrap()}}))
+            .send().await.unwrap().json().await.unwrap();
+        let task = first["result"]["task"]["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{first}"))
+            .to_owned();
+        assert_eq!(
+            first["result"]["task"]["status"]["message"]["parts"][0]["text"], "first",
+            "{first}"
+        );
+        // The second turn arrives without a traceparent, as a signal to the workflow.
+        let second: serde_json::Value = client
+            .post(&base)
+            .json(&serde_json::json!({"jsonrpc":"2.0","id":2,"method":"CancelTask","params":{"id": task}}))
+            .send().await.unwrap().json().await.unwrap();
+        assert_eq!(
+            second["result"]["status"]["state"], "TASK_STATE_CANCELED",
+            "{second}"
+        );
+
+        let mut spans = Vec::new();
+        for _ in 0..50 {
+            guard.flush();
+            spans = seen.lock().unwrap().clone();
+            let ours = spans
+                .iter()
+                .filter(|s| s.attributes.get("task").map(String::as_str) == Some(task.as_str()));
+            let points: BTreeSet<&str> = ours
+                .filter_map(|s| s.attributes.get("point").map(String::as_str))
+                .collect();
+            if points.contains("durable.activity_retry")
+                && points.contains("task.state_change")
+                && points.contains("model.call")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let ours: Vec<&Exported> = spans
+            .iter()
+            .filter(|s| s.attributes.get("task").map(String::as_str) == Some(task.as_str()))
+            .collect();
+        let points: BTreeSet<&str> = ours
+            .iter()
+            .filter_map(|s| s.attributes.get("point").map(String::as_str))
+            .collect();
+        for point in [
+            "inbox.accept",
+            "durable.activity_run",
+            "durable.activity_failure",
+            "durable.activity_retry",
+            "model.call",
+            "task.state_change",
+        ] {
+            assert!(points.contains(point), "{point} missing from {points:?}");
+        }
+        let traces: BTreeSet<&str> = ours.iter().map(|s| s.trace_id.as_str()).collect();
+        assert_eq!(
+            traces,
+            BTreeSet::from([TRACE]),
+            "one trace across the retry and the signal: {ours:#?}"
+        );
+        let model_calls = ours
+            .iter()
+            .filter(|s| s.attributes.get("point").map(String::as_str) == Some("model.call"))
+            .count();
+        assert!(
+            model_calls >= 2,
+            "the failed and the retried model call are both in the trace: {model_calls}"
+        );
+    }
+}

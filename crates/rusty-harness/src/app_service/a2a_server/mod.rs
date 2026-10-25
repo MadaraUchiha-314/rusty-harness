@@ -21,11 +21,14 @@ use futures::StreamExt as _;
 use futures::stream::BoxStream;
 
 use crate::Harness;
+use crate::assets::{Catalog, FmtArgs, keys};
 use crate::config::{Config, SecuritySchemeConfig};
 use crate::harness::core_loop::agent::{Agent as _, AgentRequest, CallContext, LocalAgent};
 use crate::harness::core_loop::persistence::{PersistenceStore, TaskQuery};
 use crate::harness::core_loop::task::{Caller, Role, ext};
 use crate::harness::skills::Skill;
+use crate::interaction::renderer::a2ui;
+use crate::interaction::surface::SurfaceCapabilities;
 use crate::registry::{Entity, Registry};
 
 pub mod protocol_gap;
@@ -37,6 +40,10 @@ pub const A2UI_EXT: &str = crate::harness::channels::A2UI_EXT;
 pub struct HarnessExecutor {
     agent: Arc<LocalAgent>,
     inbox: Arc<crate::app_service::inbox::Inbox>,
+    /// The string catalog and locale of the text alternatives negotiation writes (R25.2,
+    /// R25.6).
+    catalog: Arc<Catalog>,
+    locale: String,
 }
 
 impl core::fmt::Debug for HarnessExecutor {
@@ -49,7 +56,32 @@ impl HarnessExecutor {
     /// The executor over `agent`, ingesting through `inbox`.
     #[must_use]
     pub fn new(agent: Arc<LocalAgent>, inbox: Arc<crate::app_service::inbox::Inbox>) -> Self {
-        Self { agent, inbox }
+        Self {
+            agent,
+            inbox,
+            catalog: Arc::new(Catalog::builtin()),
+            locale: "en".to_owned(),
+        }
+    }
+
+    /// Text alternatives in `locale` (the configured one; `en` otherwise).
+    #[must_use]
+    pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = locale.into();
+        self
+    }
+
+    /// The text standing in for a part a surface cannot render, by media type.
+    fn fallback(&self) -> Arc<dyn Fn(&str) -> String + Send + Sync> {
+        let catalog = Arc::clone(&self.catalog);
+        let locale = self.locale.clone();
+        Arc::new(move |media: &str| {
+            catalog.get(
+                keys::surface::alternative::UNRENDERABLE,
+                &locale,
+                &FmtArgs::new().text("media_type", media),
+            )
+        })
     }
 
     /// The caller of a request: the authenticated principal when the service layer set
@@ -167,6 +199,10 @@ impl AgentExecutor for HarnessExecutor {
                 .and_then(|v| v.first())
                 .map(String::as_str),
         );
+        // What this surface renders (R25.2): the stream below carries only that, with a
+        // text alternative for the rest.
+        let surface = SurfaceCapabilities::from_message(&message);
+        let fallback = self.fallback();
         let request = AgentRequest {
             message,
             call: CallContext {
@@ -278,7 +314,8 @@ impl AgentExecutor for HarnessExecutor {
                     ))
                     .boxed()
             })
-            .flatten(),
+            .flatten()
+            .map(move |r| r.map(|e| surface.negotiate_response(e, fallback.as_ref()))),
         )
     }
 
@@ -643,7 +680,7 @@ impl AgentCardBuilder {
             uri: A2UI_EXT.to_owned(),
             description: Some("A2UI 0.9.1 payloads as application/a2ui+json data parts".into()),
             required: Some(false),
-            params: None,
+            params: Some(a2ui::ServerCapabilities::basic().params()),
         });
         card.capabilities = a2a::AgentCapabilities {
             streaming: Some(true),
@@ -938,7 +975,13 @@ pub async fn router_at(
         crate::HarnessError::Internal("the server needs the in-process inbox (rt-tokio)".into())
     })?;
     let handler = a2a_server::DefaultRequestHandler::new(
-        HarnessExecutor::new(Arc::clone(&agent), Arc::clone(&inbox)),
+        HarnessExecutor::new(Arc::clone(&agent), Arc::clone(&inbox)).with_locale(
+            harness
+                .config()
+                .locale
+                .clone()
+                .unwrap_or_else(|| "en".to_owned()),
+        ),
         SdkTaskStore::new(Arc::clone(&agent)),
     )
     .with_capabilities(card.capabilities.clone())

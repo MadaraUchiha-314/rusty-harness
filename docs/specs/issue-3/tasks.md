@@ -378,7 +378,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M5 — Renderers (PR 5: `loop/issue-3-m5-renderers`)
 
-- [ ] 33. Surfaces, renderers and the A2UI model: `SurfaceCapabilities`, modality
+- [x] 33. Surfaces, renderers and the A2UI model: `SurfaceCapabilities`, modality
   negotiation (text alternative for what a surface cannot render), the `Renderer`
   trait with the MCP Apps flag, the A2UI 0.9.1 types for the basic catalog, emission as
   `DataPart` with `application/a2ui+json` under the A2UI extension, the

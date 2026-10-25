@@ -45,6 +45,9 @@ flowchart LR
 - WHEN the card is built THEN it SHALL come from the configuration minus every credential
   reference, advertise the six `rusty-harness` extensions and A2UI, and name the bound
   address (snapshotted in `tests/snapshots/agent_card.json`).
+- WHEN a request's message metadata declares `a2uiClientCapabilities` THEN the stream it
+  opens SHALL carry A2UI data parts for the declared catalogs; otherwise each A2UI part
+  SHALL arrive as its text alternative ([surfaces and renderers](surfaces.md), R25.2).
 - The official TypeScript SDK's conformance suite (`web/tests/`) SHALL pass against the
   binary in CI (T3).
 
@@ -62,5 +65,6 @@ flowchart LR
 |-----------|--------------|-------|
 | issue-3 (M3, tasks 20–21, 23, 25) | Server on the official SDK, the protocol gap, channels on the server, the `cli` binary | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #9 |
 | issue-3 (M3, task 27) | The `/inbox` route, the conformance suite in CI | PR #9 |
+| issue-3 (M5, task 33) | The card advertises the basic A2UI catalog; each stream is negotiated for the surface that opened it | PR #11, [surfaces](surfaces.md) |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

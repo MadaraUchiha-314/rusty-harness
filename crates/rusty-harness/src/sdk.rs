@@ -63,6 +63,9 @@ pub enum SdkError {
     /// A registry conflict between the pieces.
     #[error("registry: {0}")]
     Registry(String),
+    /// The configured system prompt could not be loaded (R7.2).
+    #[error("system prompt: {0}")]
+    Prompt(String),
     /// A durable mode this build cannot run.
     #[error("durable mode {0:?} needs the `durable-temporal` feature and the service layer")]
     Durable(DurableMode),
@@ -178,7 +181,7 @@ impl HarnessBuilder {
     #[allow(clippy::too_many_lines)]
     pub async fn build(self) -> Result<Harness, SdkError> {
         let Self {
-            config,
+            mut config,
             host,
             llms,
             tools,
@@ -353,6 +356,23 @@ impl HarnessBuilder {
             let agent: Arc<dyn crate::harness::core_loop::agent::Agent> =
                 Arc::new(connect_sub_agent(name, sub, &host).await?);
             registry.register(agent).map_err(reg)?;
+        }
+
+        // A `file:` system prompt (R7.2), read through the host before the registry is shared.
+        if config
+            .agent
+            .system_prompt
+            .as_deref()
+            .is_some_and(|v| v.starts_with("file:"))
+        {
+            let fs = host.fs().map_err(|e| SdkError::Prompt(e.to_string()))?;
+            crate::harness::system_prompt::load_replacement(
+                &mut prompts,
+                &mut config.agent,
+                fs.as_ref(),
+            )
+            .await
+            .map_err(|e| SdkError::Prompt(e.to_string()))?;
         }
 
         let prompts = Arc::new(prompts);

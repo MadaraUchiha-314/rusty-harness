@@ -113,3 +113,63 @@ async fn building_fails_closed_without_a_default_model_or_with_a_bad_store() {
         .expect_err("fails");
     assert!(matches!(err, SdkError::Store(_)), "{err}");
 }
+
+/// Scenario: A `file:` system prompt replaces the default (R7.2)
+///     Given `[agent] system_prompt = "file:prompts/mine.md"` and that file on the host
+///     When a message is sent
+///     Then the model is instructed with the file's body, not the default prompt
+#[tokio::test]
+async fn a_file_system_prompt_replaces_the_default() {
+    use rusty_harness::host::testing::{MemFs, MockHttp};
+    let file = "---\nid: prompts/mine\nversion: 1.0.0\nplaceholders: []\ndescription: Mine.\n---\nYou are the replacement prompt.\n";
+    let host = Host::builder()
+        .http(Arc::new(MockHttp::always(
+            http::StatusCode::NOT_FOUND,
+            bytes::Bytes::new(),
+        )))
+        .clock(Arc::new(rusty_harness::host::testing::FixedClock::default()))
+        .rng(Arc::new(rusty_harness::host::testing::SeededRng::new(7)))
+        .secrets(Arc::new(rusty_harness::host::testing::MapSecrets::default()))
+        .fs(Arc::new(MemFs::new([(
+            std::path::PathBuf::from("prompts/mine.md"),
+            bytes::Bytes::from_static(file.as_bytes()),
+        )])))
+        .build();
+    let mut config = Config::default();
+    config.agent.system_prompt = Some("file:prompts/mine.md".into());
+    let llm = scripted();
+    let harness = HarnessBuilder::new(config)
+        .host(host)
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds with the replacement");
+    let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("hi")]);
+    message.task_id = Some("t-file".into());
+    let request = a2a::SendMessageRequest {
+        message,
+        configuration: None,
+        metadata: None,
+        tenant: None,
+    };
+    let _: Vec<_> = harness.send_message(request, None).collect().await;
+    let instructions = llm.requests()[0].instructions.render();
+    assert!(
+        instructions.contains("You are the replacement prompt."),
+        "{instructions}"
+    );
+    assert!(
+        !instructions.contains("You work on one task at a time"),
+        "the default is replaced"
+    );
+
+    let mut missing = Config::default();
+    missing.agent.system_prompt = Some("file:prompts/absent.md".into());
+    let err = HarnessBuilder::new(missing)
+        .host(Host::testing())
+        .llm(scripted())
+        .build()
+        .await
+        .expect_err("fails closed");
+    assert!(matches!(err, SdkError::Prompt(_)), "{err}");
+}

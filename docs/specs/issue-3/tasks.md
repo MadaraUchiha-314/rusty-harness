@@ -267,7 +267,7 @@ abuse cases are tests like any other (`reference/security.md`).
     test:contract`): `Scenario: The official TypeScript SDK drives every A2A 1.0
     operation against the server`, `Scenario: A request with A2A-Version 0.3 is
     rejected`; T6 — `snapshot_agent_card`
-- [ ] 21. `protocol_gap` and authentication: `ExtensionNegotiator` (parse, intersect,
+- [x] 21. `protocol_gap` and authentication: `ExtensionNegotiator` (parse, intersect,
   echo, expose the active set), the `Caller` from `RequestAuthorizer` (bearer and API
   key, constant time), the participant guard on every task-scoped operation, `ListTasks`
   filtered by membership, per-caller token bucket and `streams_per_caller`, loopback-only

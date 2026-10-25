@@ -14,7 +14,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use a2a_server::{AgentExecutor, ExecutorContext, StaticAgentCard, TaskStore};
+use a2a_server::{
+    AgentExecutor, ExecutorContext, RequestHandler, ServiceParams, StaticAgentCard, TaskStore,
+};
 use futures::StreamExt as _;
 use futures::stream::BoxStream;
 
@@ -491,23 +493,240 @@ impl AgentCardBuilder {
     }
 }
 
-/// The router: JSON-RPC at `/`, HTTP+JSON at `/v1/…`, the card at its well-known path.
-pub fn router(harness: &Harness) -> axum::Router {
-    router_at(harness, &harness.config().server.bind)
+/// The participant guard on every task-scoped operation and the per-caller stream budget
+/// (abuse 2, abuse 8), wrapping the SDK's handler: a caller who is not a participant
+/// gets `TaskNotFound` for `GetTask`, `SubscribeToTask`, `CancelTask`, a follow-up and
+/// the push-config operations, and an empty page from `ListTasks`.
+pub struct GuardedHandler<H> {
+    inner: H,
+    store: Arc<dyn PersistenceStore>,
+    gate: Arc<protocol_gap::Gate>,
 }
 
-/// The router for a server bound at `bound`.
-pub fn router_at(harness: &Harness, bound: &str) -> axum::Router {
+impl<H> core::fmt::Debug for GuardedHandler<H> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GuardedHandler").finish_non_exhaustive()
+    }
+}
+
+impl<H: RequestHandler> GuardedHandler<H> {
+    /// Guards `inner`.
+    #[must_use]
+    pub fn new(inner: H, store: Arc<dyn PersistenceStore>, gate: Arc<protocol_gap::Gate>) -> Self {
+        Self { inner, store, gate }
+    }
+
+    fn caller(params: &ServiceParams) -> Caller {
+        let id = protocol_gap::caller_id(params)
+            .unwrap_or_else(|| protocol_gap::DEFAULT_PRINCIPAL.to_owned());
+        Caller::human(id, [])
+    }
+
+    /// `TaskNotFound` unless the caller participates in `task` (or the task does not exist,
+    /// which the inner handler reports the same way).
+    async fn guard(&self, params: &ServiceParams, task: &str) -> Result<(), a2a::A2AError> {
+        let caller = Self::caller(params);
+        match self.store.get_task(&task.to_owned()).await {
+            Ok(Some(record)) if record.participants.is_empty() || caller.sees(&record) => Ok(()),
+            Ok(Some(_)) => Err(a2a::A2AError::task_not_found(task)),
+            Ok(None) => Ok(()),
+            Err(e) => Err(a2a::A2AError::internal(e.to_string())),
+        }
+    }
+
+    fn slot(&self, params: &ServiceParams) -> Result<protocol_gap::StreamSlot, a2a::A2AError> {
+        let caller = Self::caller(params);
+        self.gate.streams.acquire(&caller.id).ok_or_else(|| {
+            a2a::A2AError::new(
+                protocol_gap::error_code::TOO_MANY_STREAMS,
+                "too many open streams for this caller",
+            )
+        })
+    }
+
+    fn hold(
+        stream: BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>,
+        slot: protocol_gap::StreamSlot,
+    ) -> BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>> {
+        Box::pin(futures::stream::unfold(
+            (stream, slot),
+            |(mut stream, slot)| async move {
+                let item = stream.next().await?;
+                Some((item, (stream, slot)))
+            },
+        ))
+    }
+}
+
+#[async_trait::async_trait]
+impl<H: RequestHandler> RequestHandler for GuardedHandler<H> {
+    async fn send_message(
+        &self,
+        params: &ServiceParams,
+        req: a2a::SendMessageRequest,
+    ) -> Result<a2a::SendMessageResponse, a2a::A2AError> {
+        if let Some(task) = &req.message.task_id {
+            self.guard(params, task).await?;
+        }
+        self.inner.send_message(params, req).await
+    }
+
+    async fn send_streaming_message(
+        &self,
+        params: &ServiceParams,
+        req: a2a::SendMessageRequest,
+    ) -> Result<BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>, a2a::A2AError> {
+        if let Some(task) = &req.message.task_id {
+            self.guard(params, task).await?;
+        }
+        let slot = self.slot(params)?;
+        let stream = self.inner.send_streaming_message(params, req).await?;
+        Ok(Self::hold(stream, slot))
+    }
+
+    async fn get_task(
+        &self,
+        params: &ServiceParams,
+        req: a2a::GetTaskRequest,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        self.guard(params, &req.id).await?;
+        self.inner.get_task(params, req).await
+    }
+
+    async fn list_tasks(
+        &self,
+        params: &ServiceParams,
+        req: a2a::ListTasksRequest,
+    ) -> Result<a2a::ListTasksResponse, a2a::A2AError> {
+        let caller = Self::caller(params);
+        let mut page = self.inner.list_tasks(params, req).await?;
+        let mut kept = Vec::with_capacity(page.tasks.len());
+        for task in page.tasks {
+            if let Ok(Some(record)) = self.store.get_task(&task.id).await
+                && caller.sees(&record)
+            {
+                kept.push(task);
+            }
+        }
+        page.total_size = i32::try_from(kept.len()).unwrap_or(i32::MAX);
+        page.page_size = page.total_size;
+        page.tasks = kept;
+        Ok(page)
+    }
+
+    async fn cancel_task(
+        &self,
+        params: &ServiceParams,
+        req: a2a::CancelTaskRequest,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        self.guard(params, &req.id).await?;
+        self.inner.cancel_task(params, req).await
+    }
+
+    async fn subscribe_to_task(
+        &self,
+        params: &ServiceParams,
+        req: a2a::SubscribeToTaskRequest,
+    ) -> Result<BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>, a2a::A2AError> {
+        self.guard(params, &req.id).await?;
+        let slot = self.slot(params)?;
+        let stream = self.inner.subscribe_to_task(params, req).await?;
+        Ok(Self::hold(stream, slot))
+    }
+
+    async fn create_push_config(
+        &self,
+        params: &ServiceParams,
+        req: a2a::TaskPushNotificationConfig,
+    ) -> Result<a2a::TaskPushNotificationConfig, a2a::A2AError> {
+        self.guard(params, &req.task_id).await?;
+        self.inner.create_push_config(params, req).await
+    }
+
+    async fn get_push_config(
+        &self,
+        params: &ServiceParams,
+        req: a2a::GetTaskPushNotificationConfigRequest,
+    ) -> Result<a2a::TaskPushNotificationConfig, a2a::A2AError> {
+        self.guard(params, &req.task_id).await?;
+        self.inner.get_push_config(params, req).await
+    }
+
+    async fn list_push_configs(
+        &self,
+        params: &ServiceParams,
+        req: a2a::ListTaskPushNotificationConfigsRequest,
+    ) -> Result<a2a::ListTaskPushNotificationConfigsResponse, a2a::A2AError> {
+        self.guard(params, &req.task_id).await?;
+        self.inner.list_push_configs(params, req).await
+    }
+
+    async fn delete_push_config(
+        &self,
+        params: &ServiceParams,
+        req: a2a::DeleteTaskPushNotificationConfigRequest,
+    ) -> Result<(), a2a::A2AError> {
+        self.guard(params, &req.task_id).await?;
+        self.inner.delete_push_config(params, req).await
+    }
+
+    async fn get_extended_agent_card(
+        &self,
+        params: &ServiceParams,
+        req: a2a::GetExtendedAgentCardRequest,
+    ) -> Result<a2a::AgentCard, a2a::A2AError> {
+        self.inner.get_extended_agent_card(params, req).await
+    }
+}
+
+/// The router: JSON-RPC at `/`, HTTP+JSON at `/v1/…`, the card at its well-known path.
+///
+/// # Errors
+///
+/// A credential that does not resolve.
+pub async fn router(harness: &Harness) -> Result<axum::Router, crate::HarnessError> {
+    router_at(harness, &harness.config().server.bind).await
+}
+
+/// The router for a server bound at `bound`, behind the gate of `protocol_gap`.
+///
+/// # Errors
+///
+/// A credential that does not resolve.
+pub async fn router_at(
+    harness: &Harness,
+    bound: &str,
+) -> Result<axum::Router, crate::HarnessError> {
     let agent = Arc::clone(harness.agent());
     let card =
         AgentCardBuilder::build_at(harness.config(), harness.registry(), agent.card(), bound);
+    let advertised: Vec<String> = card
+        .capabilities
+        .extensions
+        .iter()
+        .flatten()
+        .map(|e| e.uri.clone())
+        .collect();
+    let gate = Arc::new(
+        protocol_gap::Gate::new(
+            harness.config().server.security.as_ref(),
+            &harness.config().server.limits,
+            advertised,
+            harness.host(),
+        )
+        .await?,
+    );
     let handler = a2a_server::DefaultRequestHandler::new(
         HarnessExecutor::new(Arc::clone(&agent)),
-        SdkTaskStore::new(agent),
+        SdkTaskStore::new(Arc::clone(&agent)),
     )
     .with_capabilities(card.capabilities.clone())
     .with_default_input_modes(card.default_input_modes.clone());
-    let handler = Arc::new(handler);
+    let handler = Arc::new(GuardedHandler::new(
+        handler,
+        Arc::clone(agent.store()),
+        Arc::clone(&gate),
+    ));
     let mut app = axum::Router::new().merge(a2a_server::agent_card::agent_card_router(Arc::new(
         StaticAgentCard::new(card),
     )));
@@ -518,7 +737,10 @@ pub fn router_at(harness: &Harness, bound: &str) -> axum::Router {
             _ => {}
         }
     }
-    app
+    Ok(app.layer(axum::middleware::from_fn_with_state(
+        gate,
+        protocol_gap::gate,
+    )))
 }
 
 /// Why the server refused to start.
@@ -527,6 +749,9 @@ pub enum ServeError {
     /// A non-loopback bind without a security scheme (the fail-closed list).
     #[error("bind {0} is not a loopback address and [server.security] is not set")]
     LoopbackOnly(String),
+    /// A credential that does not resolve.
+    #[error(transparent)]
+    Harness(#[from] crate::HarnessError),
     /// The socket.
     #[error("bind {bind}: {source}")]
     Bind {
@@ -598,6 +823,6 @@ pub async fn serve(harness: &Harness, bind: Option<&str>) -> Result<Server, Serv
     Ok(Server {
         addr,
         listener,
-        app: router_at(harness, &addr.to_string()),
+        app: router_at(harness, &addr.to_string()).await?,
     })
 }

@@ -57,13 +57,14 @@ tui = ["rt-tokio"]
 # Microphone and speaker host capabilities.
 audio = ["rt-tokio"]
 # The `rusty-harness` binary: everything a user installs.
-cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio"]
+cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio", "dep:clap"]
 
 [dependencies]
 a2a-lf = { workspace = true } # its lib name is `a2a`
 a2a-client-lf = { workspace = true, optional = true } # its lib name is `a2a_client`
 a2a-server-lf = { workspace = true, optional = true } # its lib name is `a2a_server`
 axum = { workspace = true, optional = true }
+clap = { workspace = true, optional = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -108,11 +109,11 @@ uuid = { workspace = true, features = ["js"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
 
-# The server binary (R30.1): minimal in M3 task 20, the full CLI in task 25 behind `cli`.
+# The `rusty-harness` binary (R27.1, R30.1): everything a user installs, behind `cli`.
 [[bin]]
 name = "rusty-harness"
 path = "src/bin/rusty-harness.rs"
-required-features = ["server"]
+required-features = ["cli"]
 
 # The stdio MCP server the tool tests talk to (testing-plan T2); built only with `mcp`.
 [[bin]]

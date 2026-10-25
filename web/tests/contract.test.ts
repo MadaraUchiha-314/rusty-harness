@@ -108,7 +108,7 @@ beforeAll(async () => {
       "-p",
       "rusty_harness",
       "--features",
-      "server",
+      "cli",
       "--bin",
       "rusty-harness",
       "--",

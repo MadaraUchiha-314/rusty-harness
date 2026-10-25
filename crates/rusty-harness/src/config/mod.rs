@@ -654,6 +654,45 @@ impl Config {
         .map_err(|e| read_error(path, &e))
     }
 
+    /// Every credential reference the configuration holds, by its dotted path, for the
+    /// startup check that each resolves (fail-closed list).
+    #[must_use]
+    pub fn secret_refs(&self) -> Vec<(String, SecretRef)> {
+        let mut out = Vec::new();
+        for (alias, model) in &self.models {
+            out.push((format!("models.{alias}.api_key"), model.api_key.clone()));
+        }
+        for (alias, judge) in &self.system_one {
+            if let Some(key) = &judge.api_key {
+                out.push((format!("system_one.{alias}.api_key"), key.clone()));
+            }
+        }
+        match &self.server.security {
+            Some(SecuritySchemeConfig::Bearer { token }) => {
+                out.push(("server.security.token".into(), token.clone()));
+            }
+            Some(SecuritySchemeConfig::ApiKey { key, .. }) => {
+                out.push(("server.security.key".into(), key.clone()));
+            }
+            None => {}
+        }
+        for (name, agent) in &self.agents {
+            if let Some(key) = &agent.api_key {
+                out.push((format!("agents.{name}.api_key"), key.clone()));
+            }
+        }
+        for (field, value) in [
+            ("address", &self.durable.temporal.address),
+            ("namespace", &self.durable.temporal.namespace),
+            ("api_key", &self.durable.temporal.api_key),
+        ] {
+            if let Some(reference) = value {
+                out.push((format!("durable.temporal.{field}"), reference.clone()));
+            }
+        }
+        out
+    }
+
     /// The JSON schema of the whole configuration (Q9), as published in
     /// `rusty-harness.schema.json`.
     #[must_use]

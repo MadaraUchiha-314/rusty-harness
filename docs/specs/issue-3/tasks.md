@@ -303,7 +303,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R23.1–3
   - _Test:_ T2 — `Scenario: The heartbeat forwards an event whose signal failed`; T1 —
     `heartbeat::tests` (stall detection with a paused clock)
-- [ ] 25. The server binary: `src/bin/rusty-harness.rs` with `clap`, `--config`,
+- [x] 25. The server binary: `src/bin/rusty-harness.rs` with `clap`, `--config`,
   `--no-tui`, `--url`, `--locale`, first-run config write, startup checks (secret
   references resolve, `remote` reachable or exit 2), strings from the catalog, the
   `demo` fixture config.

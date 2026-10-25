@@ -221,6 +221,13 @@ async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_ques
 ///     Then `GetTask` returns the task with its status, history and extension metadata
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_task_after_a_restart_returns_the_full_a2a_task() {
+    // The loop's spans and logs on stderr: nextest keeps them when the test fails, so a
+    // stall on CI shows where it stopped.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("debug,hyper=info,h2=info,tower=info,reqwest=info")
+        .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+        .with_writer(std::io::stderr)
+        .try_init();
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("restart-{}", uuid::Uuid::new_v4()));
     let file = |c: &mut Config| {

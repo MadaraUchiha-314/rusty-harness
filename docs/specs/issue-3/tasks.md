@@ -368,7 +368,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T13 — `chaos_killing_the_worker_after_the_peer_accepted_and_before_the_id_
     was_recorded_creates_no_duplicate_remote_task`; T2 — `Scenario: Spans across a signal
     and a retry link into one trace`
-- [ ] 32. M4 pull request: capability doc for durable execution, `docs/guide/`
+- [x] 32. M4 pull request: capability doc for durable execution, `docs/guide/`
   "Run durably" page (modes, Temporal Cloud by reference, the dev-server caveat),
   `decision-004` (workflow started by the inbox, store-keyed activities),
   `evidence/pull-requests.md` row.

@@ -59,6 +59,11 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest
+      - name: Temporal dev server (downloaded once by the embedded scenarios)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rusty-harness/temporal
+          key: temporal-cli-sdk-rust-1.1.0-${{ runner.os }}
       - run: cargo nextest run --workspace --all-features
       - run: cargo test --doc --workspace --all-features
 

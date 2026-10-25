@@ -20,4 +20,5 @@ behaviour. Add one line per capability doc here.
 | [The A2A server](server.md) | A2A 1.0 on the official SDK behind a gate: auth, participants, limits, extensions; loopback without credentials |
 | [The durable inbox](inbox.md) | one door for every event, stored before answered, applied exactly once; `POST /inbox` for webhooks |
 | [The heartbeat](heartbeat.md) | liveness per worker, re-signalled events, a hook on stalled tasks |
+| [Durable execution](durable.md) | three modes behind one interface; on Temporal every phase is an activity, retries are the workflow's, a killed worker is picked up |
 | [Observability](observability.md) | one persisted trace per task over OTLP; Langfuse as hooks; logs without credentials |

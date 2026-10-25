@@ -26,6 +26,9 @@ cargo nextest run --workspace --all-features
 cargo test --doc --workspace --all-features
 # The official TypeScript A2A SDK against the binary (builds it with --features cli):
 bun run --cwd web test:contract
+# The Temporal scenarios and the chaos suite start the SDK's dev server (the `temporal` CLI is
+# downloaded once into ~/.cache/rusty-harness/temporal/):
+cargo nextest run -p rusty_harness --all-features -E 'binary(durable_temporal) | binary(durable_chaos)'
 # The core must stay runtime-free for the browser:
 cargo check --target wasm32-unknown-unknown -p rusty_harness --no-default-features --features rt-wasm
 # Supply chain:

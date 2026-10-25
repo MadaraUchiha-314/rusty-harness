@@ -47,8 +47,11 @@ function ArtifactRow({ artifact }: { artifact: ArtifactView }) {
   let src: string | undefined;
   if (image?.content?.$case === "url") src = image.content.value;
   if (image?.content?.$case === "raw") {
-    const bytes: unknown = image.content.value;
-    if (bytes instanceof Uint8Array) {
+    // The SDK hands raw bytes over as a Buffer; `isView` works across realms where
+    // `instanceof Uint8Array` does not.
+    const raw: unknown = image.content.value;
+    if (ArrayBuffer.isView(raw)) {
+      const bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
       let binary = "";
       for (const b of bytes) binary += String.fromCharCode(b);
       src = `data:${image.mediaType};base64,${btoa(binary)}`;

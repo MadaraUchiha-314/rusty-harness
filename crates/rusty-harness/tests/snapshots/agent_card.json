@@ -81,7 +81,22 @@
     "pushNotifications": false,
     "streaming": true
   },
-  "defaultInputModes": ["text/plain", "application/a2ui+json"],
+  "defaultInputModes": [
+    "text/plain",
+    "application/a2ui+json",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/webm",
+    "audio/ogg",
+    "audio/pcm",
+    "audio/opus"
+  ],
   "defaultOutputModes": ["text/plain", "application/a2ui+json"],
   "description": "An agent served by rusty-harness.",
   "name": "rusty-harness",

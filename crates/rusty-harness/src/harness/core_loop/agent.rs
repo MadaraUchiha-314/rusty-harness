@@ -43,7 +43,7 @@ use crate::harness::core_loop::task::{
     Transition, transition_with_hooks,
 };
 use crate::harness::hooks::{HookCx, HookDispatcher, HookPoint, Operation};
-use crate::harness::models::llm::{ModelError, ModelRequest, ModelTurn, collect};
+use crate::harness::models::llm::{Modality, ModelError, ModelRequest, ModelTurn, collect};
 use crate::harness::skills::Skill;
 use crate::harness::system_prompt::SystemPrompt;
 use crate::harness::tools::{CancelToken, Executed, OversizePolicy, ToolCall, ToolExecutor};
@@ -116,6 +116,15 @@ pub enum AgentError {
     /// The model.
     #[error("model: {0}")]
     Model(String),
+    /// The message carries a modality the selected model does not accept (R28.1):
+    /// `ContentTypeNotSupported` on the wire, naming the modality.
+    #[error("the model {model} does not accept {modality:?} input")]
+    UnsupportedModality {
+        /// What was sent.
+        modality: Modality,
+        /// The model alias.
+        model: String,
+    },
     /// The task is not visible to the caller (a non-member of a channel, a
     /// non-participant): `TaskNotFound` on the wire (abuse 2).
     #[error("task {0}: not found")]
@@ -131,6 +140,11 @@ impl AgentError {
             Self::Store(e) => a2a::A2AError::internal(e.to_string()),
             Self::Unsupported(m) => a2a::A2AError::unsupported_operation(m.clone()),
             Self::Model(m) => a2a::A2AError::internal(m.clone()),
+            Self::UnsupportedModality { .. } => {
+                let mut e = a2a::A2AError::content_type_not_supported();
+                e.message = self.to_string();
+                e
+            }
             Self::NotFound(t) => a2a::A2AError::task_not_found(t),
         }
     }
@@ -570,6 +584,105 @@ fn now(host: &Host) -> DateTime<Utc> {
     host.clock().map_or_else(|_| Utc::now(), |c| c.now())
 }
 
+/// The media types a message may carry (the card's `defaultInputModes`).
+pub const INPUT_MODES: [&str; 14] = [
+    "text/plain",
+    "application/a2ui+json",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/webm",
+    "audio/ogg",
+    "audio/pcm",
+    "audio/opus",
+];
+
+/// The text of a message for the model: its text parts, a file given by URL as a note,
+/// and, when there is no text, the A2UI client messages it carries (a form's answer).
+fn message_text(message: &a2a::Message) -> String {
+    let mut lines = Vec::new();
+    let mut data = Vec::new();
+    for part in &message.parts {
+        match &part.content {
+            a2a::PartContent::Text(t) => lines.push(t.clone()),
+            a2a::PartContent::Url(url) => lines.push(format!(
+                "[{} at {url}]",
+                part.media_type.as_deref().unwrap_or("file")
+            )),
+            a2a::PartContent::Data(v) if crate::interaction::renderer::a2ui::is_a2ui(part) => {
+                data.push(v.to_string());
+            }
+            _ => {}
+        }
+    }
+    if lines.is_empty() {
+        data.join("\n")
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// The modality of a part the model would receive inline (R28.1).
+fn modality_of(part: &a2a::Part) -> Option<Modality> {
+    if !matches!(part.content, a2a::PartContent::Raw(_)) {
+        return None;
+    }
+    let media = part.media_type.as_deref()?;
+    if media.starts_with("image/") {
+        Some(Modality::Image)
+    } else if media.starts_with("audio/") {
+        Some(Modality::Audio)
+    } else {
+        None
+    }
+}
+
+/// The image and audio parts of a message, as history entries after its text (R28.1).
+fn media_turns(message: &a2a::Message) -> Vec<Turn> {
+    message
+        .parts
+        .iter()
+        .filter(|p| modality_of(p).is_some())
+        .filter_map(|p| match &p.content {
+            a2a::PartContent::Raw(bytes) => Some(Turn::new(HistoryEntry::UserMedia {
+                media_type: p.media_type.clone().unwrap_or_default(),
+                data: Bytes::from(bytes.clone()),
+                name: p.filename.clone(),
+            })),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A tool's artifact as a stored event (R28.2).
+fn artifact_event(
+    task: &TaskRecord,
+    attempt: Attempt,
+    ordinal: u32,
+    artifact: a2a::Artifact,
+) -> StoredEvent {
+    StoredEvent {
+        id: StoredEvent::event_id(&task.id, attempt, "artifact", ordinal),
+        seq: 0,
+        at: task.updated_at,
+        attempt,
+        visibility: Visibility::All,
+        response: a2a::StreamResponse::ArtifactUpdate(a2a::TaskArtifactUpdateEvent {
+            task_id: task.id.clone(),
+            context_id: task.context_id.clone(),
+            artifact,
+            append: None,
+            last_chunk: Some(true),
+            metadata: None,
+        }),
+    }
+}
+
 fn message_event(
     task: &TaskRecord,
     attempt: Attempt,
@@ -627,11 +740,10 @@ impl LocalAgent {
             },
             // Text both ways, and A2UI (R25.4): the ask's data part out, the client
             // action's data part back; the SDK refuses a part whose media type the
-            // card does not list.
-            default_input_modes: vec![
-                "text/plain".into(),
-                crate::interaction::renderer::a2ui::MEDIA_TYPE.into(),
-            ],
+            // card does not list (exact match). Images and audio are listed too: the
+            // harness carries them, and the selected model's check refuses them by
+            // name when it cannot take them (R28.1).
+            default_input_modes: INPUT_MODES.iter().map(|m| (*m).to_owned()).collect(),
             default_output_modes: vec![
                 "text/plain".into(),
                 crate::interaction::renderer::a2ui::MEDIA_TYPE.into(),
@@ -858,7 +970,8 @@ impl LocalAgent {
             )
             .await?;
         record.traceparent.get_or_insert(traceparent);
-        let history = vec![Turn::new(HistoryEntry::User { text })];
+        let mut history = vec![Turn::new(HistoryEntry::User { text })];
+        history.extend(media_turns(&request.message));
         let attempt = Attempt { iteration: 0, n: 1 };
         let mut commit = TaskCommit::of(record.clone()).with_events([
             message_event(&record, attempt, 0, request.message.clone(), at),
@@ -890,7 +1003,25 @@ impl LocalAgent {
         &self,
         request: &AgentRequest,
     ) -> Result<(TaskRecord, bool), AgentError> {
-        let text = request.message.text().unwrap_or_default().to_owned();
+        // Media the selected model cannot take is refused before anything is stored,
+        // naming the modality (R28.1).
+        if let Some(missing) = request
+            .message
+            .parts
+            .iter()
+            .filter_map(modality_of)
+            .find(|m| {
+                self.router
+                    .current()
+                    .is_ok_and(|llm| !llm.capabilities().input_modalities.contains(m))
+            })
+        {
+            return Err(AgentError::UnsupportedModality {
+                modality: missing,
+                model: self.router.selection().model,
+            });
+        }
+        let text = message_text(&request.message);
         let at = now(&self.host);
         let caller = &request.call.caller;
         match self.store.get_task(&request.call.task_id).await? {
@@ -990,15 +1121,15 @@ impl LocalAgent {
             }
             None => None,
         };
-        match resolved {
-            Some(i) => {
-                let pending = record.pending_calls.remove(i);
-                history.push(Turn::new(HistoryEntry::ToolResult {
-                    call_id: pending.call_id,
-                    text: text.clone(),
-                }));
-            }
-            None => history.push(Turn::new(HistoryEntry::User { text })),
+        if let Some(i) = resolved {
+            let pending = record.pending_calls.remove(i);
+            history.push(Turn::new(HistoryEntry::ToolResult {
+                call_id: pending.call_id,
+                text: text.clone(),
+            }));
+        } else {
+            history.push(Turn::new(HistoryEntry::User { text }));
+            history.extend(media_turns(&request.message));
         }
         let attempt = Attempt {
             iteration: record.iteration,
@@ -1195,8 +1326,9 @@ impl LocalAgent {
             }
             if let a2a::StreamResponse::Message(m) = &event.kind {
                 history.push(Turn::new(HistoryEntry::User {
-                    text: m.text().unwrap_or_default().to_owned(),
+                    text: message_text(m),
                 }));
+                history.extend(media_turns(m));
             }
         }
         self.apply_pending_inbox(&mut record, &mut history, &cx)
@@ -1470,15 +1602,19 @@ impl LocalAgent {
         // The tools' outcomes, in issue order (R8.2).
         let mut pending: Vec<PendingCall> = Vec::new();
         let mut question: Option<a2a::Message> = None;
+        let mut artifacts: Vec<a2a::Artifact> = Vec::new();
         for call in &calls {
             let executed: Executed = self
                 .load_json(&tool_key(task, n, &call.id), "tool outcome")
                 .await?;
             match executed {
-                Executed::Result { result } => history.push(Turn::new(HistoryEntry::ToolResult {
-                    call_id: result.call_id.clone(),
-                    text: result.render(),
-                })),
+                Executed::Result { result } => {
+                    history.push(Turn::new(HistoryEntry::ToolResult {
+                        call_id: result.call_id.clone(),
+                        text: result.render(),
+                    }));
+                    artifacts.extend(result.artifacts);
+                }
                 Executed::Suspended {
                     pending: p,
                     message,
@@ -1496,6 +1632,9 @@ impl LocalAgent {
         record.version = fresh.version;
         record.sub_tasks = fresh.sub_tasks;
         let mut commit_events = vec![message_event(&record, attempt, 0, reply, now(&self.host))];
+        commit_events.extend(artifacts.into_iter().enumerate().map(|(i, a)| {
+            artifact_event(&record, attempt, u32::try_from(i).unwrap_or(u32::MAX), a)
+        }));
         if let Some(first) = pending.first().cloned() {
             let ask = match &first.resume_on {
                 ResumeOn::Ask { ask } => ask.clone(),
@@ -1637,15 +1776,15 @@ impl LocalAgent {
             }
             match &event.kind {
                 a2a::StreamResponse::Message(m) => {
-                    let text = m.text().unwrap_or_default().to_owned();
+                    let text = message_text(m);
                     // While a participant is awaited, a message answers the oldest ask.
                     let open_ask = record.pending_calls.iter().position(|p| matches!(p.resume_on, ResumeOn::Ask { .. }));
-                    match open_ask {
-                        Some(i) => {
-                            let call = record.pending_calls.remove(i);
-                            history.push(Turn::new(HistoryEntry::ToolResult { call_id: call.call_id, text }));
-                        }
-                        None => history.push(Turn::new(HistoryEntry::User { text })),
+                    if let Some(i) = open_ask {
+                        let call = record.pending_calls.remove(i);
+                        history.push(Turn::new(HistoryEntry::ToolResult { call_id: call.call_id, text }));
+                    } else {
+                        history.push(Turn::new(HistoryEntry::User { text }));
+                        history.extend(media_turns(m));
                     }
                 }
                 a2a::StreamResponse::StatusUpdate(u) => {

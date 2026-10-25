@@ -530,6 +530,30 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_modality_is_a_typed_error() {
+        let err = ModelError::UnsupportedModality(Modality::Audio);
+        assert!(
+            !err.is_retryable(),
+            "a modality mismatch never heals by retrying"
+        );
+        assert!(err.to_string().contains("Audio"), "{err}");
+        let mut req = ModelRequest::new(
+            Prompt::data(DataRole::TaskField, "x"),
+            vec![ContextMessage::text(MessageRole::User, "hi")],
+        );
+        req.messages.push(ContextMessage {
+            role: MessageRole::User,
+            parts: vec![super::ContentPart::Audio {
+                media_type: "audio/wav".into(),
+                data: Bytes::from_static(b"RIFF"),
+            }],
+            tool_calls: vec![],
+            tool_call_id: None,
+        });
+        assert_eq!(check_modalities(&text_only(), &req), Err(err));
+    }
+
+    #[test]
     fn a_request_with_an_image_is_refused_by_a_text_only_model_naming_the_modality() {
         let mut req = ModelRequest::new(
             Prompt::data(DataRole::TaskField, "x"),

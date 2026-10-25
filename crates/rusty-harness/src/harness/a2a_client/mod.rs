@@ -1035,7 +1035,7 @@ mod tests {
             crate::harness::tools::ToolOutput::Value { value } => {
                 value["task_id"].as_str().unwrap().to_owned()
             }
-            crate::harness::tools::ToolOutput::Suspend { .. } => panic!("not waiting"),
+            other => panic!("a value, not {other:?}"),
         };
         assert_eq!(
             peer_transport

@@ -428,7 +428,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M6 — Multi-modal and voice (PR 6: `loop/issue-3-m6-voice`)
 
-- [ ] 38. Multi-modal parts: image and audio parts into `ModelRequest`, modality checks
+- [x] 38. Multi-modal parts: image and audio parts into `ModelRequest`, modality checks
   against `ModelCapabilities`, image artifacts out, both renderers displaying images
   (web `<img>` from artifact parts; TUI from task 34).
   - _Depends on:_ 37

@@ -26,6 +26,11 @@ flowchart LR
   under the alias; `default` is the alias the loop starts with.
 - WHEN a request carries a modality the model lacks THEN the system SHALL fail before
   any event with a non-retryable error naming the modality.
+- WHEN a participant's message carries an image or audio part THEN the part SHALL reach
+  the selected model as a content part after the message's text; WHEN that model does
+  not accept the modality THEN the message SHALL be refused before any task exists, as
+  `ContentTypeNotSupported` naming the modality and the model (R28.1). The card lists
+  the image and audio types the harness carries; the model decides.
 - WHEN a provider answers with a retryable status THEN `Retrying` SHALL wait the
   configured backoff (honouring `Retry-After`) and try again up to `max_attempts`.
 - WHEN `/model <alias>` or `/effort <level>` runs THEN the next call SHALL use the new
@@ -46,6 +51,7 @@ flowchart LR
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
+| issue-3 (M6, task 38) | Image and audio parts from messages into the context; the up-front modality refusal | PR #12 |
 | issue-3 (M2, tasks 11, 13) | `Llm`, OpenAI and Anthropic clients, `Retrying`, System One, the model router behind `/model` and `/effort` | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

@@ -172,12 +172,24 @@ jobs:
             [[ -x "$f" ]] || { echo "::error::$f is not executable"; exit 1; }
           done
       - name: The platform packages, then the package that depends on them
+        # A version already on the registry is skipped, so a re-run after a partial
+        # publish finishes the rest instead of failing on the first.
         run: |
+          publish() {
+            local name version
+            name="$(jq -r .name "$1/package.json")"
+            version="$(jq -r .version "$1/package.json")"
+            if npm view "$name@$version" version > /dev/null 2>&1; then
+              echo "$name@$version is already published"
+            else
+              (cd "$1" && npm publish --provenance --access public)
+            fi
+          }
           for dir in dist/npm/cli-*; do
-            (cd "$dir" && npm publish --provenance --access public)
+            publish "$dir"
           done
           bun packaging/npm/scripts/pack.ts main dist/npm/cli
-          (cd dist/npm/cli && npm publish --provenance --access public)
+          publish dist/npm/cli
 
   npm:
     name: Publish to npm

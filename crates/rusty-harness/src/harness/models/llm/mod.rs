@@ -403,13 +403,24 @@ impl WireNames {
         names
     }
 
-    /// The name to send for `ours`.
+    /// The name to send for `ours`. A name this request does not offer (a call in the
+    /// history to a tool since removed) gets a suffix if it would otherwise read as one
+    /// of the offered tools.
     #[must_use]
     pub fn wire(&self, ours: &str) -> String {
-        self.to_wire
-            .get(ours)
-            .cloned()
-            .unwrap_or_else(|| Self::sanitise(ours))
+        if let Some(wire) = self.to_wire.get(ours) {
+            return wire.clone();
+        }
+        let base = Self::sanitise(ours);
+        let mut wire = base.clone();
+        let mut n = 2;
+        while self.from_wire.contains_key(&wire) {
+            let suffix = format!("_{n}");
+            let keep = Self::MAX.saturating_sub(suffix.len()).min(base.len());
+            wire = format!("{}{suffix}", &base[..keep]);
+            n += 1;
+        }
+        wire
     }
 
     /// The harness's name for a `wire` name the model used.
@@ -777,5 +788,19 @@ mod tests {
             "gone_tool",
             "a tool no longer offered still maps"
         );
+        // A name only the history holds never borrows a current tool's wire name: the
+        // model would read the old call as a call of that tool.
+        let current = WireNames::new(&[tool("gone_tool")]);
+        let old = current.wire("gone.tool");
+        assert_ne!(
+            old, "gone_tool",
+            "the history's call is not the current tool's"
+        );
+        assert_eq!(
+            old,
+            current.wire("gone.tool"),
+            "deterministic within a request"
+        );
+        assert_eq!(current.ours("gone_tool"), "gone_tool");
     }
 }

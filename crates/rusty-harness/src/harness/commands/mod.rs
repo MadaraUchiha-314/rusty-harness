@@ -4,16 +4,17 @@
 //! to the model; commands are not parsed from tool results or sub-agent replies (design.md
 //! § Security design, boundary 4). `command.invoke` runs through the dispatcher, with
 //! the role check as a guard (abuse case 10), and the built-ins `/exit`, `/model` and
-//! `/effort` change the next call without restarting the task (R9.5).
+//! `/effort` change the next call of the task they are sent in, without restarting it
+//! (R9.5); other tasks keep their own selection.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock};
 
 use serde::{Deserialize, Serialize};
 
 use crate::HarnessError;
 use crate::assets::{FmtArgs, StringKey, keys};
-use crate::harness::core_loop::task::{Caller, Role};
+use crate::harness::core_loop::task::{Caller, Role, TaskId};
 use crate::harness::hooks::remote::{RemoteTransport, call_remote};
 use crate::harness::hooks::{
     GuardHook, GuardOutcome, Hook, HookCx, HookDispatcher, HookError, HookOrder, HookPoint,
@@ -64,6 +65,10 @@ pub struct CommandCall {
     pub args: String,
     /// Who invoked it.
     pub caller: Caller,
+    /// The task it was sent in, when there is one: `/model` and `/effort` change that
+    /// task's selection only (R9.5). `None` changes the default new tasks start with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskId>,
 }
 
 /// A rendered line for the person, as a catalog key plus arguments (R25.6).
@@ -113,6 +118,10 @@ fn keys_by_name(name: &str) -> Option<StringKey> {
     .into_iter()
     .find(|k| k.as_str() == name)
 }
+
+/// The `commands/v1` extension URI: the metadata key of command tokens and outcomes.
+pub const COMMANDS_EXT: &str =
+    "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/commands/v1";
 
 /// One command as the `commands/v1` card payload lists it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -270,55 +279,114 @@ pub struct ModelSelection {
     pub effort: Option<Effort>,
 }
 
-/// Resolves the current selection to a model (R9.5).
+/// Resolves a selection to a model (R9.5). Each task has its own selection: a command
+/// sent in a task changes that task's alone, and the default is what a new task starts
+/// with. The task's record keeps its selection across restarts; the router's copy wins
+/// within the process, so a loop commit that read the record before a command cannot
+/// undo it.
 pub struct ModelRouter {
     registry: Arc<Registry>,
-    selection: Arc<RwLock<ModelSelection>>,
+    default: RwLock<ModelSelection>,
+    tasks: RwLock<HashMap<TaskId, ModelSelection>>,
 }
 
 impl core::fmt::Debug for ModelRouter {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ModelRouter")
-            .field("selection", &self.selection())
-            .finish()
+            .field("default", &self.selection())
+            .finish_non_exhaustive()
     }
 }
 
 impl ModelRouter {
-    /// A router starting with `selection`.
+    /// A router whose new tasks start with `selection`.
     #[must_use]
     pub fn new(registry: Arc<Registry>, selection: ModelSelection) -> Self {
         Self {
             registry,
-            selection: Arc::new(RwLock::new(selection)),
+            default: RwLock::new(selection),
+            tasks: RwLock::default(),
         }
     }
 
-    /// The current selection.
+    /// The default: the selection a new task starts with.
     #[must_use]
     pub fn selection(&self) -> ModelSelection {
-        self.selection
+        self.default
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
-    /// The shared selection, for the commands that change it.
+    /// The selection a command changed for `task` in this process, if any.
     #[must_use]
-    pub fn shared(&self) -> Arc<RwLock<ModelSelection>> {
-        Arc::clone(&self.selection)
+    pub fn for_task(&self, task: &TaskId) -> Option<ModelSelection> {
+        self.tasks
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(task)
+            .cloned()
     }
 
-    /// The model the next call goes to.
+    /// Takes `selection` (the task's record) as `task`'s, unless a command already changed
+    /// it here.
+    pub fn adopt(&self, task: &TaskId, selection: ModelSelection) {
+        self.tasks
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(task.clone())
+            .or_insert(selection);
+    }
+
+    /// The selection in effect for `task`, or the default for `None`.
+    #[must_use]
+    pub fn selection_in(&self, task: Option<&TaskId>) -> ModelSelection {
+        task.and_then(|t| self.for_task(t))
+            .unwrap_or_else(|| self.selection())
+    }
+
+    /// Changes `task`'s selection, or the default for `None`, and returns the result.
+    pub fn select(
+        &self,
+        task: Option<&TaskId>,
+        change: impl FnOnce(&mut ModelSelection),
+    ) -> ModelSelection {
+        let Some(task) = task else {
+            let mut default = self
+                .default
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            change(&mut default);
+            return default.clone();
+        };
+        let start = self.selection_in(Some(task));
+        let mut tasks = self
+            .tasks
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let selection = tasks.entry(task.clone()).or_insert(start);
+        change(selection);
+        selection.clone()
+    }
+
+    /// The model `selection` names.
+    ///
+    /// # Errors
+    ///
+    /// [`HarnessError::Internal`] naming the alias when it is not registered.
+    pub fn resolve(&self, selection: &ModelSelection) -> Result<Arc<dyn Llm>, HarnessError> {
+        self.registry
+            .get::<dyn Llm>(&EntityId::new(selection.model.clone()))
+            .map_err(|e| HarnessError::Internal(e.to_string()))
+    }
+
+    /// The model the default names.
     ///
     /// # Errors
     ///
     /// [`HarnessError::Internal`] naming the alias when it is not registered.
     pub fn current(&self) -> Result<Arc<dyn Llm>, HarnessError> {
-        let alias = self.selection().model;
-        self.registry
-            .get::<dyn Llm>(&EntityId::new(alias))
-            .map_err(|e| HarnessError::Internal(e.to_string()))
+        self.resolve(&self.selection())
     }
 
     /// The configured aliases.
@@ -419,13 +487,13 @@ harness_async_trait! {
             let aliases = self.router.aliases();
             let list = aliases.join(", ");
             if call.args.is_empty() {
-                return Ok(CommandResult::Done { line: Line::new(keys::command::model::LIST, &[("models", list), ("current", self.router.selection().model)]) });
+                return Ok(CommandResult::Done { line: Line::new(keys::command::model::LIST, &[("models", list), ("current", self.router.selection_in(call.task.as_ref()).model)]) });
             }
             let alias = call.args.split_whitespace().next().unwrap_or("").to_owned();
             if !aliases.contains(&alias) {
                 return Ok(CommandResult::Failed { line: Line::new(keys::command::model::UNKNOWN, &[("alias", alias), ("models", list)]) });
             }
-            self.router.shared().write().unwrap_or_else(std::sync::PoisonError::into_inner).model.clone_from(&alias);
+            self.router.select(call.task.as_ref(), |s| s.model.clone_from(&alias));
             Ok(CommandResult::Done { line: Line::new(keys::command::model::SWITCHED, &[("alias", alias)]) })
         }
     }
@@ -435,7 +503,7 @@ harness_async_trait! {
 pub struct EffortCommand {
     id: EntityId,
     descriptor: CommandDescriptor,
-    selection: Arc<RwLock<ModelSelection>>,
+    router: Arc<ModelRouter>,
 }
 
 impl core::fmt::Debug for EffortCommand {
@@ -445,9 +513,9 @@ impl core::fmt::Debug for EffortCommand {
 }
 
 impl EffortCommand {
-    /// The command over the shared selection.
+    /// The command over `router`; admins and assignees may use it.
     #[must_use]
-    pub fn new(selection: Arc<RwLock<ModelSelection>>) -> Self {
+    pub fn new(router: Arc<ModelRouter>) -> Self {
         Self {
             id: EntityId::new("effort"),
             descriptor: CommandDescriptor {
@@ -455,7 +523,7 @@ impl EffortCommand {
                 description: CommandDescription::Key(keys::command::effort::DESCRIPTION),
                 roles: BTreeSet::from([Role::Admin, Role::Assignee, Role::Reporter]),
             },
-            selection,
+            router,
         }
     }
 }
@@ -477,7 +545,7 @@ harness_async_trait! {
         async fn run(&self, call: &CommandCall) -> Result<CommandResult, HarnessError> {
             match call.args.parse::<Effort>() {
                 Ok(effort) => {
-                    self.selection.write().unwrap_or_else(std::sync::PoisonError::into_inner).effort = Some(effort);
+                    self.router.select(call.task.as_ref(), |s| s.effort = Some(effort));
                     Ok(CommandResult::Done { line: Line::new(keys::command::effort::SWITCHED, &[("effort", effort.to_string())]) })
                 }
                 Err(_) => Ok(CommandResult::Failed { line: Line::new(keys::command::effort::UNKNOWN, &[("effort", call.args.clone())]) }),
@@ -611,13 +679,47 @@ pub fn install_builtins(
     };
     reg(Arc::new(ExitCommand::default()))?;
     reg(Arc::new(ModelCommand::new(Arc::clone(router))))?;
-    reg(Arc::new(EffortCommand::new(router.shared())))?;
+    reg(Arc::new(EffortCommand::new(Arc::clone(router))))?;
     dispatcher.register::<CommandInvoke>(
         EntityId::new("commands.role-guard"),
         Hook::Guard(Arc::new(RoleGuard)),
         HookOrder::default(),
     );
     Ok(())
+}
+
+/// What a person's command message comes to (R10.1, R10.6): the `commands/v1` outcome
+/// (`done`, `exit`, `unknown` or `failed`) and the line to show. A role veto (abuse 10) is
+/// `failed` with the denied line, not an error.
+///
+/// # Errors
+///
+/// A hook failure other than a veto.
+pub async fn answer(
+    dispatcher: &HookDispatcher,
+    cx: &HookCx,
+    call: CommandCall,
+) -> Result<(&'static str, Line), HarnessError> {
+    let name = format!("/{}", call.name);
+    let role = if call.caller.roles.iter().all(|r| *r == Role::Watcher) {
+        "watcher"
+    } else {
+        "other"
+    };
+    match invoke(dispatcher, cx, call).await {
+        Ok(CommandResult::Done { line }) => Ok(("done", line)),
+        Ok(CommandResult::Exit { line }) => Ok(("exit", line)),
+        Ok(CommandResult::Unknown { line }) => Ok(("unknown", line)),
+        Ok(CommandResult::Failed { line }) => Ok(("failed", line)),
+        Err(HarnessError::Vetoed(_)) => Ok((
+            "failed",
+            Line::new(
+                keys::command::DENIED,
+                &[("role", role.to_owned()), ("name", name)],
+            ),
+        )),
+        Err(e) => Err(e),
+    }
 }
 
 /// Runs a parsed command through the dispatcher (R10.1, R10.4, R10.6).
@@ -771,6 +873,7 @@ mod tests {
                 name: "model".into(),
                 args: "claude".into(),
                 caller: admin.clone(),
+                task: None,
             },
         )
         .await
@@ -790,6 +893,7 @@ mod tests {
                 name: "effort".into(),
                 args: "high".into(),
                 caller: admin.clone(),
+                task: None,
             },
         )
         .await
@@ -803,6 +907,7 @@ mod tests {
                 name: "model".into(),
                 args: String::new(),
                 caller: admin.clone(),
+                task: None,
             },
         )
         .await
@@ -821,11 +926,74 @@ mod tests {
                 name: "model".into(),
                 args: "nope".into(),
                 caller: admin,
+                task: None,
             },
         )
         .await
         .unwrap();
         assert!(matches!(bad, CommandResult::Failed { .. }));
+    }
+
+    /// Feature: Commands
+    /// Requirement: docs/specs/issue-3/requirements.md#R9
+    ///
+    /// Scenario: /model and /effort in one task leave every other task's selection alone
+    ///     Given a router on "gpt" and two tasks on it
+    ///     When an admin of task "a" runs `/model claude` and `/effort high` there
+    ///     Then task "a" uses claude at high effort, and task "b" and new tasks keep gpt
+    #[tokio::test]
+    async fn model_and_effort_change_only_the_task_they_are_sent_in() {
+        let (_, dispatcher, router, cx) = harness();
+        let admin = Caller::human("u1", [Role::Admin]);
+        let gpt = router.selection();
+        router.adopt(&"a".to_owned(), gpt.clone());
+        router.adopt(&"b".to_owned(), gpt.clone());
+        for (name, args) in [("model", "claude"), ("effort", "high")] {
+            let result = invoke(
+                &dispatcher,
+                &cx,
+                CommandCall {
+                    name: name.into(),
+                    args: args.into(),
+                    caller: admin.clone(),
+                    task: Some("a".into()),
+                },
+            )
+            .await
+            .unwrap();
+            assert!(matches!(result, CommandResult::Done { .. }), "/{name}");
+        }
+        let a = router.for_task(&"a".to_owned()).unwrap();
+        assert_eq!((a.model.as_str(), a.effort), ("claude", Some(Effort::High)));
+        assert_eq!(
+            router.resolve(&a).unwrap().entity_id().id.as_ref(),
+            "claude"
+        );
+        assert_eq!(
+            router.for_task(&"b".to_owned()),
+            Some(gpt.clone()),
+            "task b"
+        );
+        assert_eq!(router.selection(), gpt, "the default new tasks start with");
+        let listing = invoke(
+            &dispatcher,
+            &cx,
+            CommandCall {
+                name: "model".into(),
+                args: String::new(),
+                caller: admin,
+                task: Some("b".into()),
+            },
+        )
+        .await
+        .unwrap();
+        let CommandResult::Done { line } = listing else {
+            panic!("listing")
+        };
+        assert!(
+            line.render(&Catalog::builtin(), "en")
+                .contains("Current: gpt")
+        );
     }
 
     #[tokio::test]
@@ -838,6 +1006,7 @@ mod tests {
                 name: "modle".into(),
                 args: String::new(),
                 caller: Caller::human("u1", [Role::Reporter]),
+                task: None,
             },
         )
         .await
@@ -861,6 +1030,7 @@ mod tests {
                 name: "model".into(),
                 args: "claude".into(),
                 caller: Caller::human("w", [Role::Watcher]),
+                task: None,
             },
         )
         .await
@@ -874,6 +1044,7 @@ mod tests {
                 name: "exit".into(),
                 args: String::new(),
                 caller: Caller::human("w", [Role::Watcher]),
+                task: None,
             },
         )
         .await
@@ -943,6 +1114,7 @@ mod tests {
                 name: "show-plan".into(),
                 args: String::new(),
                 caller: Caller::human("w", [Role::Watcher]),
+                task: None,
             },
         )
         .await;
@@ -957,6 +1129,7 @@ mod tests {
                 name: "show-plan".into(),
                 args: "now".into(),
                 caller: Caller::human("a", [Role::Admin]),
+                task: None,
             },
         )
         .await

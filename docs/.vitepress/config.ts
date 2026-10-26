@@ -25,6 +25,10 @@ export default defineConfig({
         items: [
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "Run the server", link: "/guide/run-the-server" },
+          { text: "Run the TUI", link: "/guide/run-the-tui" },
+          { text: "Run the web renderer", link: "/guide/run-the-web-renderer" },
+          { text: "Run the demo", link: "/guide/run-the-demo" },
+          { text: "Run durably", link: "/guide/run-durably" },
           { text: "Async model", link: "/guide/async-model" },
           { text: "Embed the SDK", link: "/guide/embed-the-sdk" },
           { text: "Write a plugin", link: "/guide/write-a-plugin" },

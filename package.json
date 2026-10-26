@@ -4,6 +4,7 @@
   "workspaces": [
     "docs",
     "crates/rusty-harness-wasm",
+    "packaging/npm",
     "web"
   ],
   "type": "module",

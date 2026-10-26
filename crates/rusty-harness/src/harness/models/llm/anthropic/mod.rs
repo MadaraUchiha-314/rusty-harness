@@ -17,7 +17,8 @@ use serde_json::{Value, json};
 use super::sse;
 use super::{
     CacheBreakpoint, ContentPart, EventStream, Llm, MessageRole, Modality, ModelCapabilities,
-    ModelError, ModelEvent, ModelRequest, StopReason, Usage, check_modalities, retry_after,
+    ModelError, ModelEvent, ModelRequest, StopReason, Usage, WireNames, check_modalities,
+    retry_after,
 };
 use crate::config::ModelConfig;
 use crate::harness::tools::ToolCall;
@@ -120,6 +121,7 @@ impl AnthropicLlm {
     /// The Messages request body for `request` (snapshot-tested).
     #[must_use]
     pub fn body(&self, request: &ModelRequest) -> Value {
+        let names = WireNames::new(&request.tools);
         let cached_after: BTreeSet<usize> = request
             .cache_hints
             .iter()
@@ -138,7 +140,7 @@ impl AnthropicLlm {
                 _ => parts(&message.parts),
             };
             for call in &message.tool_calls {
-                content.push(json!({ "type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments }));
+                content.push(json!({ "type": "tool_use", "id": call.id, "name": names.wire(&call.name), "input": call.arguments }));
             }
             if cached_after.contains(&(index + 1))
                 && let Some(last) = content.last_mut()
@@ -160,7 +162,7 @@ impl AnthropicLlm {
         });
         if !request.tools.is_empty() {
             body["tools"] = Value::Array(
-                request.tools.iter().map(|t| json!({ "name": t.name, "description": t.description, "input_schema": t.parameters })).collect(),
+                request.tools.iter().map(|t| json!({ "name": names.wire(&t.name), "description": t.description, "input_schema": t.parameters })).collect(),
             );
         }
         body
@@ -406,13 +408,21 @@ impl Decoder {
         }
     }
 
-    fn finish(&mut self) -> Vec<ModelEvent> {
-        vec![
+    /// The usage and the stop, once the stream has ended. Every complete message carries
+    /// a `stop_reason` in its `message_delta`; a stream cut before one is a retryable
+    /// failure, not a truncated answer.
+    fn finish(&mut self) -> Result<Vec<ModelEvent>, ModelError> {
+        let Some(reason) = self.stop.take() else {
+            return Err(ModelError::Retryable {
+                status: None,
+                message: "the stream ended before the model's stop reason".into(),
+                retry_after: None,
+            });
+        };
+        Ok(vec![
             ModelEvent::Usage { usage: self.usage },
-            ModelEvent::Stop {
-                reason: self.stop.take().unwrap_or(StopReason::EndTurn),
-            },
-        ]
+            ModelEvent::Stop { reason },
+        ])
     }
 }
 
@@ -426,7 +436,10 @@ pub fn decode(bytes: crate::host::ByteStream) -> EventStream<'static> {
             }
             Some(match sse.next().await {
                 None => (
-                    decoder.finish().into_iter().map(Ok).collect::<Vec<_>>(),
+                    decoder.finish().map_or_else(
+                        |e| vec![Err(e)],
+                        |events| events.into_iter().map(Ok).collect(),
+                    ),
                     (sse, decoder, true),
                 ),
                 Some(Err(err)) => (
@@ -479,7 +492,7 @@ harness_async_trait! {
                 }
                 return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).replace(self.api_key.expose(), "[redacted]"), retry_after(&response.headers)));
             }
-            Ok(decode(response.body))
+            Ok(WireNames::new(&request.tools).restore(decode(response.body)))
         }
     }
 }
@@ -604,5 +617,19 @@ mod tests {
             (12, 5, 9)
         );
         assert_eq!(seen.lock().unwrap().as_slice(), ["sk-ant-canary"]);
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_before_its_stop_reason_is_retryable() {
+        let events: Vec<_> = futures::StreamExt::collect(super::decode(
+            crate::harness::models::llm::sse::chunks(vec![
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The answer is\"}}\n\n",
+            ]),
+        ))
+        .await;
+        assert!(
+            matches!(events.last(), Some(Err(e)) if e.is_retryable()),
+            "{events:?}"
+        );
     }
 }

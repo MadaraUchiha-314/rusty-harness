@@ -1,0 +1,52 @@
+{
+  "audio": {
+    "input": {
+      "format": {
+        "rate": 24000,
+        "type": "audio/pcm"
+      },
+      "transcription": {
+        "model": "gpt-live-transcribe"
+      },
+      "turn_detection": {
+        "type": "semantic_vad"
+      }
+    },
+    "output": {
+      "format": {
+        "rate": 24000,
+        "type": "audio/pcm"
+      },
+      "voice": "marin"
+    }
+  },
+  "instructions": "You are demo-agent. Draft release notes with the person.",
+  "model": "gpt-realtime-2.1",
+  "output_modalities": ["audio"],
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "description": "Lists the pull requests merged since a tag.",
+      "name": "changelog.list_merged",
+      "parameters": {
+        "properties": {
+          "since": {
+            "type": "string"
+          }
+        },
+        "required": ["since"],
+        "type": "object"
+      },
+      "type": "function"
+    },
+    {
+      "description": "Asks a participant.",
+      "name": "participant.ask",
+      "parameters": {
+        "type": "object"
+      },
+      "type": "function"
+    }
+  ],
+  "type": "realtime"
+}

@@ -1,4 +1,5 @@
-# Builds abi3 wheels (one per platform) and an sdist, and tests every wheel with pytest.
+# Builds abi3 wheels (one per platform) and an sdist, and tests every wheel with pytest;
+# plus the `rusty-harness-cli` wheel per platform, the binary on PATH (Q8).
 name: Wheels
 
 on:
@@ -27,14 +28,27 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: auto
           args: --release --out dist
+      - name: The CLI wheel (maturin `bin` bindings over the core crate)
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packaging/pypi-cli
+          target: ${{ matrix.target }}
+          # AlmaLinux 8: a compiler new enough for the CLI's dependencies, and ALSA.
+          manylinux: 2_28
+          before-script-linux: dnf install -y alsa-lib-devel
+          args: --locked --out ../../crates/rusty-harness-py/dist
       - uses: astral-sh/setup-uv@v10.3.2
       - name: pytest against the built wheel
         shell: bash
         working-directory: crates/rusty-harness-py
         run: |
           uv sync --locked
-          uv pip install --no-index --find-links dist rusty_harness
+          uv pip install --no-index --find-links dist rusty_harness rusty-harness-cli
           uv run --no-sync pytest
+      - name: The CLI wheel puts rusty-harness on PATH
+        shell: bash
+        working-directory: crates/rusty-harness-py
+        run: uv run --no-sync rusty-harness --version
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.name }}
@@ -52,5 +66,5 @@ jobs:
           args: --out dist
       - uses: actions/upload-artifact@v7
         with:
-          name: sdist
+          name: wheel-sdist
           path: crates/rusty-harness-py/dist/*.tar.gz

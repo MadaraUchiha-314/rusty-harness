@@ -263,3 +263,177 @@ async fn snapshot_agent_card() {
         .unwrap();
     assert!(serve(&open, None).await.is_err());
 }
+
+/// Scenario: A browser surface on another origin reaches a loopback harness
+///     Given a loopback-only server with no allowed origins configured
+///     When a page on another origin preflights and calls it
+///     Then the preflight is answered and the response carries the allow headers
+///     And a server with a list allows the listed origins only
+#[tokio::test]
+async fn a_browser_origin_is_allowed_on_loopback_and_only_listed_origins_with_a_list() {
+    let h = harness(vec![text("x")]).await;
+    let server = serve(&h, None).await.expect("binds");
+    let base = format!("http://{}/", server.addr);
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(server.run(async move {
+        let _ = stopped.await;
+    }));
+    let client = reqwest::Client::new();
+    let preflight = client
+        .request(reqwest::Method::OPTIONS, &base)
+        .header("Origin", "http://127.0.0.1:4173")
+        .header("Access-Control-Request-Method", "POST")
+        .header(
+            "Access-Control-Request-Headers",
+            "a2a-version, content-type",
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), 204);
+    assert_eq!(
+        preflight.headers()["access-control-allow-origin"],
+        "http://127.0.0.1:4173"
+    );
+    assert_eq!(
+        preflight.headers()["access-control-allow-headers"],
+        "a2a-version, content-type"
+    );
+    let card = client
+        .get(format!("{base}.well-known/agent-card.json"))
+        .header("Origin", "http://127.0.0.1:4173")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(card.status(), 200);
+    assert_eq!(
+        card.headers()["access-control-allow-origin"],
+        "http://127.0.0.1:4173"
+    );
+    let _ = stop.send(());
+    let _ = task.await;
+
+    // With a list, only the listed origins are allowed.
+    let mut config = Config::default();
+    config.server.bind = "127.0.0.1:0".into();
+    config.server.allow_origins = vec!["https://app.example".into()];
+    let h = HarnessBuilder::new(config)
+        .host(Host::testing())
+        .llm(Arc::new(RecordedLlm::new("default", vec![])))
+        .build()
+        .await
+        .expect("builds");
+    let server = serve(&h, None).await.expect("binds");
+    let base = format!("http://{}/", server.addr);
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(server.run(async move {
+        let _ = stopped.await;
+    }));
+    let listed = client
+        .get(format!("{base}.well-known/agent-card.json"))
+        .header("Origin", "https://app.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.headers()["access-control-allow-origin"],
+        "https://app.example"
+    );
+    let card = client
+        .get(format!("{base}.well-known/agent-card.json"))
+        .header("Origin", "http://127.0.0.1:4173")
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        card.headers().get("access-control-allow-origin").is_none(),
+        "unlisted origin got {:?}",
+        card.headers()
+    );
+    let _ = stop.send(());
+    let _ = task.await;
+}
+
+/// Scenario: A person's command sent to the server runs instead of the model
+///     Given the server bound on loopback with a model scripted for exactly one turn
+///     When `/model default` opens a conversation with `SendMessage`
+///     And a long-running task takes its one model turn
+///     And `/modle` is sent into that task with `SendStreamingMessage`
+///     Then each command is answered by one agent message carrying its `commands/v1`
+///     outcome, the model is called once (for the task's turn only), and the task's
+///     history holds no command (R10.1, R10.6)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_command_sent_to_the_server_runs_instead_of_the_model() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let h = harness(vec![text("the only answer")]).await;
+    let server = serve(&h, None).await.expect("binds");
+    let base = format!("http://{}/", server.addr);
+    tokio::spawn(server.run(std::future::pending()));
+    let client = A2AClient::new(JsonRpcTransport::new(reqwest::Client::new(), base));
+    let request = |message| a2a::SendMessageRequest {
+        message,
+        configuration: None,
+        metadata: None,
+        tenant: None,
+    };
+    let outcome = |reply: &a2a::Message| {
+        // Through the wire every number is a double: decode as a client must.
+        let meta: CommandsMeta = rusty_harness::harness::core_loop::task::decode_extension(
+            &reply.metadata.as_ref().expect("metadata")[COMMANDS_EXT],
+        )
+        .expect("commands/v1");
+        meta.result.expect("an outcome").outcome
+    };
+
+    // A command as the first message of a conversation.
+    let sent = client
+        .send_message(&request(message("/model default", None, false)))
+        .await
+        .expect("SendMessage");
+    let a2a::SendMessageResponse::Message(reply) = sent else {
+        panic!("a command is answered by a message, not a task: {sent:?}");
+    };
+    assert_eq!(outcome(&reply), "done");
+
+    // A task takes the model's one scripted turn.
+    let a2a::SendMessageResponse::Task(task) = client
+        .send_message(&request(message("hello", None, true)))
+        .await
+        .expect("SendMessage")
+    else {
+        panic!("a task");
+    };
+    assert_eq!(task.status.state, a2a::TaskState::InputRequired);
+
+    // A command typed inside that task: answered, and the model (now out of turns) is
+    // never asked.
+    let events: Vec<_> = client
+        .send_streaming_message(&request(message("/modle", Some(&task.id), false)))
+        .await
+        .expect("SendStreamingMessage")
+        .collect()
+        .await;
+    let [Ok(a2a::StreamResponse::Message(reply))] = events.as_slice() else {
+        panic!("one reply message: {events:?}");
+    };
+    assert_eq!(outcome(reply), "unknown");
+
+    let after = client
+        .get_task(&a2a::GetTaskRequest {
+            id: task.id.clone(),
+            history_length: None,
+            tenant: None,
+        })
+        .await
+        .expect("GetTask");
+    assert_eq!(after.status.state, a2a::TaskState::InputRequired);
+    assert!(
+        after
+            .history
+            .iter()
+            .flatten()
+            .all(|m| m.text().is_none_or(|t| !t.starts_with('/'))),
+        "the command is not part of the task: {:?}",
+        after.history
+    );
+}

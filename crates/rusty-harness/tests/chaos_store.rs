@@ -171,15 +171,32 @@ async fn chaos_crash_between_store_writes_leaves_a_consistent_store_on_reopen() 
             .is_some(),
         "the last committed blob is readable"
     );
-    let mut leftovers = Vec::new();
-    for entry in walkdir(&dir) {
-        if entry.extension().is_some_and(|x| x == "tmp") {
-            leftovers.push(entry);
-        }
+    // A write the kill interrupted may leave its temp file: each write has its own, and a
+    // fresh one could be another process's write in flight, so the reopen keeps it. It is
+    // never read as data (the checks above), and once stale the next reopen sweeps it.
+    let leftovers = || {
+        walkdir(&dir)
+            .into_iter()
+            .filter(|e| e.extension().is_some_and(|x| x == "tmp"))
+            .collect::<Vec<_>>()
+    };
+    for tmp in leftovers() {
+        std::fs::File::options()
+            .write(true)
+            .open(&tmp)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_mins(20))
+            .unwrap();
     }
+    drop(
+        FileStore::open(&dir)
+            .await
+            .expect("reopen sweeps stale temp files"),
+    );
     assert!(
-        leftovers.is_empty(),
-        "no interrupted writes remain: {leftovers:?}"
+        leftovers().is_empty(),
+        "no interrupted write survives once stale: {:?}",
+        leftovers()
     );
     let next = store
         .commit(TaskCommit::of(record).with_events([event(u32::MAX)]))

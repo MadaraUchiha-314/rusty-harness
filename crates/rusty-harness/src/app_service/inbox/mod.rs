@@ -295,6 +295,21 @@ impl Inbox {
         Ok(Some(record))
     }
 
+    /// `CancelTask` through durable execution (R22.6): the mode stops what it drives and
+    /// the record ends `canceled`.
+    ///
+    /// # Errors
+    ///
+    /// [`InboxError::Durable`].
+    pub async fn cancel(
+        &self,
+        task: &TaskId,
+        reason: super::durable::CancelReason,
+    ) -> Result<(), InboxError> {
+        self.durable.cancel(task, reason).await?;
+        Ok(())
+    }
+
     /// Accepts `event`: validate, `inbox.accept` hooks, store as `Received`, apply or
     /// signal, mark `Signalled` (R20.3–5). Idempotent on the event id: a second accept of
     /// a stored event signals again and applies nothing twice.

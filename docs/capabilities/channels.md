@@ -38,6 +38,11 @@ sequenceDiagram
   interface, link the sub-task on the parent and return the reply or artifacts.
 - WHEN `participant.ask` runs THEN the task SHALL wait in `input-required` with the
   question on its status message, visible to the channel's members only.
+- WHEN `participant.ask` runs with `kind: a2ui` THEN the question SHALL be a list of
+  A2UI 0.9.1 messages from the basic catalog (anything else is invalid input), and the
+  status message SHALL carry its text alternative before the typed data part, so a
+  surface without A2UI still reads it
+  ([surfaces and renderers](surfaces.md), R25.2, R25.4).
 - WHEN a reply arrives on a channel THEN the system SHALL refuse a non-member as
   not-found and resume the original suspended call for a member, however late.
 - WHEN `participant.delegate` runs THEN the system SHALL create a task with the delegate
@@ -58,6 +63,7 @@ sequenceDiagram
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
+| issue-3 (M5, task 33) | `participant.ask` with `kind: a2ui` validates the payload against the basic catalog and emits the text alternative with the typed data part | PR #11 |
 | issue-3 (M3, task 23) | Channels on the server: the per-viewer projection, push to allowlisted hosts | PR #9 |
 | issue-3 (M2, task 18) | Remote, loopback and browser transports, `agent.call`, channels and the participant tools, extension schemas | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 

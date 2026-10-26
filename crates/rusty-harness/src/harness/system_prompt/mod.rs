@@ -81,6 +81,38 @@ fn parse_replacement(value: &str) -> Replacement {
     )
 }
 
+/// Reads a `[agent] system_prompt = "file:<path>"` replacement through the host, adds it
+/// to `prompts` and points `agent` at its id, so the plan can name it (R7.2). A
+/// registered fragment id needs nothing.
+///
+/// # Errors
+///
+/// [`HarnessError::Internal`] when the file cannot be read or does not parse as a
+/// fragment (front matter with `id`, `version`, `placeholders`).
+pub async fn load_replacement(
+    prompts: &mut PromptRegistry,
+    agent: &mut AgentConfig,
+    fs: &dyn FileSystem,
+) -> Result<(), HarnessError> {
+    let Some(value) = &agent.system_prompt else {
+        return Ok(());
+    };
+    if let Replacement::File(path) = parse_replacement(value) {
+        let text = fs
+            .read(Path::new(&path))
+            .await
+            .map_err(|e| HarnessError::Internal(format!("system prompt {path}: {e}")))?;
+        let text = String::from_utf8(text.to_vec())
+            .map_err(|_| HarnessError::Internal(format!("system prompt {path}: not UTF-8")))?;
+        let fragment = PromptFragment::parse(&path, &text)
+            .map_err(|e| HarnessError::Internal(e.to_string()))?;
+        let id = fragment.entity_id().id.to_string();
+        prompts.add(fragment);
+        agent.system_prompt = Some(id);
+    }
+    Ok(())
+}
+
 impl SystemPrompt {
     /// The assembler for `[agent]`, rendering in `locale`.
     #[must_use]
@@ -104,29 +136,12 @@ impl SystemPrompt {
     /// [`HarnessError::Internal`] when the file cannot be read or does not parse as a
     /// fragment (front matter with `id`, `version`, `placeholders`).
     pub async fn load_replacement(&mut self, fs: &dyn FileSystem) -> Result<(), HarnessError> {
-        let Some(value) = &self.agent.system_prompt else {
-            return Ok(());
-        };
-        if let Replacement::File(path) = parse_replacement(value) {
-            let text = fs
-                .read(Path::new(&path))
-                .await
-                .map_err(|e| HarnessError::Internal(format!("system prompt {path}: {e}")))?;
-            let text = String::from_utf8(text.to_vec())
-                .map_err(|_| HarnessError::Internal(format!("system prompt {path}: not UTF-8")))?;
-            let fragment = PromptFragment::parse(&path, &text)
-                .map_err(|e| HarnessError::Internal(e.to_string()))?;
-            let id = fragment.entity_id().id.to_string();
-            Arc::get_mut(&mut self.prompts)
-                .ok_or_else(|| {
-                    HarnessError::Internal(
-                        "prompt registry is shared; load the replacement before sharing it".into(),
-                    )
-                })?
-                .add(fragment);
-            self.agent.system_prompt = Some(id);
-        }
-        Ok(())
+        let prompts = Arc::get_mut(&mut self.prompts).ok_or_else(|| {
+            HarnessError::Internal(
+                "prompt registry is shared; load the replacement before sharing it".into(),
+            )
+        })?;
+        load_replacement(prompts, &mut self.agent, fs).await
     }
 
     /// The plan for a task with `participants` and the configured `extensions`
@@ -138,12 +153,21 @@ impl SystemPrompt {
             .system_prompt
             .clone()
             .unwrap_or_else(|| "system/base".to_owned());
+        // A replacement prompt gets the agent's name and description only where it asks.
+        let declared = self
+            .prompts
+            .get(&base_id, &self.locale)
+            .map(|f| f.placeholders().to_vec());
         let base = PlannedFragment {
+            args: [
+                ("agent_name", self.agent.name.clone()),
+                ("agent_description", self.agent.description.clone()),
+            ]
+            .into_iter()
+            .filter(|(k, _)| declared.as_ref().is_none_or(|d| d.iter().any(|p| p == k)))
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect(),
             id: base_id,
-            args: vec![
-                ("agent_name".into(), self.agent.name.clone()),
-                ("agent_description".into(), self.agent.description.clone()),
-            ],
         };
         let roles = participants
             .iter()

@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 use crate::harness::core_loop::task::{TaskId, TaskRef};
 use crate::harness::hooks::{HookPoint, Operation};
 
+pub mod tools;
+
 /// A plan id.
 pub type PlanId = String;
 /// A step id, unique within its plan.
@@ -345,6 +347,33 @@ impl Plan {
             out.push('\n');
         }
         out
+    }
+}
+
+/// A step's outcome as the model reports it (R13.3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepRecord {
+    /// The plan.
+    pub plan: PlanId,
+    /// The step.
+    pub step: StepId,
+    /// Its new status.
+    pub status: StepStatus,
+    /// What it produced.
+    pub output: Option<StepOutput>,
+}
+
+/// The `step.execute` operation (R13.3): a step's outcome goes in and, after the hooks
+/// (which may amend or veto it), comes out to be recorded on the plan.
+#[derive(Debug)]
+pub struct StepExecute;
+
+impl Operation for StepExecute {
+    const POINT: HookPoint = HookPoint::StepExecute;
+    type Input = StepRecord;
+    type Output = StepRecord;
+    fn identity(input: &StepRecord) -> String {
+        format!("{}/{}", input.plan, input.step)
     }
 }
 

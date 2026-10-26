@@ -29,3 +29,13 @@ approved `requirements.md`, `design.md` and `testing-plan.md`; the five question
 the task lifecycle, where the durable workflow starts, the guard stage, sub-states in
 extension metadata, and activity replay semantics. Correct-answer positions are 3, 1, 4,
 2, 3.
+
+## Rebuilt after the spec changed
+
+The spec changed after the page was first built. `tasks.md` gained tasks 53 and 54 from
+the task 47 sweep. `testing-plan.md` gained its Verification results, the T13 command
+naming `server`, and T11 replanned to the demo recording, with V1–V3 deferred until after
+the merge. The page was rebuilt from the current files and republished to the same URL
+(version 16, 2026-10-26). Its "Spec explainer" and "Spec quiz" tabs were re-checked
+against those changes: neither refers to the parts that changed, so both stand as
+written, and the five questions and their answers are unchanged.

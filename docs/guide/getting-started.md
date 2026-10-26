@@ -24,18 +24,35 @@ Each release also attaches the archives (`rusty-harness-<version>-<platform>.tar
 ```sh
 cargo add rusty_harness --features rt-tokio
 cargo add tokio --features macros,rt-multi-thread
+cargo add a2a-lf futures   # the official A2A types (`use a2a::…`) and stream helpers
 ```
 
 ```rust
+use futures::StreamExt as _;
+use rusty_harness::{HarnessBuilder, config::Config};
+
 #[tokio::main]
 async fn main() {
-    println!("{}", rusty_harness::hello().await);
+    let config = Config::from_layers(Some(r#"
+        [models.default]
+        provider = "openai"
+        model = "gpt-6.1-sol"
+        api_key = "env:OPENAI_API_KEY"
+    "#), std::env::vars(), None).expect("config");
+    let harness = HarnessBuilder::new(config).build().await.expect("harness");
+    let message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("Hello!")]);
+    let request = a2a::SendMessageRequest { message, configuration: None, metadata: None, tenant: None };
+    let mut events = harness.send_message(request, None);
+    while let Some(event) = events.next().await {
+        println!("{event:?}");
+    }
 }
 ```
 
 The core crate has no default runtime. Enable `rt-tokio` for the tokio-backed
 `Runtime`, or none at all if you only call APIs that need no runtime — see the
-[async model](./async-model).
+[async model](./async-model). [Embed the SDK](./embed-the-sdk) covers the builder,
+`get_task`, `cancel_task` and `subscribe`.
 
 ## Python
 
@@ -45,15 +62,23 @@ pip install rusty_harness
 
 ```python
 import asyncio
-import rusty_harness
+from rusty_harness import Config, Harness
+
+config = Config.from_dict({
+    "models": {"default": {"provider": "openai", "model": "gpt-6.1-sol", "api_key": "env:OPENAI_API_KEY"}},
+})
+request = {"message": {"messageId": "m1", "role": "ROLE_USER", "parts": [{"text": "Hello!"}]}}
 
 async def main() -> None:
-    print(await rusty_harness.hello())
+    harness = await Harness.create(config)
+    async for event in harness.send_message(request):
+        print(event)
 
 asyncio.run(main())
 
 # Blocking variant, for scripts and the REPL:
-print(rusty_harness.hello_sync())
+for event in Harness(config).send_message_sync(request):
+    print(event)
 ```
 
 Wheels are abi3 (CPython 3.10+), one per platform, and ship type stubs.
@@ -65,9 +90,17 @@ npm i rusty-harness
 ```
 
 ```ts
-import { hello } from "rusty-harness";
+import { Harness } from "rusty-harness";
 
-console.log(await hello()); // hello(): Promise<string>
+const harness = await Harness.create(
+  { models: { default: { provider: "openai", model: "gpt-6.1-sol", api_key: "env:OPENAI_API_KEY" } } },
+  { secret: async (reference) => resolveOnYourBackend(reference) }, // no default in the browser
+);
+for await (const event of harness.sendMessage({
+  message: { messageId: crypto.randomUUID(), role: "ROLE_USER", parts: [{ text: "Hello!" }] },
+})) {
+  console.log(event);
+}
 ```
 
 The default entry point serves Node (`exports.node`) and bundlers such as Vite or webpack.
@@ -75,8 +108,7 @@ For a plain `<script type="module">` page with no bundler, use the `web` build a
 initialise the module first:
 
 ```ts
-import init, { hello } from "rusty-harness/web";
+import init, { Harness } from "rusty-harness/web";
 
 await init();
-console.log(await hello());
 ```

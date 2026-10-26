@@ -517,7 +517,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ Security considerations, abuse 1–11
   - _Test:_ T8 — `cargo nextest run --workspace --all-features -E 'test(abuse_)'`,
     `bun run --cwd web test:bundle-scan`, `cargo deny check`
-- [ ] 49. Documentation and capability docs: `docs/capabilities/capabilities.md` indexed
+- [x] 49. Documentation and capability docs: `docs/capabilities/capabilities.md` indexed
   per module of the diagram, `docs/architecture/architecture.md` one section per layer,
   the VitePress nav and guide pages complete, `README.md` front page updated,
   `evidence/documentation.md` filled (`## Documentation` and `## Capability docs`).

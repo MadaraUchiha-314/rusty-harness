@@ -7,6 +7,7 @@ behaviour. Add one line per capability doc here.
 |---|---|
 | [Entities and the registry](registry.md) | one identity and one trait per pluggable unit; resolve or replace by `(id, version)` |
 | [Hooks on the whole lifecycle](hooks.md) | pre, guard, in and post stages on 40 catalogue points, local or remote |
+| [The host](host.md) | the platform behind typed capabilities: native by default, page-supplied on `wasm32`, credentials by reference only |
 | [Configuration](config.md) | one typed `Config` from file, environment and code; credentials by reference |
 | [Prompts and strings as assets](assets.md) | prompts are markdown files, strings come from one catalog per locale |
 | [Models, LLM and System One](models.md) | one `Llm` over every provider, retried and modality-checked; `/model` switches the next call |

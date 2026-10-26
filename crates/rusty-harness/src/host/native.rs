@@ -112,10 +112,13 @@ harness_async_trait! {
                     Ok(_) => Err(unresolvable(reference, "the variable is empty")),
                     Err(_) => Err(unresolvable(reference, "the variable is not set")),
                 },
-                SecretRef::File(path) => tokio::fs::read_to_string(home_relative(path))
-                    .await
-                    .map(|s| Secret::new(s.trim_end().to_owned()))
-                    .map_err(|e| unresolvable(reference, e.kind().to_string())),
+                SecretRef::File(path) => {
+                    let path = home_relative(path).map_err(|e| unresolvable(reference, e))?;
+                    tokio::fs::read_to_string(path)
+                        .await
+                        .map(|s| Secret::new(s.trim_end().to_owned()))
+                        .map_err(|e| unresolvable(reference, e.kind().to_string()))
+                }
                 SecretRef::Keyring { service, user } => {
                     keyring(reference, &[("service", service.as_str()), ("username", user.as_str())]).await
                 }
@@ -129,10 +132,26 @@ harness_async_trait! {
 }
 
 /// `~/…` under `$HOME`; any other path as written.
-pub(crate) fn home_relative(path: &Path) -> std::path::PathBuf {
-    match (path.strip_prefix("~"), std::env::var_os("HOME")) {
-        (Ok(rest), Some(home)) => std::path::PathBuf::from(home).join(rest),
-        _ => path.to_path_buf(),
+///
+/// # Errors
+///
+/// A path under `~` while `HOME` is not set: read as written it would be a `~` directory
+/// in the working directory, whatever happens to be there.
+pub(crate) fn home_relative(path: &Path) -> Result<std::path::PathBuf, String> {
+    expand_home(path, std::env::var_os("HOME"))
+}
+
+fn expand_home(
+    path: &Path,
+    home: Option<std::ffi::OsString>,
+) -> Result<std::path::PathBuf, String> {
+    match (path.strip_prefix("~"), home) {
+        (Ok(rest), Some(home)) => Ok(std::path::PathBuf::from(home).join(rest)),
+        (Ok(_), None) => Err(format!(
+            "{} is under ~, and HOME is not set",
+            path.display()
+        )),
+        (Err(_), _) => Ok(path.to_path_buf()),
     }
 }
 
@@ -368,7 +387,7 @@ pub fn scrubbed_env(extra: impl IntoIterator<Item = (String, String)>) -> BTreeM
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeSecrets, TokioFs, TokioProcess, home_relative, scrubbed_env};
+    use super::{NativeSecrets, TokioFs, TokioProcess, expand_home, home_relative, scrubbed_env};
     #[cfg(not(feature = "audio"))]
     use crate::error::Capability;
     use crate::host::{Command, FileSystem, Host, ProcessSpawner, SecretRef, SecretResolver};
@@ -379,11 +398,23 @@ mod tests {
         let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
         assert_eq!(
             home_relative(std::path::Path::new("~/.config/rusty-harness/key")),
-            home.join(".config/rusty-harness/key")
+            Ok(home.join(".config/rusty-harness/key"))
         );
         assert_eq!(
             home_relative(std::path::Path::new("/run/secrets/key")),
-            std::path::PathBuf::from("/run/secrets/key")
+            Ok(std::path::PathBuf::from("/run/secrets/key"))
+        );
+    }
+
+    /// Without HOME (a bare systemd unit, a container) a path under `~` is an error, not a
+    /// `~` directory in the working directory that anything could have planted.
+    #[test]
+    fn a_path_under_tilde_without_home_is_refused() {
+        let refused = expand_home(std::path::Path::new("~/.config/rusty-harness/key"), None);
+        assert!(refused.is_err_and(|e| e.contains("HOME is not set")));
+        assert_eq!(
+            expand_home(std::path::Path::new("/run/secrets/key"), None),
+            Ok(std::path::PathBuf::from("/run/secrets/key"))
         );
     }
 

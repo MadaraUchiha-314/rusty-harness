@@ -505,9 +505,11 @@ async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkErr
         "memory" => Ok(Arc::new(MemoryStore::new())),
         #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
         "file" => {
-            let path = store_path(config).ok_or_else(|| {
-                SdkError::Store("[persistence] path is required for the file store".into())
-            })?;
+            let path = store_path(config)
+                .map_err(SdkError::Store)?
+                .ok_or_else(|| {
+                    SdkError::Store("[persistence] path is required for the file store".into())
+                })?;
             Ok(Arc::new(
                 crate::harness::core_loop::persistence::FileStore::open(path)
                     .await
@@ -521,12 +523,13 @@ async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkErr
 /// `[persistence] path` with `~/` under the home directory, as the default config writes
 /// it (`~/.rusty-harness/data`).
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
-fn store_path(config: &Config) -> Option<std::path::PathBuf> {
+fn store_path(config: &Config) -> Result<Option<std::path::PathBuf>, String> {
     config
         .persistence
         .path
         .as_deref()
         .map(crate::host::native_home_relative)
+        .transpose()
 }
 
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
@@ -860,10 +863,13 @@ mod tests {
         let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
         let mut config = Config::default();
         config.persistence.path = Some("~/.rusty-harness/data".into());
-        assert_eq!(store_path(&config), Some(home.join(".rusty-harness/data")));
+        assert_eq!(
+            store_path(&config),
+            Ok(Some(home.join(".rusty-harness/data")))
+        );
         config.persistence.path = Some("/var/lib/rh".into());
-        assert_eq!(store_path(&config), Some("/var/lib/rh".into()));
+        assert_eq!(store_path(&config), Ok(Some("/var/lib/rh".into())));
         config.persistence.path = None;
-        assert_eq!(store_path(&config), None);
+        assert_eq!(store_path(&config), Ok(None));
     }
 }

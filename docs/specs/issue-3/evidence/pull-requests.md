@@ -1,8 +1,15 @@
-# Pull requests delivering issue-3
+---
+type: evidence
+workItem: "issue-3"
+---
+
+# Pull requests: rusty-harness, an opinionated production-grade agent harness
 
 Every pull request opened for this work item, in the order opened. The spec chain is
 iterated on the first one (the surface chosen at phase selection); implementation
 pull requests are added as milestones ship.
+
+## Pull requests
 
 | PR | Repository | Branch | Carries | Opened | State |
 |---|---|---|---|---|---|

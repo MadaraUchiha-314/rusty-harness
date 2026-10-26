@@ -65,5 +65,6 @@ stateDiagram-v2
 |-----------|--------------|-------|
 | issue-3 (M2, task 14) | Record and state machine, plan DAG, schema-checked state, memory and file stores, chaos test | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 | issue-3 (M7, task 53) | The `plan.update` and `plan.step_done` tools, the `step.execute` operation, the plan to the context and to surfaces as a `plan/v1` artifact | PR #13 |
+| issue-3 (M7, SR1-2) | The two plan tools share one lock per task's plan, so two step records in one turn both land; every file-store write uses its own temp name | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

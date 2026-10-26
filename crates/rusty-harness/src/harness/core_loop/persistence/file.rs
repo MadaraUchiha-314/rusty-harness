@@ -47,8 +47,10 @@ async fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     tokio::fs::create_dir_all(parent)
         .await
         .map_err(|e| io(parent, &e))?;
+    // A temp name of its own per write: two writers of one path (two tool calls of a turn,
+    // two processes on one store) must not rename each other's temp file away.
     let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
+    tmp.push(format!(".{}.tmp", uuid::Uuid::now_v7().simple()));
     let tmp = PathBuf::from(tmp);
     tokio::fs::write(&tmp, bytes)
         .await
@@ -559,6 +561,28 @@ mod tests {
     use crate::harness::core_loop::persistence::{PersistenceStore, TaskCommit};
     use crate::harness::core_loop::task::{Attempt, Caller, Role, Transition};
 
+    /// Concurrent writes of one path each use their own temp file, so neither rename finds
+    /// its temp file already moved by the other.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_writes_of_one_path_all_land() {
+        let path = fresh("concurrent").join("plans").join("plan-t1.json");
+        for round in 0..20 {
+            let writes = (0..4).map(|i| {
+                let path = path.clone();
+                async move { super::write_atomic(&path, format!("{round}-{i}").as_bytes()).await }
+            });
+            for result in futures::future::join_all(writes).await {
+                result.expect("every write lands");
+            }
+        }
+        let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|x| x == "tmp"))
+            .collect();
+        assert!(left.is_empty(), "no temp file is left behind: {left:?}");
+    }
+
     /// A write in flight (`<seq>.json.tmp` before its rename) survives a concurrent
     /// listing; only a temp file older than `STALE_TMP` is swept, and only by the replay.
     #[tokio::test]
@@ -658,6 +682,13 @@ mod tests {
         std::fs::remove_file(dir.join("events/t3/00000002.json")).unwrap();
         std::fs::remove_file(dir.join("tasks/t3.json")).unwrap();
         std::fs::write(dir.join("tasks/t3.json.tmp"), b"{partial").unwrap();
+        // The crash was long ago: only a temp file older than STALE_TMP is a leftover.
+        std::fs::File::options()
+            .write(true)
+            .open(dir.join("tasks/t3.json.tmp"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - 2 * super::STALE_TMP)
+            .unwrap();
         let reopened = FileStore::open(&dir).await.unwrap();
         let record = reopened.get_task(&"t3".into()).await.unwrap().unwrap();
         assert_eq!(record.version, 2);

@@ -43,6 +43,41 @@ pub fn plan_artifact(plan: &Plan) -> a2a::Artifact {
     }
 }
 
+/// One lock per task's plan, shared by both plan tools: tool calls of one turn run
+/// concurrently, and each tool reads the plan, changes it and writes it back, so two
+/// unguarded calls would each overwrite the other's change.
+#[derive(Debug, Default)]
+pub struct PlanLocks(
+    std::sync::Mutex<std::collections::HashMap<TaskId, Arc<futures::lock::Mutex<()>>>>,
+);
+
+impl PlanLocks {
+    /// Runs `edit` with `task`'s plan locked; the lock is dropped from the table once no
+    /// call holds or waits on it.
+    async fn with<T>(&self, task: &TaskId, edit: impl std::future::Future<Output = T>) -> T {
+        let lock = {
+            let mut table = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            Arc::clone(table.entry(task.clone()).or_default())
+        };
+        let out = {
+            let _held = lock.lock().await;
+            edit.await
+        };
+        let mut table = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The table's reference and ours: nobody else holds or waits on this lock.
+        if Arc::strong_count(&lock) == 2 {
+            table.remove(task);
+        }
+        out
+    }
+}
+
 fn hook_cx(cx: &ToolCx) -> HookCx {
     let mut hook_cx = HookCx::new(Arc::new(Registry::new()), Arc::clone(&cx.host));
     hook_cx.task = Some(cx.task.clone());
@@ -89,6 +124,7 @@ pub struct PlanUpdateTool {
     descriptor: ToolDescriptor,
     store: Arc<dyn PersistenceStore>,
     dispatcher: Arc<HookDispatcher>,
+    locks: Arc<PlanLocks>,
 }
 
 impl core::fmt::Debug for PlanUpdateTool {
@@ -98,9 +134,14 @@ impl core::fmt::Debug for PlanUpdateTool {
 }
 
 impl PlanUpdateTool {
-    /// The tool over `store`, persisting through `plan.persist` hooks on `dispatcher`.
+    /// The tool over `store`, persisting through `plan.persist` hooks on `dispatcher`;
+    /// `locks` is shared with [`PlanStepDoneTool`].
     #[must_use]
-    pub fn new(store: Arc<dyn PersistenceStore>, dispatcher: Arc<HookDispatcher>) -> Self {
+    pub fn new(
+        store: Arc<dyn PersistenceStore>,
+        dispatcher: Arc<HookDispatcher>,
+        locks: Arc<PlanLocks>,
+    ) -> Self {
         Self {
             id: EntityId::new(UPDATE_TOOL),
             descriptor: ToolDescriptor {
@@ -132,6 +173,7 @@ impl PlanUpdateTool {
             },
             store,
             dispatcher,
+            locks,
         }
     }
 }
@@ -190,16 +232,30 @@ harness_async_trait! {
         }
 
         async fn call(&self, cx: &ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
-            let previous = current(self.store.as_ref(), &cx.task, UPDATE_TOOL).await?;
-            let plan = build(&cx.task, &input, previous.as_ref())?;
-            persist_plan(self.store.as_ref(), &self.dispatcher, &hook_cx(cx), plan.clone())
-                .await
-                .map_err(|e| match e {
-                    crate::HarnessError::Vetoed(v) => ToolError::Denied { tool: UPDATE_TOOL.into(), reason: v.reason },
-                    other => failed(UPDATE_TOOL, other),
-                })?;
-            Ok(output(&plan))
+            self.locks.with(&cx.task, self.update(cx, &input)).await
         }
+    }
+}
+
+impl PlanUpdateTool {
+    async fn update(&self, cx: &ToolCx, input: &Value) -> Result<ToolOutput, ToolError> {
+        let previous = current(self.store.as_ref(), &cx.task, UPDATE_TOOL).await?;
+        let plan = build(&cx.task, input, previous.as_ref())?;
+        persist_plan(
+            self.store.as_ref(),
+            &self.dispatcher,
+            &hook_cx(cx),
+            plan.clone(),
+        )
+        .await
+        .map_err(|e| match e {
+            crate::HarnessError::Vetoed(v) => ToolError::Denied {
+                tool: UPDATE_TOOL.into(),
+                reason: v.reason,
+            },
+            other => failed(UPDATE_TOOL, other),
+        })?;
+        Ok(output(&plan))
     }
 }
 
@@ -209,6 +265,7 @@ pub struct PlanStepDoneTool {
     descriptor: ToolDescriptor,
     store: Arc<dyn PersistenceStore>,
     dispatcher: Arc<HookDispatcher>,
+    locks: Arc<PlanLocks>,
 }
 
 impl core::fmt::Debug for PlanStepDoneTool {
@@ -218,9 +275,14 @@ impl core::fmt::Debug for PlanStepDoneTool {
 }
 
 impl PlanStepDoneTool {
-    /// The tool over `store`, running `step.execute` and `plan.persist` hooks.
+    /// The tool over `store`, running `step.execute` and `plan.persist` hooks; `locks` is
+    /// shared with [`PlanUpdateTool`].
     #[must_use]
-    pub fn new(store: Arc<dyn PersistenceStore>, dispatcher: Arc<HookDispatcher>) -> Self {
+    pub fn new(
+        store: Arc<dyn PersistenceStore>,
+        dispatcher: Arc<HookDispatcher>,
+        locks: Arc<PlanLocks>,
+    ) -> Self {
         Self {
             id: EntityId::new(STEP_DONE_TOOL),
             descriptor: ToolDescriptor {
@@ -240,6 +302,7 @@ impl PlanStepDoneTool {
             },
             store,
             dispatcher,
+            locks,
         }
     }
 }
@@ -260,33 +323,70 @@ harness_async_trait! {
         }
 
         async fn call(&self, cx: &ToolCx, input: Value) -> Result<ToolOutput, ToolError> {
-            let mut plan = current(self.store.as_ref(), &cx.task, STEP_DONE_TOOL)
-                .await?
-                .ok_or_else(|| invalid(STEP_DONE_TOOL, "/step", "the task has no plan yet: call plan.update first"))?;
-            let step = input["step"].as_str().ok_or_else(|| invalid(STEP_DONE_TOOL, "/step", "a step id"))?.to_owned();
-            let status = match input["status"].as_str().unwrap_or("done") {
-                "done" => StepStatus::Done,
-                "skipped" => StepStatus::Skipped,
-                "failed" => StepStatus::Failed,
-                other => return Err(invalid(STEP_DONE_TOOL, "/status", format!("{other} is not done, skipped or failed"))),
-            };
-            let summary = input["summary"].as_str().map(|s| StepOutput { summary: s.to_owned(), blobs: Vec::new() });
-            let record = StepRecord { plan: plan.id.clone(), step, status, output: summary };
-            let hook_cx = hook_cx(cx);
-            let recorded = self
-                .dispatcher
-                .run::<StepExecute, _, _>(&hook_cx, record, |r| async move { Ok(r) })
-                .await
-                .map_err(|e| match e {
-                    crate::HarnessError::Vetoed(v) => ToolError::Denied { tool: STEP_DONE_TOOL.into(), reason: v.reason },
-                    other => failed(STEP_DONE_TOOL, other),
-                })?;
-            plan.record(&recorded.step, recorded.status, recorded.output)
-                .map_err(|e| invalid(STEP_DONE_TOOL, "/step", e))?;
-            persist_plan(self.store.as_ref(), &self.dispatcher, &hook_cx, plan.clone())
-                .await
-                .map_err(|e| failed(STEP_DONE_TOOL, e))?;
-            Ok(output(&plan))
+            self.locks.with(&cx.task, self.step_done(cx, &input)).await
         }
+    }
+}
+
+impl PlanStepDoneTool {
+    async fn step_done(&self, cx: &ToolCx, input: &Value) -> Result<ToolOutput, ToolError> {
+        let mut plan = current(self.store.as_ref(), &cx.task, STEP_DONE_TOOL)
+            .await?
+            .ok_or_else(|| {
+                invalid(
+                    STEP_DONE_TOOL,
+                    "/step",
+                    "the task has no plan yet: call plan.update first",
+                )
+            })?;
+        let step = input["step"]
+            .as_str()
+            .ok_or_else(|| invalid(STEP_DONE_TOOL, "/step", "a step id"))?
+            .to_owned();
+        let status = match input["status"].as_str().unwrap_or("done") {
+            "done" => StepStatus::Done,
+            "skipped" => StepStatus::Skipped,
+            "failed" => StepStatus::Failed,
+            other => {
+                return Err(invalid(
+                    STEP_DONE_TOOL,
+                    "/status",
+                    format!("{other} is not done, skipped or failed"),
+                ));
+            }
+        };
+        let summary = input["summary"].as_str().map(|s| StepOutput {
+            summary: s.to_owned(),
+            blobs: Vec::new(),
+        });
+        let record = StepRecord {
+            plan: plan.id.clone(),
+            step,
+            status,
+            output: summary,
+        };
+        let hook_cx = hook_cx(cx);
+        let recorded = self
+            .dispatcher
+            .run::<StepExecute, _, _>(&hook_cx, record, |r| async move { Ok(r) })
+            .await
+            .map_err(|e| match e {
+                crate::HarnessError::Vetoed(v) => ToolError::Denied {
+                    tool: STEP_DONE_TOOL.into(),
+                    reason: v.reason,
+                },
+                other => failed(STEP_DONE_TOOL, other),
+            })?;
+        plan.record(&recorded.step, recorded.status, recorded.output)
+            .map_err(|e| invalid(STEP_DONE_TOOL, "/step", e))?;
+        persist_plan(
+            self.store.as_ref(),
+            &self.dispatcher,
+            &hook_cx,
+            plan.clone(),
+        )
+        .await
+        .map_err(|e| failed(STEP_DONE_TOOL, e))?;
+        Ok(output(&plan))
     }
 }

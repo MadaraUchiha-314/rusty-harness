@@ -316,7 +316,9 @@ impl HarnessBuilder {
             None => open_store(&config).await?,
         };
 
-        // Built-in tools and commands (R17.3, R18.4, R10.2), the tool policy guard.
+        // Built-in tools and commands (R17.3, R18.4, R10.2), the tool policy guard. The two
+        // plan tools share one lock per task's plan.
+        let plan_locks = Arc::new(crate::harness::core_loop::plan::tools::PlanLocks::default());
         let built_ins: Vec<Arc<dyn Tool>> = vec![
             Arc::new(AgentCallTool::new(
                 Arc::clone(&registry),
@@ -335,11 +337,13 @@ impl HarnessBuilder {
             Arc::new(crate::harness::core_loop::plan::tools::PlanUpdateTool::new(
                 Arc::clone(&store),
                 Arc::clone(&dispatcher),
+                Arc::clone(&plan_locks),
             )),
             Arc::new(
                 crate::harness::core_loop::plan::tools::PlanStepDoneTool::new(
                     Arc::clone(&store),
                     Arc::clone(&dispatcher),
+                    Arc::clone(&plan_locks),
                 ),
             ),
         ];

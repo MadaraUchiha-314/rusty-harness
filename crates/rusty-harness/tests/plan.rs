@@ -201,3 +201,67 @@ async fn a_plan_with_a_cycle_is_refused() {
             .is_none()
     );
 }
+
+/// Scenario: Two steps recorded in one turn are both kept
+///     Given a file-backed harness whose model plans three steps
+///     When the model records two of them done in one turn (two concurrent tool calls)
+///     Then the stored plan has both done: neither read-modify-write overwrites the other
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_steps_recorded_in_one_turn_are_both_kept() {
+    let steps = json!({ "steps": [
+        { "id": "a", "name": "A" },
+        { "id": "b", "name": "B" },
+        { "id": "c", "name": "C" }
+    ]});
+    let both = vec![
+        ModelEvent::ToolCall {
+            call: ToolCall {
+                id: "c2".into(),
+                name: "plan.step_done".into(),
+                arguments: json!({ "step": "a" }),
+            },
+        },
+        ModelEvent::ToolCall {
+            call: ToolCall {
+                id: "c3".into(),
+                name: "plan.step_done".into(),
+                arguments: json!({ "step": "b" }),
+            },
+        },
+        ModelEvent::Stop {
+            reason: StopReason::ToolUse,
+        },
+    ];
+    let dir = std::env::temp_dir().join(format!("rh-plan-race-{}", uuid::Uuid::new_v4()));
+    let mut config = Config::default();
+    config.persistence.store = "file".into();
+    config.persistence.path = Some(dir.clone());
+    let llm = Arc::new(RecordedLlm::new(
+        "default",
+        vec![call("c1", "plan.update", steps), both, text("Done.")],
+    ));
+    let harness = HarnessBuilder::new(config)
+        .host(Host::native())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    let _: Vec<_> = harness
+        .send_message(request("t-race"), None)
+        .collect()
+        .await;
+    let stored = harness
+        .store()
+        .get_plan(&plan_id("t-race"))
+        .await
+        .unwrap()
+        .expect("the plan is stored");
+    let _ = std::fs::remove_dir_all(dir);
+    for step in ["a", "b"] {
+        assert_eq!(
+            stored.step(step).map(|s| s.status),
+            Some(StepStatus::Done),
+            "step {step}: {stored:?}"
+        );
+    }
+}

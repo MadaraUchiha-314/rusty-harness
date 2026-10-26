@@ -95,6 +95,7 @@
   "tui.voice.sent": "🎙 spoken message",
   "tui.voice.unavailable": "voice is unavailable here: {reason}",
   "tui.who.you": "you",
+  "web.a2ui.answered": "→ {action}",
   "web.a2ui.waiting": "task is input-required · sub-state awaiting participant",
   "web.activity": "Activity",
   "web.agent_card": "agent card",

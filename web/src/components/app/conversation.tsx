@@ -88,6 +88,27 @@ function ArtifactRow({ artifact }: { artifact: ArtifactView }) {
   );
 }
 
+/** What a user turn with no text shows: the A2UI action it answered with ("→ answer",
+ * as the TUI shows it), or that it was spoken when it carries audio. */
+function userFallback(turn: Turn): string {
+  for (const message of turn.a2ui) {
+    const action = actionName(message);
+    if (action) return t("web.a2ui.answered", { action });
+  }
+  if (turn.parts.some((part) => part.mediaType?.startsWith("audio/"))) {
+    return t("web.voice.sent");
+  }
+  return "";
+}
+
+/** The `action.name` of an A2UI client message, if it is one. */
+function actionName(message: unknown): string | undefined {
+  if (typeof message !== "object" || message === null || !("action" in message)) return undefined;
+  const action: unknown = message.action;
+  if (typeof action !== "object" || action === null || !("name" in action)) return undefined;
+  return typeof action.name === "string" ? action.name : undefined;
+}
+
 function TurnView({
   turn,
   agent,
@@ -128,7 +149,7 @@ function TurnView({
                 {turn.text ? (
                   <Highlight text={turn.text} commands={commands} />
                 ) : (
-                  t("web.voice.sent")
+                  userFallback(turn)
                 )}
               </p>
             ) : turn.a2ui.length > 0 ? (

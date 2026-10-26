@@ -26,6 +26,16 @@ describe("@rusty-harness/cli", () => {
     if (!found.ok) expect(found.message).toContain("cargo install rusty_harness");
   });
 
+  test("says musl has no prebuilt binary instead of advising a reinstall", () => {
+    const found = resolveBinary({ platform: "linux", arch: "x64", libc: "musl" });
+    expect(found.ok).toBe(false);
+    if (!found.ok) {
+      expect(found.message).toContain("musl");
+      expect(found.message).toContain("cargo install rusty_harness");
+      expect(found.message).not.toContain("reinstall");
+    }
+  });
+
   test("the main package depends on every platform at the workspace version", () => {
     const out = mkdtempSync(join(tmpdir(), "rh-npm-"));
     mainPackage(out);

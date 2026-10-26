@@ -25,14 +25,34 @@ export function executable(platform) {
 }
 
 /**
+ * The C library of this Linux process: `glibc` when Node reports a glibc runtime,
+ * otherwise `musl` (Alpine and other musl distributions report none).
+ * @returns {"glibc" | "musl"}
+ */
+export function linuxLibc() {
+  const report = /** @type {{ header?: { glibcVersionRuntime?: string } } | undefined} */ (
+    process.report?.getReport?.()
+  );
+  return report?.header?.glibcVersionRuntime ? "glibc" : "musl";
+}
+
+/**
  * Resolves the installed binary, or explains why there is none.
- * @param {{ platform?: string, arch?: string, from?: string }} [options]
+ * @param {{ platform?: string, arch?: string, libc?: "glibc" | "musl", from?: string }} [options]
  * @returns {{ ok: true, path: string } | { ok: false, message: string }}
  */
 export function resolveBinary(options = {}) {
   const platform = options.platform ?? process.platform;
   const arch = options.arch ?? process.arch;
   const name = packageName(platform, arch);
+  // The Linux binaries are built against glibc: npm skips them on musl (or installs one
+  // that cannot start), so say so instead of advising a reinstall that cannot help.
+  if (platform === "linux" && (options.libc ?? linuxLibc()) === "musl") {
+    return {
+      ok: false,
+      message: `rusty-harness: no prebuilt binary for ${platform}-${arch} with musl (the published binaries need glibc); build it with \`cargo install rusty_harness --features cli\`.`,
+    };
+  }
   if (!PLATFORMS.includes(`${platform}-${arch}`)) {
     return {
       ok: false,

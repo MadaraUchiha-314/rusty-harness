@@ -4,7 +4,8 @@
 //! The T13 chaos scenarios: two worker processes against one ephemeral dev server and one
 //! file store; the test kills one with SIGKILL. The child is this test binary itself,
 //! running an `#[ignore]`d test as the victim.
-#![cfg(feature = "durable-embedded")]
+//! The outbound-reconciliation scenario needs an A2A peer, hence `server` too.
+#![cfg(all(feature = "durable-embedded", feature = "server"))]
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

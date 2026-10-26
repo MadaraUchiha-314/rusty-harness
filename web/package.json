@@ -8,7 +8,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
-    "test:strings": "vitest run --dir src --testNamePattern strings",
+    "test:strings": "vitest run --testNamePattern strings",
     "test:contract": "vitest run --config vitest.node.config.ts tests/contract.test.ts",
     "copy:elements": "bun scripts/copy-elements.ts",
     "test:bundle-scan": "bun run build && vitest run --config vitest.node.config.ts tests/bundle-scan.test.ts",

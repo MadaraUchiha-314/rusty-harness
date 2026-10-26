@@ -17,5 +17,7 @@
     "target/**",
     "CHANGELOG.md",
     "crates/rusty-harness-py/.venv/**",
+    "web/test-results/**",
+    "web/playwright-report/**",
   ],
 }

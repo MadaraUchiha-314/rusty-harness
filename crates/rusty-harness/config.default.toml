@@ -20,6 +20,7 @@ description = "An agent served by rusty-harness."
 bind = "127.0.0.1:7474" # without [server.security] only a loopback address is accepted
 bindings = ["jsonrpc", "rest"]
 # public_url = "https://agent.example.com"
+# allow_origins = ["https://app.example.com"] # browser origins (CORS); empty = any on loopback, none otherwise
 # [server.security]
 # scheme = "bearer"
 # token = "env:RH_BEARER"

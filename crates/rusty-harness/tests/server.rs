@@ -263,3 +263,93 @@ async fn snapshot_agent_card() {
         .unwrap();
     assert!(serve(&open, None).await.is_err());
 }
+
+/// Scenario: A browser surface on another origin reaches a loopback harness
+///     Given a loopback-only server with no allowed origins configured
+///     When a page on another origin preflights and calls it
+///     Then the preflight is answered and the response carries the allow headers
+///     And a server with a list allows the listed origins only
+#[tokio::test]
+async fn a_browser_origin_is_allowed_on_loopback_and_only_listed_origins_with_a_list() {
+    let h = harness(vec![text("x")]).await;
+    let server = serve(&h, None).await.expect("binds");
+    let base = format!("http://{}/", server.addr);
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(server.run(async move {
+        let _ = stopped.await;
+    }));
+    let client = reqwest::Client::new();
+    let preflight = client
+        .request(reqwest::Method::OPTIONS, &base)
+        .header("Origin", "http://127.0.0.1:4173")
+        .header("Access-Control-Request-Method", "POST")
+        .header(
+            "Access-Control-Request-Headers",
+            "a2a-version, content-type",
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), 204);
+    assert_eq!(
+        preflight.headers()["access-control-allow-origin"],
+        "http://127.0.0.1:4173"
+    );
+    assert_eq!(
+        preflight.headers()["access-control-allow-headers"],
+        "a2a-version, content-type"
+    );
+    let card = client
+        .get(format!("{base}.well-known/agent-card.json"))
+        .header("Origin", "http://127.0.0.1:4173")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(card.status(), 200);
+    assert_eq!(
+        card.headers()["access-control-allow-origin"],
+        "http://127.0.0.1:4173"
+    );
+    let _ = stop.send(());
+    let _ = task.await;
+
+    // With a list, only the listed origins are allowed.
+    let mut config = Config::default();
+    config.server.bind = "127.0.0.1:0".into();
+    config.server.allow_origins = vec!["https://app.example".into()];
+    let h = HarnessBuilder::new(config)
+        .host(Host::testing())
+        .llm(Arc::new(RecordedLlm::new("default", vec![])))
+        .build()
+        .await
+        .expect("builds");
+    let server = serve(&h, None).await.expect("binds");
+    let base = format!("http://{}/", server.addr);
+    let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+    let task = tokio::spawn(server.run(async move {
+        let _ = stopped.await;
+    }));
+    let listed = client
+        .get(format!("{base}.well-known/agent-card.json"))
+        .header("Origin", "https://app.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.headers()["access-control-allow-origin"],
+        "https://app.example"
+    );
+    let card = client
+        .get(format!("{base}.well-known/agent-card.json"))
+        .header("Origin", "http://127.0.0.1:4173")
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        card.headers().get("access-control-allow-origin").is_none(),
+        "unlisted origin got {:?}",
+        card.headers()
+    );
+    let _ = stop.send(());
+    let _ = task.await;
+}

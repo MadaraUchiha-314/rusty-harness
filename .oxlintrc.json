@@ -6,5 +6,11 @@
     "suspicious": "error",
     "perf": "warn"
   },
-  "ignorePatterns": ["**/dist/**", "target/**", "docs/.vitepress/cache/**"]
+  "ignorePatterns": [
+    "**/dist/**",
+    "target/**",
+    "docs/.vitepress/cache/**",
+    "web/src/components/ui/**",
+    "web/src/components/ai-elements/**"
+  ]
 }

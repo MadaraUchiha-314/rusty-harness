@@ -17,15 +17,19 @@ use std::sync::Arc;
 use a2a_server::{
     AgentExecutor, ExecutorContext, RequestHandler, ServiceParams, StaticAgentCard, TaskStore,
 };
+use axum::response::IntoResponse as _;
 use futures::StreamExt as _;
 use futures::stream::BoxStream;
 
 use crate::Harness;
+use crate::assets::{Catalog, FmtArgs, keys};
 use crate::config::{Config, SecuritySchemeConfig};
 use crate::harness::core_loop::agent::{Agent as _, AgentRequest, CallContext, LocalAgent};
 use crate::harness::core_loop::persistence::{PersistenceStore, TaskQuery};
 use crate::harness::core_loop::task::{Caller, Role, ext};
 use crate::harness::skills::Skill;
+use crate::interaction::renderer::a2ui;
+use crate::interaction::surface::SurfaceCapabilities;
 use crate::registry::{Entity, Registry};
 
 pub mod protocol_gap;
@@ -37,6 +41,10 @@ pub const A2UI_EXT: &str = crate::harness::channels::A2UI_EXT;
 pub struct HarnessExecutor {
     agent: Arc<LocalAgent>,
     inbox: Arc<crate::app_service::inbox::Inbox>,
+    /// The string catalog and locale of the text alternatives negotiation writes (R25.2,
+    /// R25.6).
+    catalog: Arc<Catalog>,
+    locale: String,
 }
 
 impl core::fmt::Debug for HarnessExecutor {
@@ -49,7 +57,32 @@ impl HarnessExecutor {
     /// The executor over `agent`, ingesting through `inbox`.
     #[must_use]
     pub fn new(agent: Arc<LocalAgent>, inbox: Arc<crate::app_service::inbox::Inbox>) -> Self {
-        Self { agent, inbox }
+        Self {
+            agent,
+            inbox,
+            catalog: Arc::new(Catalog::builtin()),
+            locale: "en".to_owned(),
+        }
+    }
+
+    /// Text alternatives in `locale` (the configured one; `en` otherwise).
+    #[must_use]
+    pub fn with_locale(mut self, locale: impl Into<String>) -> Self {
+        self.locale = locale.into();
+        self
+    }
+
+    /// The text standing in for a part a surface cannot render, by media type.
+    fn fallback(&self) -> Arc<dyn Fn(&str) -> String + Send + Sync> {
+        let catalog = Arc::clone(&self.catalog);
+        let locale = self.locale.clone();
+        Arc::new(move |media: &str| {
+            catalog.get(
+                keys::surface::alternative::UNRENDERABLE,
+                &locale,
+                &FmtArgs::new().text("media_type", media),
+            )
+        })
     }
 
     /// The caller of a request: the authenticated principal when the service layer set
@@ -167,6 +200,10 @@ impl AgentExecutor for HarnessExecutor {
                 .and_then(|v| v.first())
                 .map(String::as_str),
         );
+        // What this surface renders (R25.2): the stream below carries only that, with a
+        // text alternative for the rest.
+        let surface = SurfaceCapabilities::from_message(&message);
+        let fallback = self.fallback();
         let request = AgentRequest {
             message,
             call: CallContext {
@@ -189,10 +226,24 @@ impl AgentExecutor for HarnessExecutor {
         Box::pin(
             futures::stream::once(async move {
                 let store = Arc::clone(agent.store());
-                let from = store
-                    .events(&task, 1, usize::MAX, &caller)
+                // The viewer, with the caller's memberships, decides what the log shows;
+                // the tail starts after the last event it can see (a sequence, not a
+                // count: events hidden from this viewer still take sequence numbers).
+                let viewer = caller.clone().in_channels(
+                    crate::harness::channels::Channel::memberships(
+                        store.as_ref(),
+                        &task,
+                        &caller.id,
+                    )
                     .await
-                    .map_or(1, |e| e.len() as u64 + 1);
+                    .unwrap_or_default(),
+                );
+                let from = store
+                    .events(&task, 1, usize::MAX, &viewer)
+                    .await
+                    .ok()
+                    .and_then(|e| e.last().map(|last| last.seq + 1))
+                    .unwrap_or(1);
                 // One ingestion path (R20.2): the message is an inbox event; the inbox
                 // applies it and signals durable execution, which runs the loop.
                 let event = crate::app_service::inbox::InboxEvent {
@@ -217,15 +268,6 @@ impl AgentExecutor for HarnessExecutor {
                     return futures::stream::iter(vec![Err(e.to_a2a())]).boxed();
                 }
                 let run = true;
-                let viewer = caller.clone().in_channels(
-                    crate::harness::channels::Channel::memberships(
-                        store.as_ref(),
-                        &task,
-                        &caller.id,
-                    )
-                    .await
-                    .unwrap_or_default(),
-                );
                 // Raw `Message` events stay in the log (they are the history); on the wire
                 // the reply rides on the status update, because the SDK's non-streaming
                 // `SendMessage` takes the first `Message` as the whole answer.
@@ -257,13 +299,49 @@ impl AgentExecutor for HarnessExecutor {
                     )
                     .boxed();
                 }
+                // Membership is read per event, not once: an ask the loop opens during
+                // this very turn commits a redacted status for everyone and the full one
+                // for the channel's members; a caller who is a member by then gets the
+                // full one, not the redaction a pre-turn snapshot would give (R18.5).
+                let tail_store = Arc::clone(&store);
+                let tail_task = task.clone();
+                let tail_caller = caller.clone();
                 let tail = store
                     .tail_events(&task, from, &viewer)
                     .filter(move |r| futures::future::ready(!matches!(r, Ok(e) if is_message(e))))
-                    .map(|r| {
-                        r.map(|e| e.response)
-                            .map_err(|e| a2a::A2AError::internal(e.to_string()))
-                    });
+                    .then(move |r| {
+                        let store = Arc::clone(&tail_store);
+                        let task = tail_task.clone();
+                        let caller = tail_caller.clone();
+                        async move {
+                            let event = r.map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+                            let Some(channel) = redacted_channel(&event.response) else {
+                                return Ok(event.response);
+                            };
+                            let memberships = crate::harness::channels::Channel::memberships(
+                                store.as_ref(),
+                                &task,
+                                &caller.id,
+                            )
+                            .await
+                            .unwrap_or_default();
+                            if !memberships.contains(&channel) {
+                                return Ok(event.response);
+                            }
+                            let fresh = caller.in_channels(memberships);
+                            let full = store
+                                .events(&task, event.seq + 1, 1, &fresh)
+                                .await
+                                .ok()
+                                .and_then(|mut v| v.pop())
+                                .filter(|e| {
+                                    e.seq == event.seq + 1
+                                        && matches!(&e.visibility, crate::harness::core_loop::persistence::Visibility::Members(c) if *c == channel)
+                                });
+                            Ok(full.unwrap_or(event).response)
+                        }
+                    })
+                    .boxed();
                 futures::stream::iter(first)
                     .chain(futures::stream::unfold(
                         (tail, false),
@@ -278,7 +356,8 @@ impl AgentExecutor for HarnessExecutor {
                     ))
                     .boxed()
             })
-            .flatten(),
+            .flatten()
+            .map(move |r| r.map(|e| surface.negotiate_response(e, fallback.as_ref()))),
         )
     }
 
@@ -584,6 +663,37 @@ impl AgentCardBuilder {
         Self::build_at(config, registry, base, &config.server.bind)
     }
 
+    /// The six `rusty-harness` extensions as the card advertises them; `commands/v1`
+    /// also lists the registered commands and the model aliases `/model` accepts, so a
+    /// renderer can list and highlight them (R10.5, R26.5, R27.6).
+    fn extensions(registry: &Registry) -> Vec<a2a::AgentExtension> {
+        ext::all()
+            .into_iter()
+            .map(|e| {
+                let mut params = HashMap::from([("schema".to_owned(), serde_json::Value::String(format!("https://madarauchiha-314.github.io/rusty-harness/a2a-ext/{}.v1.schema.json", e.name)))]);
+                if e.name == "commands" {
+                    let listed = crate::harness::commands::CommandsMeta::card(registry);
+                    params.insert(
+                        "commands".to_owned(),
+                        serde_json::to_value(listed.commands).unwrap_or(serde_json::Value::Null),
+                    );
+                    let models: Vec<String> = registry
+                        .list::<dyn crate::harness::models::llm::Llm>()
+                        .iter()
+                        .map(|m| m.entity_id().id.to_string())
+                        .collect();
+                    params.insert("models".to_owned(), serde_json::json!(models));
+                }
+                a2a::AgentExtension {
+                    uri: e.uri,
+                    description: Some(format!("rusty-harness {}/v1 extension", e.name)),
+                    required: Some(false),
+                    params: Some(params),
+                }
+            })
+            .collect()
+    }
+
     /// The card for a server bound at `bound` (the actual address once bound), unless
     /// `[server] public_url` names where clients reach it.
     ///
@@ -630,20 +740,12 @@ impl AgentCardBuilder {
                 security_requirements: None,
             })
             .collect();
-        let mut extensions: Vec<a2a::AgentExtension> = ext::all()
-            .into_iter()
-            .map(|e| a2a::AgentExtension {
-                uri: e.uri,
-                description: Some(format!("rusty-harness {}/v1 extension", e.name)),
-                required: Some(false),
-                params: Some(HashMap::from([("schema".to_owned(), serde_json::Value::String(format!("https://madarauchiha-314.github.io/rusty-harness/a2a-ext/{}.v1.schema.json", e.name)))])),
-            })
-            .collect();
+        let mut extensions = Self::extensions(registry);
         extensions.push(a2a::AgentExtension {
             uri: A2UI_EXT.to_owned(),
             description: Some("A2UI 0.9.1 payloads as application/a2ui+json data parts".into()),
             required: Some(false),
-            params: None,
+            params: Some(a2ui::ServerCapabilities::basic().params()),
         });
         card.capabilities = a2a::AgentCapabilities {
             streaming: Some(true),
@@ -938,7 +1040,13 @@ pub async fn router_at(
         crate::HarnessError::Internal("the server needs the in-process inbox (rt-tokio)".into())
     })?;
     let handler = a2a_server::DefaultRequestHandler::new(
-        HarnessExecutor::new(Arc::clone(&agent), Arc::clone(&inbox)),
+        HarnessExecutor::new(Arc::clone(&agent), Arc::clone(&inbox)).with_locale(
+            harness
+                .config()
+                .locale
+                .clone()
+                .unwrap_or_else(|| "en".to_owned()),
+        ),
         SdkTaskStore::new(Arc::clone(&agent)),
     )
     .with_capabilities(card.capabilities.clone())
@@ -972,10 +1080,123 @@ pub async fn router_at(
                 host: Arc::clone(agent.host()),
             }),
     );
-    Ok(app.layer(axum::middleware::from_fn_with_state(
-        gate,
-        protocol_gap::gate,
-    )))
+    let cors = CorsPolicy {
+        origins: harness.config().server.allow_origins.clone(),
+        loopback_only: harness.config().server.security.is_none(),
+    };
+    Ok(app
+        .layer(axum::middleware::from_fn_with_state(
+            gate,
+            protocol_gap::gate,
+        ))
+        .layer(axum::middleware::from_fn_with_state(cors, cors_layer)))
+}
+
+/// Which browser origins may call the server (R25.1): the configured list, or any while
+/// the server is loopback-only (a local page talking to a local harness); a server
+/// behind a security scheme with no list answers no cross-origin request.
+#[derive(Clone, Debug)]
+struct CorsPolicy {
+    origins: Vec<String>,
+    loopback_only: bool,
+}
+
+impl CorsPolicy {
+    fn allows(&self, origin: &str) -> bool {
+        if self.origins.is_empty() {
+            return self.loopback_only;
+        }
+        self.origins.iter().any(|o| o == origin || o == "*")
+    }
+}
+
+/// CORS for browser surfaces: a preflight is answered here, every other response from an
+/// allowed origin carries the allow headers. Credentials never ride on cookies (the
+/// bearer token is a header), so `Access-Control-Allow-Credentials` is never set.
+async fn cors_layer(
+    axum::extract::State(policy): axum::extract::State<CorsPolicy>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let origin = request
+        .headers()
+        .get(axum::http::header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+    let allowed = origin.as_deref().is_some_and(|o| policy.allows(o));
+    let requested = request
+        .headers()
+        .get(axum::http::header::ACCESS_CONTROL_REQUEST_HEADERS)
+        .cloned();
+    let preflight = request.method() == axum::http::Method::OPTIONS;
+    let mut response = if preflight {
+        axum::response::IntoResponse::into_response(axum::http::StatusCode::NO_CONTENT)
+    } else {
+        next.run(request).await
+    };
+    // This policy is the one that decides: whatever a route underneath set (the SDK's
+    // card route echoes any origin) is replaced, or removed for an origin not allowed.
+    {
+        let headers = response.headers_mut();
+        for name in [
+            axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            axum::http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+            axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
+            axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            axum::http::header::ACCESS_CONTROL_MAX_AGE,
+        ] {
+            headers.remove(name);
+        }
+    }
+    if let Some(origin) = origin.filter(|_| allowed) {
+        let headers = response.headers_mut();
+        if let Ok(v) = axum::http::HeaderValue::from_str(&origin) {
+            headers.insert(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, v);
+        }
+        headers.insert(
+            axum::http::header::VARY,
+            axum::http::HeaderValue::from_static("Origin"),
+        );
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
+            axum::http::HeaderValue::from_static("GET, POST, OPTIONS"),
+        );
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            requested.unwrap_or_else(|| axum::http::HeaderValue::from_static("*")),
+        );
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_EXPOSE_HEADERS,
+            axum::http::HeaderValue::from_static("*"),
+        );
+        headers.insert(
+            axum::http::header::ACCESS_CONTROL_MAX_AGE,
+            axum::http::HeaderValue::from_static("600"),
+        );
+    }
+    response
+}
+
+/// The channel of a redacted ask status (`channels/v1 { redacted: true }`), if `event`
+/// is one.
+fn redacted_channel(event: &a2a::StreamResponse) -> Option<String> {
+    let a2a::StreamResponse::StatusUpdate(update) = event else {
+        return None;
+    };
+    let meta = update
+        .status
+        .message
+        .as_ref()?
+        .metadata
+        .as_ref()?
+        .get(crate::harness::channels::CHANNELS_EXT)?;
+    if meta.get("redacted").and_then(serde_json::Value::as_bool) != Some(true) {
+        return None;
+    }
+    meta.get("channel")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 /// What the inbox route needs.
@@ -1003,7 +1224,6 @@ async fn post_inbox(
         DeliveryKind, EventTarget, InboxError, InboxEvent, InboxStatus,
     };
     use crate::interaction::events::{InboxPostAdapter, WebhookAdapter as _};
-    use axum::response::IntoResponse as _;
 
     let lower: std::collections::BTreeMap<String, String> = headers
         .iter()

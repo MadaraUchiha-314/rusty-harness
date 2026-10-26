@@ -378,7 +378,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M5 — Renderers (PR 5: `loop/issue-3-m5-renderers`)
 
-- [ ] 33. Surfaces, renderers and the A2UI model: `SurfaceCapabilities`, modality
+- [x] 33. Surfaces, renderers and the A2UI model: `SurfaceCapabilities`, modality
   negotiation (text alternative for what a surface cannot render), the `Renderer`
   trait with the MCP Apps flag, the A2UI 0.9.1 types for the basic catalog, emission as
   `DataPart` with `application/a2ui+json` under the A2UI extension, the
@@ -387,7 +387,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R25.1–6
   - _Test:_ T1 — `renderer::a2ui::tests` (serde round trip of every basic component);
     T6 — `snapshot_a2ui_ask_payload`
-- [ ] 34. TUI: ratatui layout per the prototype (header, conversation with
+- [x] 34. TUI: ratatui layout per the prototype (header, conversation with
   `tui-markdown`, plan strip, composer, hints), the `a2a-client-lf` client against the
   loopback or `--url`, task controls with the complete confirmation, `/model` picker,
   command highlighting from `commands/v1`, the A2UI basic catalog rendered natively
@@ -399,7 +399,7 @@ abuse cases are tests like any other (`reference/security.md`).
     a2ui, model, done, first), `Scenario: An image artifact renders in a graphics-capable
     terminal and degrades to alt text`; T9 — the `NO_COLOR=1` leg; T8 — the canary
     scenario, third leg (TUI output)
-- [ ] 35. Web renderer package: `web/` on Vite + React 19 + Tailwind 4 + shadcn with the
+- [x] 35. Web renderer package: `web/` on Vite + React 19 + Tailwind 4 + shadcn with the
   AI Elements copied in (Chat, Prompt Input, Tool, Reasoning, Plan, Task, Subagent,
   Model Selector, Suggestion, Confirmation), `@a2a-js/sdk` 1.3 as the only transport
   (the browser spike of D1 first), the per-task store reducing the event stream with
@@ -410,7 +410,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R26.1–3, R26.5–6, R10.5, R21.7, R25.4, R33.7
   - _Test:_ T1 — `bun run --cwd web test` (component tests per AI Element composition);
     T3 — the contract suite moves into `web/` (`test:contract`); T14 — `test:strings`
-- [ ] 36. Web visual contract and accessibility: Playwright screenshots of every
+- [x] 36. Web visual contract and accessibility: Playwright screenshots of every
   prototype state compared with `design/screenshots/`, the multi-turn GIF, axe at WCAG
   2.1 AA in light and dark, keyboard flow (`Enter`, `Shift+Enter`, `/`, `Esc`), the
   bundle scan for key patterns. 🔒 boundary 7.
@@ -418,7 +418,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R26.7, NFR accessibility, abuse 11
   - _Test:_ T5 — `test:visual`; T9 — `test:a11y`; T8 — `test:bundle-scan`
     (`abuse_npm_bundle_contains_no_provider_key_pattern`)
-- [ ] 37. M5 pull request: the TUI and web both on one harness (R32.1 rehearsal), the
+- [x] 37. M5 pull request: the TUI and web both on one harness (R32.1 rehearsal), the
   A2UI ask rendered in both, `docs/guide/` "Run the TUI" page, capability docs for
   surfaces, TUI and web; `evidence/pull-requests.md` row.
   - _Depends on:_ 34, 36

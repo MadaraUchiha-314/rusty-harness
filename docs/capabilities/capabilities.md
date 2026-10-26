@@ -22,3 +22,6 @@ behaviour. Add one line per capability doc here.
 | [The heartbeat](heartbeat.md) | liveness per worker, re-signalled events, a hook on stalled tasks |
 | [Durable execution](durable.md) | three modes behind one interface; on Temporal every phase is an activity, retries are the workflow's, a killed worker is picked up |
 | [Observability](observability.md) | one persisted trace per task over OTLP; Langfuse as hooks; logs without credentials |
+| [Surfaces and renderers](surfaces.md) | a surface declares what it renders and gets text for the rest; A2UI 0.9.1 from the basic catalog, typed |
+| [The terminal renderer](tui.md) | one command opens a TUI that is an A2A client of the harness it started or of `--url`; native A2UI forms, images, `NO_COLOR` |
+| [The web renderer](web.md) | a browser chat on shadcn AI Elements over the official A2A SDK; one store per task, A2UI through `@a2ui/react`, strings from `en.json` |

@@ -1,8 +1,9 @@
 # Run the server
 
 The `rusty-harness` binary is the harness as a user runs it: it starts the agent, serves
-it over A2A 1.0 and, from milestone 5, opens the terminal UI. It is the same
-`HarnessBuilder` the [SDK guide](./embed-the-sdk) assembles, from the same configuration.
+it over A2A 1.0 and opens the [terminal UI](./run-the-tui) (`--no-tui` keeps it a
+server). It is the same `HarnessBuilder` the [SDK guide](./embed-the-sdk) assembles, from
+the same configuration.
 
 ## Install and first run
 

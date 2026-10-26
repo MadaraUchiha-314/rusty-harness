@@ -37,6 +37,24 @@
       {
         "description": "rusty-harness commands/v1 extension",
         "params": {
+          "commands": [
+            {
+              "description_key": "command.effort.description",
+              "name": "effort",
+              "roles": ["assignee", "reporter", "admin"]
+            },
+            {
+              "description_key": "command.exit.description",
+              "name": "exit",
+              "roles": []
+            },
+            {
+              "description_key": "command.model.description",
+              "name": "model",
+              "roles": ["assignee", "reporter", "admin"]
+            }
+          ],
+          "models": ["default"],
           "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/commands.v1.schema.json"
         },
         "required": false,
@@ -52,6 +70,10 @@
       },
       {
         "description": "A2UI 0.9.1 payloads as application/a2ui+json data parts",
+        "params": {
+          "acceptsInlineCatalogs": false,
+          "supportedCatalogIds": ["https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"]
+        },
         "required": false,
         "uri": "https://a2ui.org/a2a-extension/a2ui/v0.9.1"
       }
@@ -59,8 +81,8 @@
     "pushNotifications": false,
     "streaming": true
   },
-  "defaultInputModes": ["text/plain"],
-  "defaultOutputModes": ["text/plain"],
+  "defaultInputModes": ["text/plain", "application/a2ui+json"],
+  "defaultOutputModes": ["text/plain", "application/a2ui+json"],
   "description": "An agent served by rusty-harness.",
   "name": "rusty-harness",
   "skills": [],

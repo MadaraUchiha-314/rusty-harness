@@ -28,6 +28,8 @@ tests.
   THEN it SHALL see only the environment the caller lists, plus `PATH`.
 - WHEN audio is captured or played THEN it SHALL be 16-bit PCM at 24 kHz mono at the
   harness's boundary, resampled from the device's format.
+- WHEN a credential or store path is under `~` and HOME is not set THEN it SHALL be
+  refused, not read relative to the working directory.
 
 ## Design
 
@@ -43,5 +45,6 @@ tests.
 | issue-3 (M7, task 42) | The host built from page callbacks on `wasm32` | PR #13 |
 | issue-3 (M6, tasks 39–40) | Native WebSocket, cpal microphone and speaker | PR #12 |
 | issue-3 (M1, task 4) | `Host`, the capability traits, the native and testing hosts, secrets | PR #7 |
+| issue-3 (M7, SR1-15, SR1-16) | `keyring:` takes the attribute form whenever an `=` precedes the first `/`; a path under `~` is refused when HOME is not set | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

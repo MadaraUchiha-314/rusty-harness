@@ -59,6 +59,8 @@ flowchart LR
   sees the question in the same stream (R18.5).
 - The official TypeScript SDK's conformance suite (`web/tests/`) SHALL pass against the
   binary in CI (T3).
+- WHEN a participant outside a channel cancels a task waiting on that channel's question
+  THEN the cancel's answer SHALL carry the state change without the question (R18.5).
 
 ## Design
 
@@ -76,5 +78,6 @@ flowchart LR
 | issue-3 (M3, task 27) | The `/inbox` route, the conformance suite in CI | PR #9 |
 | issue-3 (M5, task 33) | The card advertises the basic A2UI catalog; each stream is negotiated for the surface that opened it | PR #11, [surfaces](surfaces.md) |
 | issue-3 (M5, task 37) | `[server] allow_origins` (CORS for browser surfaces); the card lists commands, model aliases and `application/a2ui+json` among its modes; a stream starts after the last event its viewer can see and projects each event with the caller's current memberships | PR #11 |
+| issue-3 (M7, SR2-1, CR1-1, CR1-2) | Commands run with the sender's roles from the task's participant record; one participation rule (`Caller::may_open`) shared with the SDK; a cancel's answer is redacted for the caller like GetTask | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

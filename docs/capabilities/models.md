@@ -63,6 +63,9 @@ flowchart LR
   classifier or, absent one, the LLM on the `system-one/classify` fragment.
 - WHEN a provider refuses with a body that echoes the credential THEN the error SHALL
   carry `[redacted]` where the credential was (abuse 7).
+- WHEN a model stream ends before the provider's stop (Responses
+  `completed`/`incomplete`, Chat Completions `finish_reason`, Messages `stop_reason`)
+  THEN the turn SHALL fail as retryable, never finish with the partial text.
 
 ## Design
 
@@ -78,5 +81,6 @@ flowchart LR
 | issue-3 (M6, task 39) | OpenAI `Voice`, `SpeechToText`, `TextToSpeech`; the native WebSocket; the harness-side relay and `voice/v1` parts | PR #12 |
 | issue-3 (M6, task 38) | Image and audio parts from messages into the context; the up-front modality refusal | PR #12 |
 | issue-3 (M2, tasks 11, 13) | `Llm`, OpenAI and Anthropic clients, `Retrying`, System One, the model router behind `/model` and `/effort` | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
+| issue-3 (M7, SR1-7, SR1-11..14) | Model streams are strict: a stream cut before its stop is retryable on all three wires; a Responses call without its id or name is a decode error; arguments that are not JSON retry; a stream failure retries only on a transient code; a tool name only the history holds never borrows a current tool's wire name | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

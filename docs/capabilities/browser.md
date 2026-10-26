@@ -44,6 +44,10 @@ does not build.
   it before `fetch` is called.
 - WHEN the core needs time on `wasm32` THEN it SHALL read `performance.now()` and
   `Date.now()`, never the native clock (which panics there).
+- WHEN the host has `allowOrigins` THEN a fetch SHALL fail on a redirect rather than
+  follow it to another origin.
+- WHEN a page's CSP forbids `unsafe-eval` THEN the SDK SHALL still create a harness and
+  run a turn.
 
 ### Unavailable in the browser
 
@@ -62,3 +66,4 @@ This is the whole list (R29.3); everything else is a capability the page can sup
 | Work item | What changed | Links |
 |-----------|--------------|-------|
 | issue-3 (M7, task 42) | The npm SDK: `Harness.create`, `sendMessage`, `cancelTask`, `subscribe`, `getTask`; the JS host; generated `Config` types | PR #13 |
+| issue-3 (M7, SR1-5, SR1-6, SR1-20, CR1-3) | With `allowOrigins` a redirect fails the request; the SDK compiles no code from strings (strict CSP, a CI leg without code generation); a dropped fetch is aborted and a dropped socket closed; a follow-up naming only its task takes that task's context | PR #13 |

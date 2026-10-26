@@ -55,6 +55,8 @@ flowchart LR
 - WHEN a task is restored after a restart THEN the workflow SHALL continue from the
   record's persisted iteration (R14.4); the recorded history replays against the current
   workflow code (T1 fixture).
+- WHEN `durable.temporal.api_key` is set and the address is not `https` THEN connecting
+  SHALL be refused unless the host is loopback.
 
 ## Design
 
@@ -70,5 +72,6 @@ flowchart LR
 |-----------|--------------|-------|
 | issue-3 (M2, task 15) | The `none` mode: the loop in process under the retry policy | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 | issue-3 (M4, tasks 28–31) | Temporal client, worker and dev server; the task workflow and its activities; retry orchestration, timeouts and crash recovery; outbound reconciliation | PR #10 |
+| issue-3 (M7, SR1-8) | An API key is sent only over TLS: a non-https Temporal address with a key is refused unless the host is loopback | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

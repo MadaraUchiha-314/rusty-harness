@@ -84,5 +84,6 @@ audio part, PCM16 at 24 kHz mono; a spoken reply plays through the speaker.
 | issue-3 (M5, task 34) | The TUI: layout per the prototype, A2A client of the loopback or `--url`, controls, `/model` picker, command highlighting, native A2UI forms, images with the alt-text fallback, `NO_COLOR` | PR #11 |
 | issue-3 (M6, task 40) | Push-to-talk (hold and toggle) on `cpal`, spoken-reply playback, `tui_snapshot_voice` | PR #12 |
 | issue-3 (M5, task 37) | A remote card supplies the agent name, the commands and the model aliases; the one-harness A2UI scenario (`tests/tui.rs::on_one_harness`) | PR #11 |
+| issue-3 (M7, SR1-25) | Plan, command and task payloads that crossed the A2A wire (every number a double) decode through `task::decode_extension`; before, the plan strip and command outcomes were silently dropped when attached to a server | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

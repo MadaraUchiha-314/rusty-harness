@@ -41,5 +41,6 @@ checked against it in CI.
 | issue-3 (M1, task 7) | Typed `Config`, layered loading, the published schema, the default file | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #7 |
 | issue-3 (M7, tasks 42–43) | The schema generates the SDKs' types: `Config` for TypeScript (`bun run types`), `ConfigDict` and friends for Python (`stub_gen`); `Config.from_toml` / `from_dict` in Python, a `Config` object or TOML text in `Harness.create` | PR #13 |
 | issue-3 (M7, task 46) | `keyring:ATTR=VALUE,…` and `file:~/…` references, for the demo's Temporal Cloud credentials | PR #13 |
+| issue-3 (M7, SR1-10) | The Python `Config.from_toml` and `from_dict` apply the `RH__SECTION__KEY` layer (opt out with `env=False`); `Config::from_layers_json` takes the code layer as JSON | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

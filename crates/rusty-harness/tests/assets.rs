@@ -139,3 +139,57 @@ fn assets_no_raw_prompt_literals() {
         "Prompt::data with a literal (authored text belongs in prompts/*.md): {offenders:#?}"
     );
 }
+
+/// T3: the prompt files and the registry agree (the T14 check under its contract name).
+#[test]
+fn contract_prompt_files_match_registry() {
+    assets_every_prompt_fragment_resolves_to_a_file();
+}
+
+/// T3: every `strings/*.json` matches `en.json` (the T14 check under its contract name).
+#[test]
+fn contract_strings_catalogs_match_en() {
+    assets_placeholder_sets_match_en();
+}
+
+/// T6: every shipped prompt fragment rendered with fixed arguments (each placeholder
+/// filled with its own name), so a change to any prompt's text shows in review.
+#[test]
+fn snapshot_rendered_default_prompts() {
+    use core::fmt::Write as _;
+    use rusty_harness::assets::{Prompt, PromptArgs};
+    let registry = PromptRegistry::builtin();
+    let mut fragments: Vec<_> = registry.all().collect();
+    fragments.sort_by_key(|f| (f.entity_id().id.to_string(), f.locale().to_owned()));
+    let mut out = String::new();
+    for fragment in fragments {
+        let args = fragment
+            .placeholders()
+            .iter()
+            .fold(PromptArgs::new(), |a, p| a.with(p, format!("<{p}>")));
+        let rendered = Prompt::fragment(fragment, &args).expect("renders").render();
+        let version = fragment
+            .entity_id()
+            .version
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let _ = write!(
+            out,
+            "## {} ({}) v{version}\n\n{}\n\n",
+            fragment.entity_id().id,
+            fragment.locale(),
+            rendered.trim_end()
+        );
+    }
+    let out = format!("{}\n", out.trim_end());
+    let path = crate_dir().join("tests/snapshots/prompts_rendered.md");
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        std::fs::write(&path, &out).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap_or_default(),
+        out,
+        "prompts_rendered.md is stale: rerun with UPDATE_SNAPSHOTS=1"
+    );
+}

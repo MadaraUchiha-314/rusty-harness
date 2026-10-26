@@ -502,7 +502,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R32.1–6, R31.4
   - _Test:_ T4 — `Scenario: The demo runs end to end in none mode`, `Scenario: The demo
     runs end to end in remote mode`, `bun run --cwd web test:e2e`
-- [ ] 47. Contract and snapshot sweep: every public interface of `design.md` §Components
+- [x] 47. Contract and snapshot sweep: every public interface of `design.md` §Components
   & interfaces has its `contract_*` test (Rust trait shapes via `cargo semver-checks`
   baseline, Python stub, TypeScript declarations, the six extension schemas, the config
   schema, the agent card), every serialized artifact its `snapshot_*`.

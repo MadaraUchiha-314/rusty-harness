@@ -703,31 +703,36 @@ impl Harness {
             .task_id
             .clone()
             .unwrap_or_else(a2a::new_task_id);
-        let context_id = request
-            .message
-            .context_id
-            .clone()
-            .unwrap_or_else(a2a::new_context_id);
         let extensions = request.message.extensions.clone().unwrap_or_default();
-        let agent_request = AgentRequest {
-            message: request.message,
-            call: CallContext {
-                task_id,
-                context_id,
-                stored_task: None,
-                caller: caller.unwrap_or_else(operator),
-                service_params: std::collections::BTreeMap::new(),
-            },
-            metadata: request.metadata,
-            extensions,
-            inbox_event_id: None,
-            traceparent: None,
-        };
-        boxed_stream(
+        let resolved = async move {
+            // A follow-up may name only its task (the task the client was handed): it
+            // belongs to that task's context, not a fresh one (R21.5).
+            let context_id = match request.message.context_id.clone() {
+                Some(context) => context,
+                None => match self.store.get_task(&task_id).await {
+                    Ok(Some(record)) => record.context_id,
+                    _ => a2a::new_context_id(),
+                },
+            };
+            let agent_request = AgentRequest {
+                message: request.message,
+                call: CallContext {
+                    task_id,
+                    context_id,
+                    stored_task: None,
+                    caller: caller.unwrap_or_else(operator),
+                    service_params: std::collections::BTreeMap::new(),
+                },
+                metadata: request.metadata,
+                extensions,
+                inbox_event_id: None,
+                traceparent: None,
+            };
             self.agent
                 .send_message(agent_request)
-                .map(|r| r.map_err(|e| e.to_a2a())),
-        )
+                .map(|r| r.map_err(|e| e.to_a2a()))
+        };
+        boxed_stream(futures::stream::once(resolved).flatten())
     }
 
     /// `TaskNotFound` unless `task` exists and `caller` may open it: the rule the A2A

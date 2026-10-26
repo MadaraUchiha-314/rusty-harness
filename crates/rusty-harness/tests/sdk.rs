@@ -269,3 +269,70 @@ async fn abuse_watcher_command_through_the_agent_is_refused() {
     );
     assert_eq!(llm.attempts(), 0);
 }
+
+/// Scenario: A follow-up that names only its task resumes it
+///     Given a long-running task waiting for its next turn
+///     When a follow-up names the task id and no context id (as the Python and WASM
+///     clients send it from the task they were given)
+///     Then the harness takes the task's own context and the turn runs (R21.5)
+#[tokio::test]
+async fn a_follow_up_that_names_only_its_task_resumes_it() {
+    let text = |t: &str| {
+        vec![
+            ModelEvent::TextDelta { text: t.into() },
+            ModelEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]
+    };
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::new(RecordedLlm::new(
+            "default",
+            vec![text("first"), text("second")],
+        )))
+        .build()
+        .await
+        .expect("builds");
+    let send = |text: &str, task: Option<&str>| {
+        let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text(text)]);
+        message.task_id = task.map(str::to_owned);
+        message.metadata = Some(
+            [(
+                rusty_harness::harness::core_loop::task::TASK_EXT.to_owned(),
+                serde_json::json!({ "mode": "long-running" }),
+            )]
+            .into(),
+        );
+        a2a::SendMessageRequest {
+            message,
+            configuration: None,
+            metadata: None,
+            tenant: None,
+        }
+    };
+    let first: Vec<_> = harness
+        .send_message(send("hello", Some("t-follow")), None)
+        .collect()
+        .await;
+    assert!(first.iter().all(Result::is_ok), "{first:?}");
+    let second: Vec<_> = harness
+        .send_message(send("again", Some("t-follow")), None)
+        .collect()
+        .await;
+    assert!(
+        second.iter().all(Result::is_ok),
+        "the follow-up is accepted: {second:?}"
+    );
+    let task = harness.get_task("t-follow", None).await.expect("the task");
+    let said: Vec<_> = task
+        .history
+        .iter()
+        .flatten()
+        .filter_map(|m| m.text())
+        .collect();
+    assert!(
+        said.contains(&"second"),
+        "the second turn ran in the same task: {said:?}"
+    );
+}

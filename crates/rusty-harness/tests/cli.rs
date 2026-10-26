@@ -140,7 +140,7 @@ async fn the_demo_fixture_config_loads() {
     .await
     .expect("the demo config loads");
     assert_eq!(config.durable.mode, DurableMode::None);
-    assert_eq!(config.models["default"].model, "gpt-6.1");
+    assert_eq!(config.models["default"].model, "gpt-6.1-sol");
     assert_eq!(
         config
             .secret_refs()

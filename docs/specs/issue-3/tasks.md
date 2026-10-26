@@ -494,7 +494,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R15.2, NFR performance, Q13
   - _Test:_ T7 — `cargo bench -p rusty_harness --bench loop_overhead`,
     `scripts/measure.sh`; results into `evidence/performance.md`
-- [ ] 46. The definition-of-done demo: `tests/fixtures/demo/config.toml` (GPT 6.1, Temporal
+- [x] 46. The definition-of-done demo: `tests/fixtures/demo/config.toml` (GPT 6.1, Temporal
   Cloud by reference, `remote` and `none` variants), the `e2e_none_*` and
   `e2e_remote_*` tests gated on credentials, the browser leg in Playwright, the
   recording and trace capture scripts.

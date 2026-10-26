@@ -67,9 +67,13 @@ impl FromStr for SecretRef {
         {
             return Ok(Self::Env(name.to_owned()));
         }
+        // The attribute form when an `=` comes before any `/`: a value may itself contain
+        // a slash (`keyring:service=a/b`), which is not the service/user form.
         if let Some(rest) = s.strip_prefix("keyring:")
-            && !rest.contains('/')
-            && rest.contains('=')
+            && rest
+                .split('/')
+                .next()
+                .is_some_and(|head| head.contains('='))
         {
             let attributes: Option<Vec<(String, String)>> = rest
                 .split(',')
@@ -222,6 +226,13 @@ mod tests {
                 SecretRef::KeyringAttributes(vec![
                     ("service".into(), "temporal".into()),
                     ("project".into(), "rusty-harness".into()),
+                ]),
+            ),
+            (
+                "keyring:service=a/b,project=x",
+                SecretRef::KeyringAttributes(vec![
+                    ("service".into(), "a/b".into()),
+                    ("project".into(), "x".into()),
                 ]),
             ),
         ] {

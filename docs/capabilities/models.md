@@ -49,8 +49,9 @@ flowchart LR
   voice`, a synthesis failure leaving the text reply alone (R28.3–4).
 - WHEN a provider answers with a retryable status THEN `Retrying` SHALL wait the
   configured backoff (honouring `Retry-After`) and try again up to `max_attempts`.
-- WHEN `/model <alias>` or `/effort <level>` runs THEN the next call SHALL use the new
-  selection; nothing restarts.
+- WHEN `/model <alias>` or `/effort <level>` runs in a task THEN that task's next call
+  SHALL use the new selection, with the effort sent on the request, and other tasks keep
+  theirs; nothing restarts.
 - WHEN the context builder places a cache breakpoint THEN the Anthropic client SHALL set
   `cache_control` there and the OpenAI client SHALL keep the prefix stable.
 - WHEN a request offers tools THEN each client SHALL send names the provider accepts
@@ -82,5 +83,6 @@ flowchart LR
 | issue-3 (M6, task 38) | Image and audio parts from messages into the context; the up-front modality refusal | PR #12 |
 | issue-3 (M2, tasks 11, 13) | `Llm`, OpenAI and Anthropic clients, `Retrying`, System One, the model router behind `/model` and `/effort` | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 | issue-3 (M7, SR1-7, SR1-11..14) | Model streams are strict: a stream cut before its stop is retryable on all three wires; a Responses call without its id or name is a decode error; arguments that are not JSON retry; a stream failure retries only on a transient code; a tool name only the history holds never borrows a current tool's wire name | PR #13 |
+| issue-3 (M7, operator review) | The selection is per task: `ModelRouter` resolves each task's `ModelSelection` (kept on its record) instead of one shared selection, and `/effort` now reaches the request's `effort` | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

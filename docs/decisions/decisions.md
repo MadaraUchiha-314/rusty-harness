@@ -13,6 +13,7 @@ Index of durable decisions. Each record lives beside this file as
 | [006](decision-006.md) | The shipped binary is built size-first, and aborts on panic | Q8 | accepted |
 | [007](decision-007.md) | OpenAI is reached through the Responses API; Chat Completions for compatibles | T8 | accepted |
 | [008](decision-008.md) | Tools keep their dotted names; each provider request maps them | T8 | accepted |
+| [009](decision-009.md) | The model selection belongs to the task | R9.5, R10 | accepted |
 
 The design's other trade-offs (T5, T9–T17) were built as the design describes and need
 no record of their own; the table in [`design.md` § Trade-offs & decisions][tradeoffs]

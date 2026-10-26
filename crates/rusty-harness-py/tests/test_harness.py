@@ -77,7 +77,7 @@ async def test_an_unknown_task_raises_with_the_a2a_code(
     harness = await Harness.create(config(model[0]))
     with pytest.raises(rusty_harness.A2AError) as err:
         await harness.cancel_task("missing")
-    assert getattr(err.value, "code", None) == -32001
+    assert err.value.code == -32001
     with pytest.raises(rusty_harness.A2AError):
         harness.get_task_sync("missing")
 

@@ -126,6 +126,17 @@ fn main() -> pyo3_stub_gen::Result<()> {
         "import typing\nimport typing_extensions\n",
         1,
     );
+    // The exception's `code` is set at run time (`a2a_error`); declare it so a typed
+    // `except A2AError as e: e.code` checks, as the TypeScript declaration does.
+    let class = "class A2AError(builtins.Exception):";
+    if let Some(at) = stub.find(class)
+        && let Some(body) = stub[at..].find("    ...\n")
+    {
+        stub.replace_range(
+            at + body..at + body + "    ...\n".len(),
+            "    code: builtins.int\n",
+        );
+    }
     stub.push_str(A2A);
     stub.push_str(&typed_dicts(&schema));
     std::fs::write(STUB, stub)?;

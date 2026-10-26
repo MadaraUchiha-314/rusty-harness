@@ -19,7 +19,7 @@ class A2AError(builtins.Exception):
     r"""
     A rejected call; `code` is the A2A JSON-RPC error code.
     """
-    ...
+    code: builtins.int
 
 @typing.final
 class Config:

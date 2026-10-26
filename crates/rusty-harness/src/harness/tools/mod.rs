@@ -183,6 +183,15 @@ pub enum ToolOutput {
         /// The result, as JSON.
         value: Value,
     },
+    /// A result for the model and artifacts for the task's participants: an image a tool
+    /// rendered, a file it produced (R28.2). The model sees `value` and the artifacts'
+    /// names; the participants receive the artifacts as `TaskArtifactUpdateEvent`s.
+    Artifacts {
+        /// The result, as JSON.
+        value: Value,
+        /// What the participants receive.
+        artifacts: Vec<a2a::Artifact>,
+    },
     /// The call waits for a participant or a sub-task; the loop resumes it later.
     Suspend {
         /// What it waits for.
@@ -218,6 +227,9 @@ pub struct ToolResult {
     /// Whether the oversize policy shortened `value` (R8.6).
     #[serde(default)]
     pub shortened: bool,
+    /// Artifacts the call produced for the participants (R28.2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<a2a::Artifact>,
 }
 
 impl ToolResult {
@@ -230,6 +242,7 @@ impl ToolResult {
             value,
             error: None,
             shortened: false,
+            artifacts: Vec::new(),
         }
     }
 
@@ -242,16 +255,34 @@ impl ToolResult {
             value: serde_json::json!({ "error": error }),
             error: Some(error),
             shortened: false,
+            artifacts: Vec::new(),
         }
     }
 
     /// The text the context builder hands the model.
     #[must_use]
     pub fn render(&self) -> String {
-        match &self.value {
+        use std::fmt::Write as _;
+        let mut text = match &self.value {
             Value::String(s) => s.clone(),
             other => other.to_string(),
+        };
+        // The model learns what the participants received, not the bytes.
+        for a in &self.artifacts {
+            let name = a.name.as_deref().unwrap_or(&a.artifact_id);
+            let media: Vec<&str> = a
+                .parts
+                .iter()
+                .filter_map(|p| p.media_type.as_deref())
+                .collect();
+            let _ = write!(
+                text,
+                "
+[artifact {name} ({}) delivered to the participants]",
+                media.join(", ")
+            );
         }
+        text
     }
 }
 
@@ -307,6 +338,9 @@ impl Operation for ToolExecute {
                 "outcome",
                 match output {
                     Ok(ToolOutput::Value { .. }) => "value".into(),
+                    Ok(ToolOutput::Artifacts { artifacts, .. }) => {
+                        format!("value+{} artifacts", artifacts.len())
+                    }
                     Ok(ToolOutput::Suspend { .. }) => "suspend".into(),
                     Err(e) => e.to_string(),
                 },
@@ -533,6 +567,11 @@ impl ToolExecutor {
         match outcome {
             Ok(Ok(ToolOutput::Value { value })) => {
                 self.sized(cx, ToolResult::ok(&call, value)).await
+            }
+            Ok(Ok(ToolOutput::Artifacts { value, artifacts })) => {
+                let mut result = ToolResult::ok(&call, value);
+                result.artifacts = artifacts;
+                self.sized(cx, result).await
             }
             Ok(Ok(ToolOutput::Suspend { pending, message })) => {
                 Executed::Suspended { pending, message }

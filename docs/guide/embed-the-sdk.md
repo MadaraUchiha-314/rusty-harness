@@ -68,6 +68,59 @@ Everything is an entity in the `Registry` you can read back with `harness.regist
 every operation runs through the `HookDispatcher` at `harness.hooks()`, where you
 register your own hooks before the first task.
 
+`harness.send_message(request, None)` does the same from a plain
+`a2a::SendMessageRequest`, acting as the operator; `get_task`, `cancel_task` and
+`subscribe` complete the SDK surface the TypeScript and Python packages wrap.
+
+## From Python
+
+`pip install rusty_harness` gives the same surface; every awaitable has a blocking
+`*_sync` twin, and configuration, requests and events are `dict`s typed by the
+`TypedDict`s in the stub (`ConfigDict` is generated from the configuration's JSON
+schema).
+
+```python
+from rusty_harness import Config, Harness
+
+config = Config.from_toml(open("config.toml").read())  # or Config.from_dict({...})
+harness = await Harness.create(config)
+async for event in harness.send_message(
+    {"message": {"messageId": "m1", "role": "ROLE_USER", "parts": [{"text": "hello"}]}}
+):
+    print(event)
+
+server = await harness.serve("127.0.0.1:7474")  # runs while `server` is referenced, until server.stop()
+```
+
+`pip install "rusty_harness[cli]"` adds the `rusty-harness` binary, shipped as a native
+wheel per platform (`rusty-harness-cli`).
+
+## In the browser (TypeScript)
+
+The npm package `rusty-harness` is the same harness compiled to WebAssembly. The page
+hands in the platform as callbacks; only `secret` has no default.
+
+```ts
+import { Harness, type Config } from "rusty-harness";
+
+const config: Config = {
+  models: { default: { provider: "openai", model: "gpt-6.1", api_key: "env:OPENAI_API_KEY" } },
+};
+const harness = await Harness.create(config, {
+  allowOrigins: ["https://api.openai.com"],
+  secret: async (reference) => fetchKeyFromMyBackend(reference),
+});
+for await (const event of harness.sendMessage({
+  message: { messageId: crypto.randomUUID(), role: "ROLE_USER", parts: [{ text: "hello" }] },
+})) {
+  console.log(event);
+}
+```
+
+A key the page resolves lives in the page; for a public site, run the harness as a
+server instead and point the web renderer at it. The
+[browser capability](../capabilities/browser.md) lists what is unavailable there.
+
 ## Configuration
 
 `Config` is one typed struct, loaded by `Config::load` with the precedence code →

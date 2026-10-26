@@ -15,6 +15,7 @@ import {
   type Outgoing,
 } from "@/a2a/client";
 import { isKey, t } from "@/i18n";
+import { audioPartJson, play } from "@/voice";
 import { isTerminal, reduce, type TaskView, type Turn } from "@/store/task";
 import type { A2uiAction } from "@/components/app/a2ui-block";
 import { Composer, type CommandInfo } from "@/components/app/composer";
@@ -135,6 +136,34 @@ export function App() {
     [apply, drive, harness, outgoingFor],
   );
 
+  const onSpeak = useCallback(
+    (pcm: Uint8Array) => {
+      if (!harness) return;
+      const outgoing = outgoingFor({ parts: [audioPartJson(pcm, `web-${Date.now()}`)] });
+      const json = messageJson(outgoing);
+      if (outgoing.taskId) {
+        apply({ payload: { $case: "message", value: Message.fromJSON(json) } });
+      }
+      void drive(sendJson(harness.client, json));
+    },
+    [apply, drive, harness, outgoingFor],
+  );
+
+  // Spoken replies play once, in arrival order (R28.4).
+  const played = useRef(new Set<string>());
+  useEffect(() => {
+    for (const artifact of task?.artifacts ?? []) {
+      if (played.current.has(artifact.id)) continue;
+      const audio = artifact.parts.find((p) => p.mediaType.startsWith("audio/pcm"));
+      if (audio?.content?.$case !== "raw") continue;
+      played.current.add(artifact.id);
+      const raw: unknown = audio.content.value;
+      if (ArrayBuffer.isView(raw)) {
+        void play(new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)).catch(() => {});
+      }
+    }
+  }, [task?.artifacts]);
+
   const onA2uiAction = useCallback(
     (turn: Turn, action: A2uiAction) => {
       if (!harness || !task) return;
@@ -228,6 +257,8 @@ export function App() {
             busy={busy}
             disabled={false}
             onSend={onSend}
+            onSpeak={onSpeak}
+            onError={(reason) => setNotice(t("web.voice.unavailable", { reason }))}
           />
         </div>
       </main>

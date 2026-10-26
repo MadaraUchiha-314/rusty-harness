@@ -9,6 +9,7 @@
 | Python | [`uv`](https://docs.astral.sh/uv/) — it fetches the Python it needs |
 | JavaScript | [`bun`](https://bun.sh) |
 | Hooks | [`prek`](https://github.com/j178/prek) or `pre-commit` (`uv tool install pre-commit`) |
+| Audio (Linux) | ALSA headers for the `audio` feature (`cpal`): `libasound2-dev` (Debian/Ubuntu), `alsa-lib-devel` (Fedora), `alsa-lib` (Arch) |
 
 Install the JS dependencies for the whole repository once, from the root:
 
@@ -44,6 +45,18 @@ cargo deny check
 cargo machete
 ```
 
+## Build resources
+
+The full workspace (every feature, three targets) is heavy for a small machine:
+
+- Under about 16 GB of RAM, build with `CARGO_BUILD_JOBS=2`. Otherwise the linkers
+  swap.
+- A linker or rustc dying with `signal 7 (SIGBUS)` usually means the disk is full.
+  Deleting `target/debug/incremental`, which can grow past 100 GB, frees it at the cost
+  of one slower rebuild.
+- A nextest `-E` filter still builds every test binary; narrow the build with `-p` and
+  `--test`.
+
 ## Python bindings
 
 From `crates/rusty-harness-py/`:
@@ -69,7 +82,8 @@ From `crates/rusty-harness-wasm/`:
 
 ```sh
 bun run build              # wasm-pack build for bundler, web and nodejs into dist/
-bun run test               # vitest against the built package
+bun run types              # regenerate ts/config.d.ts from the config's JSON schema
+bun run test               # vitest against the built package (build first)
 bun run typecheck          # tsc --noEmit
 wasm-pack test --node      # Rust-side wasm-bindgen tests
 wasm-pack test --headless --chrome
@@ -77,6 +91,22 @@ wasm-pack test --headless --chrome
 
 From the root, `bun run lint` (oxlint, type-aware) and `bun run format` (oxfmt) cover every
 TypeScript, JSON, TOML and YAML file; `bun run format:fix` rewrites them.
+
+## Packaging the binary
+
+The `rusty-harness` binary ships as an npm package per platform behind
+`@rusty-harness/cli` (`packaging/npm/`) and as the `rusty-harness-cli` wheel
+(`packaging/pypi-cli/`, maturin `bin` bindings); every pull request builds all five
+platforms in the `Binaries` job, and a release attaches the archives to its tag.
+
+```sh
+bun run --cwd packaging/npm test        # the shim, against a fake binary laid out as npm would
+(cd packaging/pypi-cli && uvx --from 'maturin[patchelf]' maturin build --release)
+scripts/measure.sh                       # binary, wasm and TUI cold start vs their targets (T7)
+cargo bench -p rusty_harness --bench loop_overhead   # one turn through the loop (p50 < 5 ms)
+# The prompt-cache hit rate against OpenAI (spends a few cents; needs OPENAI_API_KEY):
+cargo run -p rusty_harness --features rt-tokio --example cache_hit_rate
+```
 
 ## Docs
 

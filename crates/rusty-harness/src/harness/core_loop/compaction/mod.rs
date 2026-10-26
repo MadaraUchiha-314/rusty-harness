@@ -91,6 +91,14 @@ fn render_span(plan: &CompactionPlan, history: &[Turn]) -> String {
         .filter_map(|&i| history.get(i))
         .map(|t| match &t.entry {
             HistoryEntry::User { text } => format!("user: {text}"),
+            HistoryEntry::UserMedia {
+                media_type, name, ..
+            } => format!(
+                "user attached {media_type}{}",
+                name.as_deref()
+                    .map(|n| format!(" ({n})"))
+                    .unwrap_or_default()
+            ),
             HistoryEntry::Assistant { text, tool_calls } => {
                 let called = if tool_calls.is_empty() {
                     String::new()

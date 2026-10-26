@@ -327,6 +327,14 @@ async fn run_tui(options: TuiOptions, url: &url::Url, host: &Host, say: &Say) ->
     }
 }
 
+/// `[tui] push_to_talk_key`: `space`, or a single character.
+fn push_to_talk_key(configured: &str) -> char {
+    match configured.trim() {
+        "" | "space" => ' ',
+        other => other.chars().next().unwrap_or(' '),
+    }
+}
+
 /// What the TUI shows besides the stream: the `/model` rows and the commands come from
 /// the in-process registry (a remote harness's are not known here), the footer from
 /// the configuration.
@@ -395,6 +403,11 @@ fn tui_options(
                 .unwrap_or_default(),
         },
         mono: Theme::from_env().is_mono(),
+        // Push-to-talk when this machine has a microphone (R27.5); the harness decides
+        // whether it can hear (speech-to-text, or a model that takes audio).
+        voice: Host::native().microphone().is_ok(),
+        push_to_talk: push_to_talk_key(&config.tui.push_to_talk_key),
+        hold: false,
     }
 }
 

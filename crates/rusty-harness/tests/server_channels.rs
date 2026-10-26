@@ -638,3 +638,87 @@ async fn only_participants_open_a_task_and_a_cancel_keeps_the_question_private()
     );
     running.stop();
 }
+
+/// Scenario: /model and /effort on a shared server change only the task they are sent in
+///     Given a server with two models and two tasks, alice an admin of one, carol of the other
+///     When alice runs `/model other` and `/effort high` in her task
+///     Then carol's next turn still goes to the default model with no effort set
+///     And alice's next turn goes to "other" at high effort, and each record keeps its own
+///     selection (R9.5, R10.2)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_and_effort_on_a_shared_server_change_only_the_task_they_are_sent_in() {
+    use rusty_harness::harness::models::llm::Effort;
+    let default = Arc::new(RecordedLlm::new("default", vec![text("from default")]));
+    let other = Arc::new(RecordedLlm::new("other", vec![text("from other")]));
+    let mut config = Config::default();
+    config.server.bind = "127.0.0.1:0".into();
+    let h = HarnessBuilder::new(config)
+        .host(Host::testing())
+        .llm(default.clone())
+        .llm(other.clone())
+        .build()
+        .await
+        .expect("builds");
+    let mut carols = shared_task("b");
+    carols.participants = vec![Participant::human(
+        "carol",
+        "Carol",
+        [Role::Reporter, Role::Admin],
+    )];
+    for record in [shared_task("a"), carols] {
+        h.store().commit(TaskCommit::of(record)).await.unwrap();
+    }
+    let mut running = start(&h).await;
+    let base = running.base.clone();
+    let send = |who: &'static str, text: &'static str, task: &'static str| {
+        let base = base.clone();
+        async move {
+            rpc(
+                &base,
+                who,
+                "SendMessage",
+                json!({ "message": message(text, Some(task)) }),
+            )
+            .await
+        }
+    };
+    for command in ["/model other", "/effort high"] {
+        let reply = send("alice", command, "a").await;
+        assert!(
+            reply["result"]["message"].is_object(),
+            "{command} is answered as a command: {reply}"
+        );
+    }
+
+    let carol = send("carol", "hello", "b").await;
+    assert!(carol["result"].is_object(), "{carol}");
+    assert_eq!(
+        default.requests().len(),
+        1,
+        "carol's turn went to the default model"
+    );
+    assert_eq!(default.requests()[0].effort, None, "with no effort set");
+    assert!(
+        other.requests().is_empty(),
+        "alice's switch did not reach carol's task"
+    );
+
+    let alice = send("alice", "hello", "a").await;
+    assert!(alice["result"].is_object(), "{alice}");
+    let to_other = other.requests();
+    assert_eq!(
+        to_other.len(),
+        1,
+        "alice's turn went to the model she chose"
+    );
+    assert_eq!(to_other[0].effort, Some(Effort::High));
+
+    let a = h.store().get_task(&"a".to_owned()).await.unwrap().unwrap();
+    let b = h.store().get_task(&"b".to_owned()).await.unwrap().unwrap();
+    assert_eq!(
+        (a.model.model.as_str(), a.model.effort),
+        ("other", Some(Effort::High))
+    );
+    assert_eq!((b.model.model.as_str(), b.model.effort), ("default", None));
+    running.stop();
+}

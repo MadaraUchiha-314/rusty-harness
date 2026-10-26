@@ -27,7 +27,7 @@ use crate::app_service::durable::CancelReason;
 use crate::app_service::inbox::InboxEvent;
 use crate::assets::{Prompt, PromptRegistry};
 use crate::config::Config;
-use crate::harness::commands::ModelRouter;
+use crate::harness::commands::{ModelRouter, ModelSelection};
 use crate::harness::core_loop::compaction::{CompactionRequest, Compactor};
 use crate::harness::core_loop::context_window::{
     ContextBuilder, ContextInputs, ContextTemplate, HistoryEntry, TokenRatio, Turn, request_chars,
@@ -43,7 +43,7 @@ use crate::harness::core_loop::task::{
     Transition, transition_with_hooks,
 };
 use crate::harness::hooks::{HookCx, HookDispatcher, HookPoint, Operation};
-use crate::harness::models::llm::{Modality, ModelError, ModelRequest, ModelTurn, collect};
+use crate::harness::models::llm::{Llm, Modality, ModelError, ModelRequest, ModelTurn, collect};
 use crate::harness::skills::Skill;
 use crate::harness::system_prompt::SystemPrompt;
 use crate::harness::tools::{CancelToken, Executed, OversizePolicy, ToolCall, ToolExecutor};
@@ -824,6 +824,43 @@ impl LocalAgent {
         }
     }
 
+    /// The selection `record`'s next model call uses (R9.5): what a command changed in
+    /// this process, else what the record kept.
+    fn selection_of(&self, record: &TaskRecord) -> ModelSelection {
+        self.router
+            .for_task(&record.id)
+            .unwrap_or_else(|| record.model.clone())
+    }
+
+    /// The task a request's command acts on, and a new task's selection comes from: the
+    /// stored task it names, else the first finished task it continues (R21.6) that the
+    /// caller may open; `None` outside any task. A shell record with nobody on it yet
+    /// counts as no task.
+    async fn command_task(&self, request: &AgentRequest) -> Result<Option<TaskRecord>, AgentError> {
+        let caller = &request.call.caller;
+        let named = std::iter::once(&request.call.task_id);
+        let continued = request.message.reference_task_ids.iter().flatten();
+        for id in named.chain(continued) {
+            if let Some(record) = self.store.get_task(id).await?
+                && !record.participants.is_empty()
+                && record.context_id == request.call.context_id
+                && caller.may_open(&record)
+            {
+                return Ok(Some(record));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The selection a request's task uses: its own, the one of the task it continues,
+    /// or the default.
+    async fn selection_for(&self, request: &AgentRequest) -> Result<ModelSelection, AgentError> {
+        Ok(self
+            .command_task(request)
+            .await?
+            .map_or_else(|| self.router.selection(), |r| self.selection_of(&r)))
+    }
+
     /// A person's `/command` (R10.1, R10.6): run it instead of the model and answer with
     /// its line and a `commands/v1` payload (the token, the outcome). `None` when the
     /// message is not a command from a human participant; tool output and agents never
@@ -845,17 +882,37 @@ impl LocalAgent {
         else {
             return Ok(None);
         };
+        // `/model` and `/effort` change the selection of the task they are sent in, and
+        // nobody else's (R9.5); outside a task, the default new tasks start with.
+        let target = self.command_task(request).await?;
+        if let Some(record) = &target {
+            self.router.adopt(&record.id, record.model.clone());
+        }
         let mut cx =
             crate::harness::hooks::HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
-        cx.task = Some(request.call.task_id.clone());
+        cx.task = Some(
+            target
+                .as_ref()
+                .map_or_else(|| request.call.task_id.clone(), |r| r.id.clone()),
+        );
         let call = CommandCall {
             name: name.clone(),
             args,
             caller: request.call.caller.clone(),
+            task: target.as_ref().map(|r| r.id.clone()),
         };
         let (outcome, line) = crate::harness::commands::answer(&self.dispatcher, &cx, call)
             .await
             .map_err(AgentError::from)?;
+        // The record keeps the task's selection across a restart.
+        if let Some(record) = target {
+            let mut record = self.record(&record.id).await?;
+            let selection = self.selection_of(&record);
+            if record.model != selection {
+                record.model = selection;
+                self.store.commit(TaskCommit::of(record)).await?;
+            }
+        }
         let start = text.find('/').unwrap_or(0);
         let meta = CommandsMeta {
             commands: Vec::new(),
@@ -997,6 +1054,7 @@ impl LocalAgent {
         };
         let mut roles: BTreeSet<Role> = caller.roles.clone();
         roles.insert(Role::Reporter);
+        let model = self.selection_for(request).await?;
         let draft = TaskDraft {
             id: request.call.task_id.clone(),
             context_id: request.call.context_id.clone(),
@@ -1034,7 +1092,7 @@ impl LocalAgent {
                 .reference_task_ids
                 .clone()
                 .unwrap_or_default(),
-            model: self.router.selection(),
+            model,
         };
         let traceparent = crate::app_service::o11y::trace::for_task(request.traceparent.as_deref());
         let mut cx = HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
@@ -1081,12 +1139,16 @@ impl LocalAgent {
     /// # Errors
     ///
     /// [`AgentError::Model`] when transcription fails.
-    async fn hear(&self, message: &a2a::Message) -> Result<a2a::Message, AgentError> {
+    async fn hear(
+        &self,
+        message: &a2a::Message,
+        llm: Option<&Arc<dyn Llm>>,
+    ) -> Result<a2a::Message, AgentError> {
         use crate::harness::models::speech::{SpeechToText, TranscriptEvent, audio_of};
         if !message.parts.iter().any(|p| audio_of(p).is_some()) {
             return Ok(message.clone());
         }
-        let hears = self.router.current().is_ok_and(|llm| {
+        let hears = llm.is_some_and(|llm| {
             llm.capabilities()
                 .input_modalities
                 .contains(&Modality::Audio)
@@ -1210,8 +1272,10 @@ impl LocalAgent {
     ) -> Result<(TaskRecord, bool), AgentError> {
         // Speech the model cannot hear is transcribed first (R28.3); the log keeps the
         // transcript, marked as spoken.
+        let selection = self.selection_for(request).await?;
+        let llm = self.router.resolve(&selection).ok();
         let heard = AgentRequest {
-            message: self.hear(&request.message).await?,
+            message: self.hear(&request.message, llm.as_ref()).await?,
             ..request.clone()
         };
         let request = &heard;
@@ -1223,14 +1287,13 @@ impl LocalAgent {
             .iter()
             .filter_map(modality_of)
             .find(|m| {
-                self.router
-                    .current()
-                    .is_ok_and(|llm| !llm.capabilities().input_modalities.contains(m))
+                llm.as_ref()
+                    .is_some_and(|llm| !llm.capabilities().input_modalities.contains(m))
             })
         {
             return Err(AgentError::UnsupportedModality {
                 modality: missing,
-                model: self.router.selection().model,
+                model: selection.model,
             });
         }
         let text = message_text(&request.message);
@@ -1557,8 +1620,9 @@ impl LocalAgent {
         }
 
         // context.build (with compaction when the estimate is above the threshold).
-        let llm = self.router.current()?;
-        let alias = self.router.selection().model;
+        let selection = self.selection_of(&record);
+        let llm = self.router.resolve(&selection)?;
+        let alias = selection.model;
         let ratio = self.ratio_for(&alias);
         let mut inputs = self.inputs(&record, history.clone()).await?;
         let mut built = self
@@ -1636,10 +1700,19 @@ impl LocalAgent {
             });
         }
         let cx = self.cx(&record);
-        let request: ModelRequest = self.load_json(&ctx_key(task, n), "context").await?;
+        let mut request: ModelRequest = self.load_json(&ctx_key(task, n), "context").await?;
         let chars = request_chars(&request);
-        let llm = self.router.current()?;
-        let alias = self.router.selection().model;
+        // The task's selection, read at `model.call` (R9.5); a command that landed after
+        // a loop commit read the record is written back here.
+        let selection = self.selection_of(&record);
+        if record.model != selection {
+            let mut kept = record.clone();
+            kept.model = selection.clone();
+            self.store.commit(TaskCommit::of(kept)).await?;
+        }
+        let llm = self.router.resolve(&selection)?;
+        request.effort = selection.effort.or(request.effort);
+        let alias = selection.model;
         let mut ratio = self.ratio_for(&alias);
 
         // model.call

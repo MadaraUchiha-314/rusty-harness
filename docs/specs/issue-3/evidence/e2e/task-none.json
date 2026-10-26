@@ -1,16 +1,16 @@
 {
-  "id": "01a17568-cbbd-74b8-957e-31b765fe251b",
-  "contextId": "01a17568-cbbe-750c-ac9e-77e5c149c96f",
+  "id": "01a1766f-427c-70cf-95ef-f4d6b36ff4d8",
+  "contextId": "01a1766f-427c-70cf-95ef-f4d7c283adab",
   "status": {
     "state": "TASK_STATE_INPUT_REQUIRED",
     "message": {
-      "messageId": "01a17569-06c5-74ef-bb1a-5ff386a2120f",
-      "contextId": "01a17568-cbbe-750c-ac9e-77e5c149c96f",
-      "taskId": "01a17568-cbbd-74b8-957e-31b765fe251b",
+      "messageId": "01a1766f-6f51-736c-8d48-1ab7c01656e7",
+      "contextId": "01a1766f-427c-70cf-95ef-f4d7c283adab",
+      "taskId": "01a1766f-427c-70cf-95ef-f4d6b36ff4d8",
       "role": "ROLE_AGENT",
       "parts": [
         {
-          "text": "rusty-harness 0.2 makes it easier to build agents across languages and voice. *(Draft)*\n\n- **npm and PyPI packages** for JavaScript, TypeScript, and Python projects.\n- **Responses API support** for agent workflows.\n- **Voice capabilities** for spoken interactions."
+          "text": "**Draft — rusty-harness 0.2 adds more ways to build and interact with agents.**\n\n- Get started with npm and PyPI packages.\n- Build agent interactions with Responses API support.\n- Explore voice alongside text."
         }
       ],
       "metadata": {
@@ -21,11 +21,11 @@
         }
       }
     },
-    "timestamp": "2026-10-25T23:32:59.717924606Z"
+    "timestamp": "2026-10-26T04:19:36.913939637Z"
   },
   "history": [
     {
-      "messageId": "01a17568-cbba-73ad-9e85-0b5d23db46ce",
+      "messageId": "01a1766f-4279-71f2-877e-fba434f1cff9",
       "role": "ROLE_USER",
       "parts": [
         {
@@ -33,22 +33,22 @@
         }
       ],
       "metadata": {
+        "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1": {
+          "mode": "long-running"
+        },
         "a2uiClientCapabilities": {
           "v0.9.1": {
             "supportedCatalogIds": [
               "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
             ]
           }
-        },
-        "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1": {
-          "mode": "long-running"
         }
       }
     },
     {
-      "messageId": "01a17568-f22d-73e5-982f-ff38bcdb3d9a",
-      "contextId": "01a17568-cbbe-750c-ac9e-77e5c149c96f",
-      "taskId": "01a17568-cbbd-74b8-957e-31b765fe251b",
+      "messageId": "01a1766f-574d-71d9-b188-0310a7537fa5",
+      "contextId": "01a1766f-427c-70cf-95ef-f4d7c283adab",
+      "taskId": "01a1766f-427c-70cf-95ef-f4d6b36ff4d8",
       "role": "ROLE_AGENT",
       "parts": [
         {
@@ -57,20 +57,20 @@
       ]
     },
     {
-      "messageId": "01a17568-fc42-7215-8efd-9b7858df060d",
-      "contextId": "01a17568-cbbe-750c-ac9e-77e5c149c96f",
-      "taskId": "01a17568-cbbd-74b8-957e-31b765fe251b",
+      "messageId": "01a1766f-63ef-70f5-98bf-9855814a476a",
+      "contextId": "01a1766f-427c-70cf-95ef-f4d7c283adab",
+      "taskId": "01a1766f-427c-70cf-95ef-f4d6b36ff4d8",
       "role": "ROLE_AGENT",
       "parts": [
         {
-          "text": "## rusty-harness 0.2 — Draft release notes\n\nrusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities to your agent workflows.\n\n- **npm package:** Bring rusty-harness into your JavaScript and TypeScript projects.\n- **PyPI package:** Add rusty-harness to your Python projects.\n- **Responses API:** Build agent workflows using the Responses API.\n- **Voice:** Extend your agent experiences with voice interactions."
+          "text": "**Draft — rusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities.**\n\n- **npm package:** Get started with rusty-harness in JavaScript and TypeScript projects.\n- **PyPI package:** Bring rusty-harness into your Python workflows.\n- **Responses API:** Build agent interactions using the Responses API.\n- **Voice:** Explore voice-based interactions alongside text."
         }
       ]
     },
     {
-      "messageId": "01a17568-fc54-721b-a846-57d4bcf2669b",
-      "contextId": "01a17568-cbbe-750c-ac9e-77e5c149c96f",
-      "taskId": "01a17568-cbbd-74b8-957e-31b765fe251b",
+      "messageId": "01a1766f-6400-76e8-89cb-73bb9fa8527d",
+      "contextId": "01a1766f-427c-70cf-95ef-f4d7c283adab",
+      "taskId": "01a1766f-427c-70cf-95ef-f4d6b36ff4d8",
       "role": "ROLE_USER",
       "parts": [
         {
@@ -84,13 +84,13 @@
       }
     },
     {
-      "messageId": "01a17569-06c5-74ef-bb1a-5ff386a2120f",
-      "contextId": "01a17568-cbbe-750c-ac9e-77e5c149c96f",
-      "taskId": "01a17568-cbbd-74b8-957e-31b765fe251b",
+      "messageId": "01a1766f-6f51-736c-8d48-1ab7c01656e7",
+      "contextId": "01a1766f-427c-70cf-95ef-f4d7c283adab",
+      "taskId": "01a1766f-427c-70cf-95ef-f4d6b36ff4d8",
       "role": "ROLE_AGENT",
       "parts": [
         {
-          "text": "rusty-harness 0.2 makes it easier to build agents across languages and voice. *(Draft)*\n\n- **npm and PyPI packages** for JavaScript, TypeScript, and Python projects.\n- **Responses API support** for agent workflows.\n- **Voice capabilities** for spoken interactions."
+          "text": "**Draft — rusty-harness 0.2 adds more ways to build and interact with agents.**\n\n- Get started with npm and PyPI packages.\n- Build agent interactions with Responses API support.\n- Explore voice alongside text."
         }
       ]
     }

@@ -7,8 +7,8 @@
 | Scenario | *The demo runs end to end in none mode* (`tests/e2e.rs::e2e_none_the_demo_runs_end_to_end`) |
 | Command | `RH_E2E_EVIDENCE=… cargo nextest run -p rusty_harness --features cli -E 'test(e2e_none_)' --run-ignored all` |
 | Configuration | [`tests/fixtures/demo/config.toml`](../../../../crates/rusty-harness/tests/fixtures/demo/config.toml): OpenAI `gpt-6.1-sol` (Responses API, key `env:OPENAI_API_KEY`), `durable.mode = "none"`, the file store, the [`release-notes`](../../../../crates/rusty-harness/tests/fixtures/demo/plugins/release-notes/) plugin |
-| Outcome | **passed** (22.7 s), 2026-10-25 |
-| Browser leg | `PW_VIDEO=1 RH_DEMO_URL=http://127.0.0.1:7474/ bunx playwright test --project=e2e demo.spec.ts` against the same config served by the binary: **passed** (11.7 s) |
+| Outcome | **passed** (17.8 s), 2026-10-25, re-run at the verification node on `0a97f5b` (first run 22.7 s, task 46) |
+| Browser leg | `PW_VIDEO=1 RH_DEMO_URL=http://127.0.0.1:7474/ bunx playwright test --project=e2e` against the same config served by the binary (started in `crates/rusty-harness`, where the config's relative plugin path points): **passed** (17.3 s) at the verification node; 11.7 s in task 46 |
 
 ## What ran (R32.1–3, R32.5)
 
@@ -41,7 +41,7 @@ official React renderer): stills [`e2e/web-1-ask.png`](e2e/web-1-ask.png),
 
 - TUI frames after each turn: [`e2e/console-none.md`](e2e/console-none.md)
 - The task as it stands after turn 3: [`e2e/task-none.json`](e2e/task-none.json)
-- The trace (OTLP export, flattened; local paths scrubbed): [`e2e/trace-none.json`](e2e/trace-none.json): 37 spans, one trace id
+- The trace (OTLP export, flattened; local paths scrubbed): [`e2e/trace-none.json`](e2e/trace-none.json): 29 spans, one trace id (37 in task 46's run; the count follows how many calls the model makes)
 
 ## Findings fixed on the way
 

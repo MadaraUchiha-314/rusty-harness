@@ -1,17 +1,24 @@
 # Performance and size evidence (T7)
 
 The NFR targets are measured, not gates (Q13). Linux x64, 2026-10-25, on
-`loop/issue-3-m7-ship` at task 45.
+`loop/issue-3-m7-ship`: first at task 45, then again at the verification node on
+`0a97f5b` (task 51), which is the summary below.
 
 ## Summary
 
-| Target | Measured | Budget | Verdict |
-|---|---|---|---|
-| Loop overhead per turn, p50 (instant model) | 259.0 µs (95% CI 255.9–261.9) | 5 ms | within |
-| TUI cold start to the first-message prompt, median of 5 | 26.5 ms | 200 ms | within |
-| `rusty-harness` binary (profile `dist`) | 19 733 944 bytes | 25 000 000 | within |
-| `rusty_harness_bg.wasm`, gzip -9 | 1 239 677 bytes (raw 3 893 703) | 3 000 000 | within |
-| Prompt-cache hit rate, calls 2–4 (`gpt-6.1-sol`) | 97% | — (R15.2) | cached |
+| Target | Measured (task 51) | Task 45 | Budget | Verdict |
+|---|---|---|---|---|
+| Loop overhead per turn, p50 (instant model) | 289.3 µs (95% CI 289.0–289.6) | 259.0 µs | 5 ms | within |
+| TUI cold start to the first-message prompt, median of 5 | 24.0 ms | 26.5 ms | 200 ms | within |
+| `rusty-harness` binary (profile `dist`) | 19 939 864 bytes | 19 733 944 | 25 000 000 | within |
+| `rusty_harness_bg.wasm`, gzip -9 | 1 290 493 bytes (raw 4 072 803) | 1 239 677 | 3 000 000 | within |
+| Prompt-cache hit rate, calls 2–4 (`gpt-6.1-sol`) | — | 97% | — (R15.2) | cached (task 45) |
+
+Between the two runs, the loop overhead rose 11% and the binary and wasm module grew
+about 1% and 4%. Tasks 53 and 54 landed in between: the plan tools join every model
+request, and every message is checked for a command first. That is the likely cause,
+but it was not isolated. Every target still has its headroom: the overhead is 17×
+under budget.
 
 ## Loop overhead
 
@@ -22,8 +29,10 @@ samples (20k iterations):
 
 | Statistic | Estimate | 95% CI |
 |---|---|---|
-| median (p50) | 259.0 µs | 255.9–261.9 µs |
-| mean | 261.8 µs | 257.9–267.1 µs |
+| median (p50) | 289.3 µs | 289.0–289.6 µs |
+| mean | 289.2 µs | 288.9–289.6 µs |
+
+Task 45's run: median 259.0 µs (255.9–261.9), mean 261.8 µs (257.9–267.1).
 
 ## Sizes and cold start
 
@@ -35,9 +44,11 @@ that answers the start-up queries a terminal answers, in a throwaway `HOME` with
 
 | Target | Measured | Budget | Verdict |
 |---|---|---|---|
-| `rusty-harness` (profile dist), bytes | 19733944 | 25000000 | within |
-| `rusty_harness_bg.wasm` (gzip -9), bytes | 1239677 (raw 3893703) | 3000000 | within |
-| TUI cold start, ms (median of 5) | 26.5 | 200 | within |
+| `rusty-harness` (profile dist), bytes | 19939864 | 25000000 | within |
+| `rusty_harness_bg.wasm` (gzip -9), bytes | 1290493 (raw 4072803) | 3000000 | within |
+| TUI cold start, ms (median of 5) | 24.0 | 200 | within |
+
+(`scripts/measure.sh`'s own table at task 51. At task 45: 19733944, 1239677, 26.5.)
 
 How the binary got there (linux-x64, `--features cli`): 67 579 057 bytes with `release`;
 36 454 920 with strip, fat LTO and one codegen unit; 23 663 432 with `opt-level = "s"`;

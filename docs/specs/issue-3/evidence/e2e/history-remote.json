@@ -2,10 +2,10 @@
   "events": [
     {
       "eventId": "1",
-      "eventTime": "2026-10-26T00:14:46.214604495Z",
+      "eventTime": "2026-10-26T04:20:10.773947986Z",
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
       "version": "102990",
-      "taskId": "38865329",
+      "taskId": "35341336",
       "workflowExecutionStartedEventAttributes": {
         "workflowType": {
           "name": "TaskWorkflow"
@@ -25,21 +25,21 @@
           ]
         },
         "workflowTaskTimeout": "10s",
-        "originalExecutionRunId": "b938b0bb-fbf1-46c6-9318-3caf2d965c12",
+        "originalExecutionRunId": "d3957ab7-9918-419f-9c77-8eeb041911e7",
         "identity": "rusty-harness/0.1.0",
-        "firstExecutionRunId": "b938b0bb-fbf1-46c6-9318-3caf2d965c12",
+        "firstExecutionRunId": "d3957ab7-9918-419f-9c77-8eeb041911e7",
         "attempt": 1,
         "firstWorkflowTaskBackoff": "0s",
-        "workflowId": "01a1758f-45a2-75bd-89f1-4136689703eb",
+        "workflowId": "01a1766f-f36c-77bd-a903-b63e02f87f34",
         "priority": {}
       }
     },
     {
       "eventId": "2",
-      "eventTime": "2026-10-26T00:14:46.214730911Z",
+      "eventTime": "2026-10-26T04:20:10.774060599Z",
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "version": "102990",
-      "taskId": "38865330",
+      "taskId": "35341337",
       "workflowExecutionSignaledEventAttributes": {
         "signalName": "inbox_event",
         "input": {
@@ -53,15 +53,15 @@
           ]
         },
         "identity": "rusty-harness/0.1.0",
-        "requestId": "598b97c8-6980-411e-923c-6c64ef144aea"
+        "requestId": "09a0974d-f1fa-47f0-b5b1-0e01d40e7f22"
       }
     },
     {
       "eventId": "3",
-      "eventTime": "2026-10-26T00:14:46.214737837Z",
+      "eventTime": "2026-10-26T04:20:10.774066769Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865331",
+      "taskId": "35341338",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
           "name": "rusty-harness-demo",
@@ -73,38 +73,38 @@
     },
     {
       "eventId": "4",
-      "eventTime": "2026-10-26T00:14:46.228510583Z",
+      "eventTime": "2026-10-26T04:20:10.791138571Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865335",
+      "taskId": "35341342",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "3",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "dea2aab4-8766-4d6b-9776-76a2eef66491",
-        "historySizeBytes": "817",
+        "requestId": "53be85b4-e5cf-49b3-8e44-d9c64ea79145",
+        "historySizeBytes": "820",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "5",
-      "eventTime": "2026-10-26T00:14:46.290046475Z",
+      "eventTime": "2026-10-26T04:20:10.851792097Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865340",
+      "taskId": "35341347",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "3",
         "startedEventId": "4",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {
           "coreUsedFlags": [
-            3,
             1,
-            2
+            2,
+            3
           ],
           "sdkName": "temporal-rust",
           "sdkVersion": "1.1.0"
@@ -114,10 +114,10 @@
     },
     {
       "eventId": "6",
-      "eventTime": "2026-10-26T00:14:46.290209626Z",
+      "eventTime": "2026-10-26T04:20:10.851929013Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865341",
+      "taskId": "35341348",
       "activityTaskScheduledEventAttributes": {
         "activityId": "1",
         "activityType": {
@@ -154,26 +154,26 @@
     },
     {
       "eventId": "7",
-      "eventTime": "2026-10-26T00:14:46.290270073Z",
+      "eventTime": "2026-10-26T04:20:10.851983830Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865345",
+      "taskId": "35341352",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "6",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "1304650d-00b9-48d5-a98b-6ade0a2f28fd",
+        "requestId": "09ceeaef-9c1f-4b57-94a9-038c9bdff9a9",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "8",
-      "eventTime": "2026-10-26T00:14:46.348955730Z",
+      "eventTime": "2026-10-26T04:20:10.913103316Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865346",
+      "taskId": "35341353",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -192,13 +192,13 @@
     },
     {
       "eventId": "9",
-      "eventTime": "2026-10-26T00:14:46.348989174Z",
+      "eventTime": "2026-10-26T04:20:10.913134634Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865347",
+      "taskId": "35341354",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -208,32 +208,32 @@
     },
     {
       "eventId": "10",
-      "eventTime": "2026-10-26T00:14:46.362013186Z",
+      "eventTime": "2026-10-26T04:20:10.925390700Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865351",
+      "taskId": "35341358",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "9",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "9207b047-0b0a-437a-896e-ebec26e4ff54",
-        "historySizeBytes": "1525",
+        "requestId": "fc6d1424-a5ba-4ab0-bd7c-4149eff58a7d",
+        "historySizeBytes": "1529",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "11",
-      "eventTime": "2026-10-26T00:14:46.422134939Z",
+      "eventTime": "2026-10-26T04:20:10.984216883Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865356",
+      "taskId": "35341363",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "9",
         "startedEventId": "10",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -241,10 +241,10 @@
     },
     {
       "eventId": "12",
-      "eventTime": "2026-10-26T00:14:46.422235362Z",
+      "eventTime": "2026-10-26T04:20:10.984311749Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865357",
+      "taskId": "35341364",
       "activityTaskScheduledEventAttributes": {
         "activityId": "2",
         "activityType": {
@@ -281,26 +281,26 @@
     },
     {
       "eventId": "13",
-      "eventTime": "2026-10-26T00:14:46.422284174Z",
+      "eventTime": "2026-10-26T04:20:10.984358608Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865360",
+      "taskId": "35341367",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "12",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "cc1e749b-70ff-4a57-8777-9e3510854f2b",
+        "requestId": "13d21df1-745f-4b59-9d5f-5791489d299a",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "14",
-      "eventTime": "2026-10-26T00:14:46.486435518Z",
+      "eventTime": "2026-10-26T04:20:11.054242744Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865361",
+      "taskId": "35341368",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -319,13 +319,13 @@
     },
     {
       "eventId": "15",
-      "eventTime": "2026-10-26T00:14:46.486457902Z",
+      "eventTime": "2026-10-26T04:20:11.054263068Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865362",
+      "taskId": "35341369",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -335,32 +335,32 @@
     },
     {
       "eventId": "16",
-      "eventTime": "2026-10-26T00:14:46.498242905Z",
+      "eventTime": "2026-10-26T04:20:11.065116922Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865366",
+      "taskId": "35341373",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "15",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "46facf2f-11c9-4dcb-bb65-00fdc7f43245",
-        "historySizeBytes": "2355",
+        "requestId": "ee1d2eec-711a-432c-ab9f-8468edf1e354",
+        "historySizeBytes": "2357",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "17",
-      "eventTime": "2026-10-26T00:14:46.557796452Z",
+      "eventTime": "2026-10-26T04:20:11.121518598Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865371",
+      "taskId": "35341378",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "15",
         "startedEventId": "16",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -368,10 +368,10 @@
     },
     {
       "eventId": "18",
-      "eventTime": "2026-10-26T00:14:46.557883566Z",
+      "eventTime": "2026-10-26T04:20:11.121621423Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865372",
+      "taskId": "35341379",
       "activityTaskScheduledEventAttributes": {
         "activityId": "3",
         "activityType": {
@@ -408,26 +408,26 @@
     },
     {
       "eventId": "19",
-      "eventTime": "2026-10-26T00:14:46.557938852Z",
+      "eventTime": "2026-10-26T04:20:11.121676429Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865393",
+      "taskId": "35341427",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "18",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "311f53ec-9622-4d03-aa19-c91a2a84638f",
+        "requestId": "6136127f-bb76-4a9c-b764-bafb2518589b",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "20",
-      "eventTime": "2026-10-26T00:14:51.239480765Z",
+      "eventTime": "2026-10-26T04:20:20.448873601Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865394",
+      "taskId": "35341428",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -446,13 +446,13 @@
     },
     {
       "eventId": "21",
-      "eventTime": "2026-10-26T00:14:51.239502049Z",
+      "eventTime": "2026-10-26T04:20:20.448896247Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865395",
+      "taskId": "35341429",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -462,32 +462,32 @@
     },
     {
       "eventId": "22",
-      "eventTime": "2026-10-26T00:14:51.250225267Z",
+      "eventTime": "2026-10-26T04:20:20.461783339Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865399",
+      "taskId": "35341433",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "21",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "efeac688-1ecd-4003-9eb4-042cad86e5d3",
-        "historySizeBytes": "3286",
+        "requestId": "acdc3cc6-0892-4070-9f78-11c30d752c93",
+        "historySizeBytes": "3289",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "23",
-      "eventTime": "2026-10-26T00:14:51.315024169Z",
+      "eventTime": "2026-10-26T04:20:20.521165216Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865405",
+      "taskId": "35341438",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "21",
         "startedEventId": "22",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -495,10 +495,10 @@
     },
     {
       "eventId": "24",
-      "eventTime": "2026-10-26T00:14:51.315125978Z",
+      "eventTime": "2026-10-26T04:20:20.521317722Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865406",
+      "taskId": "35341439",
       "activityTaskScheduledEventAttributes": {
         "activityId": "4",
         "activityType": {
@@ -535,26 +535,26 @@
     },
     {
       "eventId": "25",
-      "eventTime": "2026-10-26T00:14:51.315174815Z",
+      "eventTime": "2026-10-26T04:20:20.521371538Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865409",
+      "taskId": "35341442",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "24",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "3b1e3973-076b-4fdb-8d77-5fe385009d29",
+        "requestId": "fb37a666-dc0b-457c-8537-100994256a78",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "26",
-      "eventTime": "2026-10-26T00:14:51.374817782Z",
+      "eventTime": "2026-10-26T04:20:20.624376770Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865410",
+      "taskId": "35341443",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -572,13 +572,13 @@
     },
     {
       "eventId": "27",
-      "eventTime": "2026-10-26T00:14:51.374839460Z",
+      "eventTime": "2026-10-26T04:20:20.624400762Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865411",
+      "taskId": "35341444",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -588,32 +588,32 @@
     },
     {
       "eventId": "28",
-      "eventTime": "2026-10-26T00:14:51.386125509Z",
+      "eventTime": "2026-10-26T04:20:20.636756861Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865415",
+      "taskId": "35341448",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "27",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "ead2b965-4d96-4121-9941-1567e6dc2718",
-        "historySizeBytes": "4051",
+        "requestId": "38057571-6cd4-4183-9035-c3819827609f",
+        "historySizeBytes": "4055",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "29",
-      "eventTime": "2026-10-26T00:14:51.443518053Z",
+      "eventTime": "2026-10-26T04:20:20.696509308Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865420",
+      "taskId": "35341453",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "27",
         "startedEventId": "28",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -621,10 +621,10 @@
     },
     {
       "eventId": "30",
-      "eventTime": "2026-10-26T00:14:51.443602246Z",
+      "eventTime": "2026-10-26T04:20:20.696596043Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865421",
+      "taskId": "35341454",
       "activityTaskScheduledEventAttributes": {
         "activityId": "5",
         "activityType": {
@@ -661,26 +661,26 @@
     },
     {
       "eventId": "31",
-      "eventTime": "2026-10-26T00:14:51.443649581Z",
+      "eventTime": "2026-10-26T04:20:20.696641367Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865424",
+      "taskId": "35341457",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "30",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "b173acb3-0a9e-48a9-a240-b4fc6972a931",
+        "requestId": "94c1f94b-67c7-4ec7-af7a-ae2f6e266c66",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "32",
-      "eventTime": "2026-10-26T00:14:51.509282871Z",
+      "eventTime": "2026-10-26T04:20:20.798316608Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865425",
+      "taskId": "35341458",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -699,13 +699,13 @@
     },
     {
       "eventId": "33",
-      "eventTime": "2026-10-26T00:14:51.509304861Z",
+      "eventTime": "2026-10-26T04:20:20.798339213Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865426",
+      "taskId": "35341459",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -715,32 +715,32 @@
     },
     {
       "eventId": "34",
-      "eventTime": "2026-10-26T00:14:51.519773301Z",
+      "eventTime": "2026-10-26T04:20:20.808015032Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865430",
+      "taskId": "35341463",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "33",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "960d48dc-ac34-4fae-a7b2-06fdb0ea1212",
-        "historySizeBytes": "4846",
+        "requestId": "cec4732f-4cb8-4ed2-88ab-77fce46e0512",
+        "historySizeBytes": "4850",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "35",
-      "eventTime": "2026-10-26T00:14:51.579068863Z",
+      "eventTime": "2026-10-26T04:20:20.865446435Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865435",
+      "taskId": "35341467",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "33",
         "startedEventId": "34",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -748,10 +748,10 @@
     },
     {
       "eventId": "36",
-      "eventTime": "2026-10-26T00:14:51.544603781Z",
+      "eventTime": "2026-10-26T04:20:20.900108032Z",
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "version": "102990",
-      "taskId": "38865436",
+      "taskId": "35341469",
       "workflowExecutionSignaledEventAttributes": {
         "signalName": "inbox_event",
         "input": {
@@ -765,18 +765,18 @@
           ]
         },
         "identity": "rusty-harness/0.1.0",
-        "requestId": "55596a29-5681-4500-8bda-6e67166c14dc"
+        "requestId": "da387b47-eda7-4159-85bb-7fb17d8fd1c4"
       }
     },
     {
       "eventId": "37",
-      "eventTime": "2026-10-26T00:14:51.579122155Z",
+      "eventTime": "2026-10-26T04:20:20.900118091Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865437",
+      "taskId": "35341470",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -786,32 +786,32 @@
     },
     {
       "eventId": "38",
-      "eventTime": "2026-10-26T00:14:51.579126643Z",
+      "eventTime": "2026-10-26T04:20:20.911961619Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865438",
+      "taskId": "35341474",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "37",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "request-from-RespondWorkflowTaskCompleted",
-        "historySizeBytes": "4953",
+        "requestId": "691d6e67-91e0-4c45-b373-8325ce3db5d8",
+        "historySizeBytes": "5396",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "39",
-      "eventTime": "2026-10-26T00:14:51.649053418Z",
+      "eventTime": "2026-10-26T04:20:20.969917869Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865442",
+      "taskId": "35341479",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "37",
         "startedEventId": "38",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -819,10 +819,10 @@
     },
     {
       "eventId": "40",
-      "eventTime": "2026-10-26T00:14:51.649170916Z",
+      "eventTime": "2026-10-26T04:20:20.969997178Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865443",
+      "taskId": "35341480",
       "activityTaskScheduledEventAttributes": {
         "activityId": "6",
         "activityType": {
@@ -859,26 +859,26 @@
     },
     {
       "eventId": "41",
-      "eventTime": "2026-10-26T00:14:51.649229919Z",
+      "eventTime": "2026-10-26T04:20:20.970043265Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865446",
+      "taskId": "35341483",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "40",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "5614f241-4dab-4a6c-a196-4f061d66c42b",
+        "requestId": "e821be59-7a9b-4f57-b9c8-726a3cf449d7",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "42",
-      "eventTime": "2026-10-26T00:14:51.709567188Z",
+      "eventTime": "2026-10-26T04:20:21.034572498Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865447",
+      "taskId": "35341484",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -897,13 +897,13 @@
     },
     {
       "eventId": "43",
-      "eventTime": "2026-10-26T00:14:51.709591746Z",
+      "eventTime": "2026-10-26T04:20:21.034602282Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865448",
+      "taskId": "35341485",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -913,32 +913,32 @@
     },
     {
       "eventId": "44",
-      "eventTime": "2026-10-26T00:14:51.722179925Z",
+      "eventTime": "2026-10-26T04:20:21.045514318Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865452",
+      "taskId": "35341489",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "43",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "7300f513-d02e-4839-b67c-72b992ac10f4",
-        "historySizeBytes": "6227",
+        "requestId": "8c9da189-6bc7-4fc8-b08d-0849d8658794",
+        "historySizeBytes": "6224",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "45",
-      "eventTime": "2026-10-26T00:14:51.781456442Z",
+      "eventTime": "2026-10-26T04:20:21.103765839Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865457",
+      "taskId": "35341494",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "43",
         "startedEventId": "44",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -946,10 +946,10 @@
     },
     {
       "eventId": "46",
-      "eventTime": "2026-10-26T00:14:51.781572004Z",
+      "eventTime": "2026-10-26T04:20:21.103841842Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865458",
+      "taskId": "35341495",
       "activityTaskScheduledEventAttributes": {
         "activityId": "7",
         "activityType": {
@@ -986,26 +986,26 @@
     },
     {
       "eventId": "47",
-      "eventTime": "2026-10-26T00:14:51.781625969Z",
+      "eventTime": "2026-10-26T04:20:21.103883843Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865521",
+      "taskId": "35341498",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "46",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "ecaafcb7-d47f-49d8-be2a-5de1aa7e43a0",
+        "requestId": "740c98e7-6178-4138-9026-4aec999cb595",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "48",
-      "eventTime": "2026-10-26T00:14:54.906607911Z",
+      "eventTime": "2026-10-26T04:20:23.636922339Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865522",
+      "taskId": "35341499",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -1024,13 +1024,13 @@
     },
     {
       "eventId": "49",
-      "eventTime": "2026-10-26T00:14:54.906630270Z",
+      "eventTime": "2026-10-26T04:20:23.636945149Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865523",
+      "taskId": "35341500",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1040,32 +1040,32 @@
     },
     {
       "eventId": "50",
-      "eventTime": "2026-10-26T00:14:54.916484301Z",
+      "eventTime": "2026-10-26T04:20:23.648394273Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865527",
+      "taskId": "35341504",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "49",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "fec8a978-918e-4b85-b7a8-af7b571c6502",
-        "historySizeBytes": "7132",
+        "requestId": "5427a742-a711-4f8b-b806-d937b153fce4",
+        "historySizeBytes": "7124",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "51",
-      "eventTime": "2026-10-26T00:14:54.974998397Z",
+      "eventTime": "2026-10-26T04:20:23.708666495Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865532",
+      "taskId": "35341509",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "49",
         "startedEventId": "50",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -1073,10 +1073,10 @@
     },
     {
       "eventId": "52",
-      "eventTime": "2026-10-26T00:14:54.975078963Z",
+      "eventTime": "2026-10-26T04:20:23.708764889Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865533",
+      "taskId": "35341510",
       "activityTaskScheduledEventAttributes": {
         "activityId": "8",
         "activityType": {
@@ -1113,26 +1113,26 @@
     },
     {
       "eventId": "53",
-      "eventTime": "2026-10-26T00:14:54.975125650Z",
+      "eventTime": "2026-10-26T04:20:23.708815505Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865536",
+      "taskId": "35341513",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "52",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "a23bf35f-a7db-4459-815e-edcf3c778070",
+        "requestId": "61e5e11b-8684-4c28-9350-5b5d5c89b32b",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "54",
-      "eventTime": "2026-10-26T00:14:55.035676917Z",
+      "eventTime": "2026-10-26T04:20:23.793282957Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865537",
+      "taskId": "35341514",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -1151,13 +1151,13 @@
     },
     {
       "eventId": "55",
-      "eventTime": "2026-10-26T00:14:55.035703322Z",
+      "eventTime": "2026-10-26T04:20:23.793307613Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865538",
+      "taskId": "35341515",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1167,32 +1167,32 @@
     },
     {
       "eventId": "56",
-      "eventTime": "2026-10-26T00:14:55.050548258Z",
+      "eventTime": "2026-10-26T04:20:23.803030381Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865542",
+      "taskId": "35341519",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "55",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "e75c52c4-110f-4d95-9f75-0945276a6a84",
-        "historySizeBytes": "7879",
+        "requestId": "26f691f7-b9a6-4b51-a546-190ad7a81d9f",
+        "historySizeBytes": "7873",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "57",
-      "eventTime": "2026-10-26T00:14:55.110400004Z",
+      "eventTime": "2026-10-26T04:20:23.862807335Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865548",
+      "taskId": "35341526",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "55",
         "startedEventId": "56",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -1200,10 +1200,10 @@
     },
     {
       "eventId": "58",
-      "eventTime": "2026-10-26T00:14:55.110485510Z",
+      "eventTime": "2026-10-26T04:20:23.862891075Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865549",
+      "taskId": "35341527",
       "activityTaskScheduledEventAttributes": {
         "activityId": "9",
         "activityType": {
@@ -1240,10 +1240,10 @@
     },
     {
       "eventId": "59",
-      "eventTime": "2026-10-26T00:14:55.063252442Z",
+      "eventTime": "2026-10-26T04:20:23.814552996Z",
       "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
       "version": "102990",
-      "taskId": "38865550",
+      "taskId": "35341528",
       "workflowExecutionSignaledEventAttributes": {
         "signalName": "inbox_event",
         "input": {
@@ -1257,18 +1257,18 @@
           ]
         },
         "identity": "rusty-harness/0.1.0",
-        "requestId": "6474824f-2295-4606-9e94-7624fc431092"
+        "requestId": "b6f3a37c-b83d-4d70-b033-906878298907"
       }
     },
     {
       "eventId": "60",
-      "eventTime": "2026-10-26T00:14:55.110590052Z",
+      "eventTime": "2026-10-26T04:20:23.862969712Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865551",
+      "taskId": "35341529",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1278,32 +1278,32 @@
     },
     {
       "eventId": "61",
-      "eventTime": "2026-10-26T00:14:55.110595205Z",
+      "eventTime": "2026-10-26T04:20:23.862973986Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865552",
+      "taskId": "35341530",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "60",
         "identity": "rusty-harness/0.1.0",
         "requestId": "request-from-RespondWorkflowTaskCompleted",
-        "historySizeBytes": "7985",
+        "historySizeBytes": "7980",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "62",
-      "eventTime": "2026-10-26T00:14:55.172092524Z",
+      "eventTime": "2026-10-26T04:20:23.923370711Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865556",
+      "taskId": "35341538",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "60",
         "startedEventId": "61",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -1311,26 +1311,26 @@
     },
     {
       "eventId": "63",
-      "eventTime": "2026-10-26T00:14:55.110559693Z",
+      "eventTime": "2026-10-26T04:20:23.862939394Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865558",
+      "taskId": "35341540",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "58",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "4e75af1c-ec9e-4526-904b-ef5135c81935",
+        "requestId": "c0130d80-55bd-48fc-b25e-fed087185243",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "64",
-      "eventTime": "2026-10-26T00:14:55.181502198Z",
+      "eventTime": "2026-10-26T04:20:23.933947508Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865559",
+      "taskId": "35341541",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -1349,13 +1349,13 @@
     },
     {
       "eventId": "65",
-      "eventTime": "2026-10-26T00:14:55.181523868Z",
+      "eventTime": "2026-10-26T04:20:23.933974076Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865560",
+      "taskId": "35341542",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1365,32 +1365,32 @@
     },
     {
       "eventId": "66",
-      "eventTime": "2026-10-26T00:14:55.193128637Z",
+      "eventTime": "2026-10-26T04:20:23.946749252Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865564",
+      "taskId": "35341546",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "65",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "d10a868c-c78f-4685-a47d-aa093605a7cc",
-        "historySizeBytes": "9250",
+        "requestId": "357f57e8-18ac-4631-b7a7-3402041c53a7",
+        "historySizeBytes": "9254",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "67",
-      "eventTime": "2026-10-26T00:14:55.253663281Z",
+      "eventTime": "2026-10-26T04:20:24.004900968Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865569",
+      "taskId": "35341551",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "65",
         "startedEventId": "66",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -1398,10 +1398,10 @@
     },
     {
       "eventId": "68",
-      "eventTime": "2026-10-26T00:14:55.253751371Z",
+      "eventTime": "2026-10-26T04:20:24.004995014Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865570",
+      "taskId": "35341552",
       "activityTaskScheduledEventAttributes": {
         "activityId": "10",
         "activityType": {
@@ -1438,26 +1438,26 @@
     },
     {
       "eventId": "69",
-      "eventTime": "2026-10-26T00:14:55.253797320Z",
+      "eventTime": "2026-10-26T04:20:24.005045417Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865574",
+      "taskId": "35341573",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "68",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "2a372923-0416-4bc9-b551-8509ce378d4e",
+        "requestId": "0e293ca6-507e-4fe7-9f96-c1d23f4e136b",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "70",
-      "eventTime": "2026-10-26T00:14:57.701740947Z",
+      "eventTime": "2026-10-26T04:20:26.336081800Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865575",
+      "taskId": "35341574",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -1476,13 +1476,13 @@
     },
     {
       "eventId": "71",
-      "eventTime": "2026-10-26T00:14:57.701762412Z",
+      "eventTime": "2026-10-26T04:20:26.336101853Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865576",
+      "taskId": "35341575",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1492,32 +1492,32 @@
     },
     {
       "eventId": "72",
-      "eventTime": "2026-10-26T00:14:57.712044546Z",
+      "eventTime": "2026-10-26T04:20:26.347031602Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865580",
+      "taskId": "35341579",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "71",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "39517c26-e457-4c69-b58b-76edac816035",
-        "historySizeBytes": "10151",
+        "requestId": "974637c9-bedc-41de-9748-1331d64bb38f",
+        "historySizeBytes": "10156",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "73",
-      "eventTime": "2026-10-26T00:14:57.771742094Z",
+      "eventTime": "2026-10-26T04:20:26.415357852Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865585",
+      "taskId": "35341584",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "71",
         "startedEventId": "72",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -1525,10 +1525,10 @@
     },
     {
       "eventId": "74",
-      "eventTime": "2026-10-26T00:14:57.771830217Z",
+      "eventTime": "2026-10-26T04:20:26.415459405Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865586",
+      "taskId": "35341585",
       "activityTaskScheduledEventAttributes": {
         "activityId": "11",
         "activityType": {
@@ -1565,26 +1565,26 @@
     },
     {
       "eventId": "75",
-      "eventTime": "2026-10-26T00:14:57.771879136Z",
+      "eventTime": "2026-10-26T04:20:26.415511547Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865589",
+      "taskId": "35341588",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "74",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "064b1b90-e806-46be-b2dd-ac741926c369",
+        "requestId": "74afb346-8198-4bfd-8ffa-897a47ad9a69",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "76",
-      "eventTime": "2026-10-26T00:14:57.908763075Z",
+      "eventTime": "2026-10-26T04:20:26.480882289Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865590",
+      "taskId": "35341589",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -1603,13 +1603,13 @@
     },
     {
       "eventId": "77",
-      "eventTime": "2026-10-26T00:14:57.908790939Z",
+      "eventTime": "2026-10-26T04:20:26.480907273Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865591",
+      "taskId": "35341590",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1619,32 +1619,32 @@
     },
     {
       "eventId": "78",
-      "eventTime": "2026-10-26T00:14:57.918897558Z",
+      "eventTime": "2026-10-26T04:20:26.494559256Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865595",
+      "taskId": "35341594",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "77",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "91f28aa1-0735-4462-88df-462834491319",
-        "historySizeBytes": "10901",
+        "requestId": "6871b648-1120-49ce-9ff1-d8579cb20cb2",
+        "historySizeBytes": "10906",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "79",
-      "eventTime": "2026-10-26T00:14:57.982697099Z",
+      "eventTime": "2026-10-26T04:20:26.554416053Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865600",
+      "taskId": "35341599",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "77",
         "startedEventId": "78",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}
@@ -1652,10 +1652,10 @@
     },
     {
       "eventId": "80",
-      "eventTime": "2026-10-26T00:14:57.982777755Z",
+      "eventTime": "2026-10-26T04:20:26.554496117Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865601",
+      "taskId": "35341600",
       "activityTaskScheduledEventAttributes": {
         "activityId": "12",
         "activityType": {
@@ -1692,26 +1692,26 @@
     },
     {
       "eventId": "81",
-      "eventTime": "2026-10-26T00:14:57.982860725Z",
+      "eventTime": "2026-10-26T04:20:26.554553215Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865604",
+      "taskId": "35341603",
       "activityTaskStartedEventAttributes": {
         "scheduledEventId": "80",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "1b930747-438e-42d0-8f6b-97969110dcac",
+        "requestId": "4b9262c5-cba9-4393-9e15-de3292c04435",
         "attempt": 1,
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "82",
-      "eventTime": "2026-10-26T00:14:58.041946998Z",
+      "eventTime": "2026-10-26T04:20:26.610068695Z",
       "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865605",
+      "taskId": "35341604",
       "activityTaskCompletedEventAttributes": {
         "result": {
           "payloads": [
@@ -1730,13 +1730,13 @@
     },
     {
       "eventId": "83",
-      "eventTime": "2026-10-26T00:14:58.041970211Z",
+      "eventTime": "2026-10-26T04:20:26.610090225Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
       "version": "102990",
-      "taskId": "38865606",
+      "taskId": "35341605",
       "workflowTaskScheduledEventAttributes": {
         "taskQueue": {
-          "name": "rusty-harness/0.1.0-4273fd2e234f48ea9f68fb72ceb34f08",
+          "name": "rusty-harness/0.1.0-11623d43873d42ecae11c525e3d59d25",
           "kind": "TASK_QUEUE_KIND_STICKY",
           "normalName": "rusty-harness-demo"
         },
@@ -1746,32 +1746,32 @@
     },
     {
       "eventId": "84",
-      "eventTime": "2026-10-26T00:14:58.055637956Z",
+      "eventTime": "2026-10-26T04:20:26.619431126Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
       "version": "102990",
-      "taskId": "38865610",
+      "taskId": "35341609",
       "workflowTaskStartedEventAttributes": {
         "scheduledEventId": "83",
         "identity": "rusty-harness/0.1.0",
-        "requestId": "e9f6ff80-3eb0-467f-89d7-5565f034d674",
-        "historySizeBytes": "11679",
+        "requestId": "fe5e4f7e-72a1-44dc-ade5-94a71b5c919d",
+        "historySizeBytes": "11686",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         }
       }
     },
     {
       "eventId": "85",
-      "eventTime": "2026-10-26T00:14:58.113238558Z",
+      "eventTime": "2026-10-26T04:20:26.675804508Z",
       "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
       "version": "102990",
-      "taskId": "38865614",
+      "taskId": "35341613",
       "workflowTaskCompletedEventAttributes": {
         "scheduledEventId": "83",
         "startedEventId": "84",
         "identity": "rusty-harness/0.1.0",
         "workerVersion": {
-          "buildId": "5bad5f6c"
+          "buildId": "0347f391"
         },
         "sdkMetadata": {},
         "meteringMetadata": {}

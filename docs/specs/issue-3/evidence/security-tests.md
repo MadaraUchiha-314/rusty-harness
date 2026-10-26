@@ -56,3 +56,54 @@ build since task 42 had added it, and scoped the host rule accordingly.
   The harness reads it by reference (`keyring:service=temporal,project=rusty-harness`) and
   uses it only against the configured namespace. Whether the key could reach other
   namespaces is a property of the key, set in Temporal Cloud by its owner.
+
+## Verification run
+
+Re-run at the verification node.
+
+### Abuse scenarios and the canary
+
+```sh
+cargo nextest run --workspace --all-features -E 'test(abuse_)'
+```
+
+Outcome: **passed** in 3s, 2026-10-25, at `0a97f5b`.
+
+```text
+Starting 19 tests across 33 binaries (228 tests skipped)
+        PASS [   0.100s] ( 1/19) rusty_harness harness::commands::tests::abuse_command_in_tool_result_is_not_parsed
+        PASS [   0.259s] ( 2/19) rusty_harness config::tests::abuse_literal_credential_in_config_is_refused
+        PASS [   0.170s] ( 3/19) rusty_harness harness::commands::tests::abuse_watcher_invoking_model_command_is_refused
+        PASS [   0.270s] ( 4/19) rusty_harness app_service::o11y::tests::abuse_canary_credential_appears_nowhere_observable
+        PASS [   0.015s] ( 5/19) rusty_harness harness::core_loop::context_window::tests::abuse_injected_instructions_in_tool_result_change_no_policy_config_or_role
+        PASS [   0.079s] ( 6/19) rusty_harness harness::tools::tests::abuse_denied_tool_call_is_not_executed_and_model_receives_a_tool_error
+        PASS [   0.349s] ( 7/19) rusty_harness harness::a2a_client::tests::abuse_agent_call_to_an_unregistered_agent_is_refused
+        PASS [   0.922s] ( 8/19) rusty_harness::cli abuse_remote_durable_unreachable_refuses_to_start
+        PASS [   0.009s] ( 9/19) rusty_harness::plugins abuse_plugin_manifest_escaping_its_directory_is_refused_whole
+        PASS [   0.980s] (10/19) rusty_harness::canary abuse_canary_credential_appears_nowhere_observable_end_to_end
+        PASS [   0.046s] (11/19) rusty_harness::sdk abuse_watcher_command_through_the_agent_is_refused
+        PASS [   0.929s] (12/19) rusty_harness::inbox abuse_inbox_event_for_a_terminal_task_is_rejected_without_creating_one
+        PASS [   0.937s] (13/19) rusty_harness::inbox_route abuse_inbox_post_from_a_non_participant_is_refused_and_a_participants_is_applied
+        PASS [   0.157s] (14/19) rusty_harness::server_auth abuse_unauthenticated_send_message_is_rejected_before_any_task_is_created
+        PASS [   0.006s] (15/19) rusty_harness::speech abuse_voice_key_never_leaves_the_harness
+        PASS [   0.032s] (16/19) rusty_harness::tools_mcp abuse_denied_tool_call_is_not_executed_and_model_receives_a_tool_error
+        PASS [   0.268s] (17/19) rusty_harness::server_auth abuse_non_participant_gets_task_not_found_and_empty_list_tasks
+        PASS [   0.257s] (18/19) rusty_harness::server_channels abuse_push_config_naming_a_link_local_address_is_rejected
+        PASS [   0.381s] (19/19) rusty_harness::server_auth abuse_ninth_stream_of_one_caller_is_rejected_and_the_other_task_keeps_streaming
+     Summary [   1.631s] 19 tests run: 19 passed, 228 skipped
+```
+
+### Bundle scan
+
+```sh
+bun run test:bundle-scan
+```
+
+Outcome: **passed** in 2s, 2026-10-25, at `0a97f5b`.
+
+```text
+✓ 3057 modules transformed.
+✓ built in 1.22s
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+```

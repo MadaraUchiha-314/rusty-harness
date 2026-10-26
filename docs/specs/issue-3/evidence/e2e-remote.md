@@ -7,7 +7,7 @@
 | Scenario | *The demo runs end to end in remote mode* (`tests/e2e.rs::e2e_remote_the_demo_runs_end_to_end`) |
 | Command | `RH_E2E_EVIDENCE=… cargo nextest run -p rusty_harness --features cli -E 'test(e2e_remote_)' --run-ignored all` |
 | Configuration | [`tests/fixtures/demo/config.remote.toml`](../../../../crates/rusty-harness/tests/fixtures/demo/config.remote.toml): as `none`, with `durable.mode = "remote"` on Temporal Cloud: address and namespace by `file:~/.config/rusty-harness/…`, API key by `keyring:service=temporal,project=rusty-harness` (R32.4) |
-| Outcome | **passed** (20.3 s), 2026-10-25 |
+| Outcome | **passed** (24.3 s), 2026-10-25, re-run at the verification node on `0a97f5b` (first run 20.3 s, task 46) |
 | Workflow history | `scripts/demo-history.sh <task id> …`: 85 events (one workflow started, 12 activities, 3 signals, one per turn); the workflow is still running because the task stays open |
 
 The same three turns as [the `none` run](e2e-none.md), with every phase of the loop a

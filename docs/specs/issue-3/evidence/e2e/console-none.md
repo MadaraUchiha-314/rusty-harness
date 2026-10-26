@@ -1,12 +1,12 @@
 ## Turn 1: the TUI asks; the model asks back through A2UI
 
 ```text
-┌ demo-agent · 01a17568-cbbd-74b8-957e-31b765fe251b · 01a17568-cbbe-75 ◐ input-required awaiting participant ┐
+┌ demo-agent · 01a1766f-427c-70cf-95ef-f4d6b36ff4d8 · 01a1766f-427c-70 ◐ input-required awaiting participant ┐
 │                                                                                                            │
-│ you 23:32                                                                                                  │
+│ you 04:19                                                                                                  │
 │   Draft the release notes for rusty-harness 0.2: the npm and PyPI packages, the Responses API, voice. Keep │
 │                                                                                                            │
-│ demo-agent 23:32 · asked you on channel 2b529609-8ec9-568a-a61f-3f711e6f2d7e                               │
+│ demo-agent 04:19 · asked you on channel 4ff698b6-0bd2-5041-96ad-135940be648b                               │
 │   ╭─ a2ui · basic catalog ────────────────────────────────────────────────────────────────────────╮        │
 │   │  Which audience are these notes for?                                                                   │
 │   │                                                                                                        │
@@ -46,12 +46,12 @@
 ## Turn 2: the form is answered; the model drafts
 
 ```text
-┌ demo-agent · 01a17568-cbbd-74b8-957e-31b765fe251b · 01a17568-cbbe-750c ◐ input-required awaiting next turn ┐
+┌ demo-agent · 01a1766f-427c-70cf-95ef-f4d6b36ff4d8 · 01a1766f-427c-70cf ◐ input-required awaiting next turn ┐
 │                                                                                                            │
-│ you 23:32                                                                                                  │
+│ you 04:19                                                                                                  │
 │   Draft the release notes for rusty-harness 0.2: the npm and PyPI packages, the Responses API, voice. Keep │
 │                                                                                                            │
-│ demo-agent 23:32 · asked you on channel 2b529609-8ec9-568a-a61f-3f711e6f2d7e                               │
+│ demo-agent 04:19 · asked you on channel 4ff698b6-0bd2-5041-96ad-135940be648b                               │
 │   ╭─ a2ui · basic catalog ────────────────────────────────────────────────────────────────────────╮        │
 │   │  Which audience are these notes for?                                                                   │
 │   │                                                                                                        │
@@ -68,15 +68,15 @@
 │   ╰───────────────────────────────────────────────────────────────────────────────────────────────╯        │
 │   → answer                                                                                                 │
 │                                                                                                            │
-│ demo-agent 23:32                                                                                           │
-│   ## rusty-harness 0.2 — Draft release notes                                                               │
+│ demo-agent 04:19                                                                                           │
+│   Draft — rusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities.   │
 │                                                                                                            │
-│   rusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities to your ag │
+│   - npm package: Get started with rusty-harness in JavaScript and TypeScript projects.                     │
+│   - PyPI package: Bring rusty-harness into your Python workflows.                                          │
+│   - Responses API: Build agent interactions using the Responses API.                                       │
+│   - Voice: Explore voice-based interactions alongside text.                                                │
 │                                                                                                            │
-│   - npm package: Bring rusty-harness into your JavaScript and TypeScript projects.                         │
-│   - PyPI package: Add rusty-harness to your Python projects.                                               │
-│   - Responses API: Build agent workflows using the Responses API.                                          │
-│   - Voice: Extend your agent experiences with voice interactions.                                          │
+│                                                                                                            │
 │                                                                                                            │
 │                                                                                                            │
 │                                                                                                            │
@@ -91,7 +91,9 @@
 ## Turn 3: the second client revises; the TUI shows it
 
 ```text
-┌ demo-agent · 01a17568-cbbd-74b8-957e-31b765fe251b · 01a17568-cbbe-750c ◐ input-required awaiting next turn ┐
+┌ demo-agent · 01a1766f-427c-70cf-95ef-f4d6b36ff4d8 · 01a1766f-427c-70cf ◐ input-required awaiting next turn ┐
+│   ╭─ a2ui · basic catalog ────────────────────────────────────────────────────────────────────────╮        │
+│   │  Which audience are these notes for?                                                                   │
 │   │                                                                                                        │
 │   │  The tone and the level of detail depend on it. Pick one, or type another.                             │
 │   │                                                                                                        │
@@ -106,25 +108,23 @@
 │   ╰───────────────────────────────────────────────────────────────────────────────────────────────╯        │
 │   → answer                                                                                                 │
 │                                                                                                            │
-│ demo-agent 23:32                                                                                           │
-│   ## rusty-harness 0.2 — Draft release notes                                                               │
+│ demo-agent 04:19                                                                                           │
+│   Draft — rusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities.   │
 │                                                                                                            │
-│   rusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities to your ag │
+│   - npm package: Get started with rusty-harness in JavaScript and TypeScript projects.                     │
+│   - PyPI package: Bring rusty-harness into your Python workflows.                                          │
+│   - Responses API: Build agent interactions using the Responses API.                                       │
+│   - Voice: Explore voice-based interactions alongside text.                                                │
 │                                                                                                            │
-│   - npm package: Bring rusty-harness into your JavaScript and TypeScript projects.                         │
-│   - PyPI package: Add rusty-harness to your Python projects.                                               │
-│   - Responses API: Build agent workflows using the Responses API.                                          │
-│   - Voice: Extend your agent experiences with voice interactions.                                          │
-│                                                                                                            │
-│ you 23:32                                                                                                  │
+│ you 04:19                                                                                                  │
 │   Shorter, please: three bullets at most.                                                                  │
 │                                                                                                            │
-│ demo-agent 23:32                                                                                           │
-│   rusty-harness 0.2 makes it easier to build agents across languages and voice. (Draft)                    │
+│ demo-agent 04:19                                                                                           │
+│   Draft — rusty-harness 0.2 adds more ways to build and interact with agents.                              │
 │                                                                                                            │
-│   - npm and PyPI packages for JavaScript, TypeScript, and Python projects.                                 │
-│   - Responses API support for agent workflows.                                                             │
-│   - Voice capabilities for spoken interactions.                                                            │
+│   - Get started with npm and PyPI packages.                                                                │
+│   - Build agent interactions with Responses API support.                                                   │
+│   - Explore voice alongside text.                                                                          │
 │ plan no plan yet───────────────────────────────────────────────────────────────────────────────────────────│
 │ › ▏                                                                                                        │
 │                                                                                                            │

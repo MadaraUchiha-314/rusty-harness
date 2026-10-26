@@ -58,7 +58,7 @@ that point; the full matrix is the condition for the last milestone.
 | T10 | Migration / upgrade | n/a — the repository has no users, data or configuration before this work item; the config schema and the store layout are versioned from their first release so a later work item can add this row | | |
 | T11 | Manual exploratory | yes | what automation cannot reach: voice on the TUI (push-to-talk, hold vs toggle) and on the web (microphone capture, playback), Realtime latency, the demo screen recording (R32.6); procedure in `evidence/manual.md` | the demo environment below, recorded |
 | T12 | WASM / browser | yes | the core on `wasm32`: compile check, no tokio in the tree, a task end to end against a mocked `HttpClient` and host in Node and headless Chrome (R29.4–5), the published npm package's types | `cargo check --target wasm32-unknown-unknown -p rusty_harness --no-default-features --features rt-wasm`; `wasm-pack test --node` and `--headless --chrome` in `crates/rusty-harness-wasm`; `bun run test` there |
-| T13 | Chaos / crash recovery | yes | R22.5's kill-the-worker tests, the store-journal crash test and the outbound-reconciliation crash test: kill the activity worker during `call_model` → one re-dispatch, no duplicate tool side effect; kill the workflow worker → replay on another worker with no repeated side effect; kill the process in `none` mode → restart resumes from the last persisted iteration (R14.4) | `cargo nextest run -p rusty_harness --features durable-embedded -E 'test(chaos_)'` (two worker processes against the ephemeral dev server; the test kills one with SIGKILL) |
+| T13 | Chaos / crash recovery | yes | R22.5's kill-the-worker tests, the store-journal crash test and the outbound-reconciliation crash test: kill the activity worker during `call_model` → one re-dispatch, no duplicate tool side effect; kill the workflow worker → replay on another worker with no repeated side effect; kill the process in `none` mode → restart resumes from the last persisted iteration (R14.4) | `cargo nextest run -p rusty_harness --features durable-embedded,server -E 'test(chaos_)'` (two worker processes against the ephemeral dev server; the test kills one with SIGKILL) |
 | T14 | i18n / l10n | yes | R33: every prompt fragment resolves to a file and every fragment id in a trace maps back; `strings/en.json` keys compile to constants; a second-locale fixture (test-only, not shipped, Q19) falls back per key; placeholder sets match; the `no_raw_prompt_literals` lint | `cargo nextest run -p rusty_harness -E 'test(assets_)'`; `bun run --cwd web test:strings` |
 | T15 | Python bindings | yes | awaitable and `*_sync` parity for every exported API, typed configuration round-trip, `pyright` strict on package and tests (R3.3, R30.2) | `uv run maturin develop && uv run pytest && uv run pyright` in `crates/rusty-harness-py` |
 | T16 | Static checks | yes | the repository's lint floor on every PR: fmt, clippy pedantic with warnings denied, `missing_docs`, rustdoc, `tsc` strict, oxlint, markdownlint, commitlint, `cargo machete` | `cargo fmt --all --check && cargo clippy --all-targets --all-features -- -D warnings && cargo doc --no-deps --all-features`; `bun run lint && bun run format && bun run lint:md` |
@@ -160,36 +160,36 @@ that point; the full matrix is the condition for the last milestone.
 > why under Verification results and either replan this matrix (with the reason) or
 > escalate.
 
-- [ ] T16 — `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`
-- [ ] T16 — `cargo doc --no-deps --all-features`, `cargo deny check`, `cargo machete`
-- [ ] T16 — `bun run lint && bun run format && bun run lint:md && bunx tsc --noEmit -p web`
-- [ ] T1 — `cargo nextest run --workspace --all-features -E 'kind(lib)'`
-- [ ] T1 — `cargo test --doc --workspace --all-features`
-- [ ] T1 — `bun run --cwd web test`
-- [ ] T2 — `cargo nextest run --workspace --all-features -E 'kind(test)'` (includes the
+- [x] T16 — `cargo fmt --all --check`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] T16 — `cargo doc --no-deps --all-features`, `cargo deny check`, `cargo machete`
+- [x] T16 — `bun run lint && bun run format && bun run lint:md && bunx tsc --noEmit -p web`
+- [x] T1 — `cargo nextest run --workspace --all-features -E 'kind(lib)'`
+- [x] T1 — `cargo test --doc --workspace --all-features`
+- [x] T1 — `bun run --cwd web test`
+- [x] T2 — `cargo nextest run --workspace --all-features -E 'kind(test)'` (includes the
   Temporal scenarios on the ephemeral dev server)
-- [ ] T3 — `cargo nextest run -p rusty_harness -E 'test(contract_)'`
-- [ ] T3 — `bun run --cwd web test:contract` (official TypeScript SDK as the A2A client)
-- [ ] T3 — `cargo run -p rusty-harness-py --bin stub_gen` then `git diff --exit-code` on the stub
-- [ ] T6 — `cargo nextest run -p rusty_harness -E 'test(snapshot_)'`
-- [ ] T8 — `cargo nextest run --workspace --all-features -E 'test(abuse_)'` (includes the canary run)
-- [ ] T8 — `bun run --cwd web test:bundle-scan`
-- [ ] T12 — the wasm32 `cargo check` and the `cargo tree` tokio check from CI's `wasm-check` job
-- [ ] T12 — in `crates/rusty-harness-wasm`: `wasm-pack test --node`, `wasm-pack test --headless --chrome`
-- [ ] T12 — in `crates/rusty-harness-wasm`: `bun run build && bun run test`
-- [ ] T13 — `cargo nextest run -p rusty_harness --features durable-embedded -E 'test(chaos_)'`
-- [ ] T14 — `cargo nextest run -p rusty_harness -E 'test(assets_)'`
-- [ ] T14 — `bun run --cwd web test:strings`
-- [ ] T15 — in `crates/rusty-harness-py`: `uv run maturin develop && uv run pytest && uv run pyright`
-- [ ] T5 — `bun run --cwd web test:visual`
-- [ ] T5 — `cargo nextest run -p rusty_harness --features tui -E 'test(tui_snapshot_)'`
-- [ ] T9 — `bun run --cwd web test:a11y` and the `NO_COLOR=1` TUI snapshot leg
-- [ ] T7 — `cargo bench -p rusty_harness --bench loop_overhead` and `scripts/measure.sh`
-- [ ] T4 — `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_none_)' --run-ignored all`
+- [x] T3 — `cargo nextest run -p rusty_harness -E 'test(contract_)'`
+- [x] T3 — `bun run --cwd web test:contract` (official TypeScript SDK as the A2A client)
+- [x] T3 — `cargo run -p rusty-harness-py --bin stub_gen` then `git diff --exit-code` on the stub
+- [x] T6 — `cargo nextest run -p rusty_harness -E 'test(snapshot_)'`
+- [x] T8 — `cargo nextest run --workspace --all-features -E 'test(abuse_)'` (includes the canary run)
+- [x] T8 — `bun run --cwd web test:bundle-scan`
+- [x] T12 — the wasm32 `cargo check` and the `cargo tree` tokio check from CI's `wasm-check` job
+- [x] T12 — in `crates/rusty-harness-wasm`: `wasm-pack test --node`, `wasm-pack test --headless --chrome`
+- [x] T12 — in `crates/rusty-harness-wasm`: `bun run build && bun run test`
+- [x] T13 — `cargo nextest run -p rusty_harness --features durable-embedded,server -E 'test(chaos_)'`
+- [x] T14 — `cargo nextest run -p rusty_harness -E 'test(assets_)'`
+- [x] T14 — `bun run --cwd web test:strings`
+- [x] T15 — in `crates/rusty-harness-py`: `uv run maturin develop && uv run pytest && uv run pyright`
+- [x] T5 — `bun run --cwd web test:visual`
+- [x] T5 — `cargo nextest run -p rusty_harness --features tui -E 'test(tui_snapshot_)'`
+- [x] T9 — `bun run --cwd web test:a11y` and the `NO_COLOR=1` TUI snapshot leg
+- [x] T7 — `cargo bench -p rusty_harness --bench loop_overhead` and `scripts/measure.sh`
+- [x] T4 — `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_none_)' --run-ignored all`
   (needs `OPENAI_API_KEY`)
-- [ ] T4 — `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_remote_)' --run-ignored all`
+- [x] T4 — `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_remote_)' --run-ignored all`
   (needs `OPENAI_API_KEY`, `TEMPORAL_*`)
-- [ ] T4 — `bun run --cwd web test:e2e` against the running demo
+- [x] T4 — `bun run --cwd web test:e2e` against the running demo
 - [ ] T11 — the manual procedures in `evidence/manual.md` (voice on TUI and web; the demo recording)
 
 ## Verification results
@@ -198,13 +198,52 @@ that point; the full matrix is the condition for the last milestone.
 > `verification`. One row per executed activity: the exact command or procedure, the
 > outcome, and a link to the committed evidence.
 
-_Not yet executed._
+Executed 2026-10-25 on `loop/issue-3-m7-ship` at `0a97f5b` (Linux x64), sequentially with
+`CARGO_BUILD_JOBS=2`. Every automated activity passed; three plan defects were found and
+fixed in this run (marked below).
+
+<!-- markdownlint-disable MD013 -->
 
 | Activity | Command / procedure | Outcome | Evidence |
 |----------|--------------------|---------|----------|
-| | | | |
+| T16 fmt, clippy | `cargo fmt --all --check`; `cargo clippy --all-targets --all-features -- -D warnings` | passed | [`static.md`](evidence/static.md) |
+| T16 doc, deny, machete | `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --all-features --workspace`; `cargo deny check`; `cargo machete` | passed (deny: advisories, bans, licenses, sources ok; 40 allowed duplicate-version warnings) | [`static.md`](evidence/static.md) |
+| T16 JS and docs lint | `bun run lint && bun run format && bun run lint:md && bunx tsc --noEmit -p web` | passed | [`static.md`](evidence/static.md) |
+| T1 unit (Rust) | `cargo nextest run --workspace --all-features -E 'kind(lib)'` | passed: 156/156 | [`unit.md`](evidence/unit.md) |
+| T1 doctests | `cargo test --doc --workspace --all-features` | passed: 3 doctests, one of them the `compile_fail` proof that `Secret` cannot serialize | [`unit.md`](evidence/unit.md) |
+| T1 unit (web) | `bun run --cwd web test` | passed: 24 tests in 7 files | [`unit.md`](evidence/unit.md) |
+| T2 integration | `cargo nextest run --workspace --all-features -E 'kind(test)'` | passed: 84/84 (5 credential- or chaos-gated skipped, run by T4 and T13); 60 Gherkin scenarios listed | [`integration.md`](evidence/integration.md) |
+| T3 contract | `cargo nextest run -p rusty_harness --all-features -E 'test(contract_)'` | passed: 8/8 | [`contract.md`](evidence/contract.md) |
+| T3 official SDK | `bun run --cwd web test:contract` against the built binary | passed: 2/2 | [`contract.md`](evidence/contract.md) |
+| T3 Python stub | `cargo run -p rusty-harness-py --bin stub_gen` then `git diff --exit-code -- rusty_harness.pyi` | passed: no difference | [`contract.md`](evidence/contract.md) |
+| T6 snapshot | `cargo nextest run -p rusty_harness --all-features -E 'test(snapshot_)'` | passed: 17/17 | [`snapshot.md`](evidence/snapshot.md) |
+| T8 abuse and canary | `cargo nextest run --workspace --all-features -E 'test(abuse_)'` | passed: 19/19 | [`security-tests.md`](evidence/security-tests.md) |
+| T8 bundle scan | `bun run --cwd web test:bundle-scan` | passed: 1/1 | [`security-tests.md`](evidence/security-tests.md) |
+| T12 wasm32 check, no tokio | `cargo check --target wasm32-unknown-unknown …` and `! cargo tree … \| grep tokio` | passed | [`wasm.md`](evidence/wasm.md) |
+| T12 wasm-pack | `wasm-pack test --node`; `wasm-pack test --headless --chrome` | passed: 4 in Node, 3 in Chrome | [`wasm.md`](evidence/wasm.md) |
+| T12 npm package | `bun run build && bun run test` in `crates/rusty-harness-wasm` | passed: 7/7 | [`wasm.md`](evidence/wasm.md) |
+| T13 chaos | `cargo nextest run -p rusty_harness --features durable-embedded,server -E 'test(chaos_)'` | passed: 5/5. **Replanned:** the planned `--features durable-embedded` did not compile `durable_chaos.rs` (its outbound scenario needs the `server` peer); the file (and `durable_temporal.rs`, which had the same gap) is now gated on both, and the command names both | [`chaos.md`](evidence/chaos.md) |
+| T14 assets | `cargo nextest run -p rusty_harness --all-features -E 'test(assets_)'` | passed: 3/3 | [`assets.md`](evidence/assets.md) |
+| T14 web strings | `bun run --cwd web test:strings` | passed: 2 tests. **Fixed:** the script's `--dir src` matched no file, so it had never run anything | [`assets.md`](evidence/assets.md) |
+| T15 Python | `uv run maturin develop && uv run pytest && uv run pyright` | passed: 16 tests, pyright 0 errors | [`python.md`](evidence/python.md) |
+| T5 web visual | `bash web/scripts/visual-in-container.sh` (the CI image, via podman) | passed: 8 visual tests covering the 9 states (tool and denied share one) and 1 phone-width test | [`ui.md`](evidence/ui.md) |
+| T5 TUI states | `cargo nextest run -p rusty_harness --all-features -E 'test(tui_snapshot_)'` | passed: 6/6 | [`ui.md`](evidence/ui.md) |
+| T9 accessibility | axe (the a11y project of the same run); the TUI states with `NO_COLOR=1` | passed: 4 axe cases in both themes, 6 TUI states | [`accessibility.md`](evidence/accessibility.md) |
+| T7 performance | `cargo bench -p rusty_harness --bench loop_overhead`; `scripts/measure.sh` | measured, every target within budget: p50 289 µs (5 ms), cold start 24 ms (200 ms), binary 19.9 MB (25 MB), wasm 1.29 MB gzipped (3 MB) | [`performance.md`](evidence/performance.md) |
+| T4 demo, `none` | `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_none_)' --run-ignored all` | passed (17.8 s), live on `gpt-6.1-sol` | [`e2e-none.md`](evidence/e2e-none.md) |
+| T4 demo, `remote` | `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_remote_)' --run-ignored all` | passed (24.3 s), live on Temporal Cloud; 85 history events | [`e2e-remote.md`](evidence/e2e-remote.md) |
+| T4 browser leg | `RH_DEMO_URL=… bunx playwright test --project=e2e` against the demo binary | passed (17.3 s). **Fixed on the way:** the first attempt ran the binary from the wrong directory, and the harness started silently without the configured plugin; an unlistable plugin path now fails the build | [`e2e-none.md`](evidence/e2e-none.md) |
+| T11 manual | the procedures in `evidence/manual.md` | **partly executed:** V4 (the recording of both renderers) done in task 46; V1–V3 (voice with a real microphone and speakers) need a person and were not run | [`manual.md`](evidence/manual.md) |
 
-**Not executed:** _none yet._
+<!-- markdownlint-enable MD013 -->
+
+**Not executed:** T11's V1–V3. They need a person at a microphone and speakers. The
+operator was asked on #3 whether to run them, record them as not executed, or replan
+T11; until an answer, they are recorded as not executed and the T11 activity stays
+unticked. Their automated stand-ins ran: the TUI scenario that sends a capture as a voice
+part and queues the spoken reply (T2), the Realtime session-config snapshot (T6), the
+voice-key abuse test (T8), and the voice states of the TUI and the web renderer (T5,
+`voice: listening, then the utterance is sent as 24 kHz PCM`).
 
 ## Review comments
 

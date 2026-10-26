@@ -18,6 +18,18 @@ fills in **Outcome** and **When**; until then each one reads _not yet executed_.
 
 - `OPENAI_API_KEY` set in the environment (by reference only; never written down here).
 
+## Status at the verification node (2026-10-25)
+
+V4 is executed. V1–V3 are **not executed**: each needs a person speaking into a real
+microphone and listening to speakers, which an unattended session cannot do. The
+operator was asked on
+[#3](https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6407596204)
+whether to run them, keep them recorded as not executed, or replan T11. What does run
+automatically: the TUI scenario that sends a capture as a voice part and queues the
+spoken reply for playback, the Realtime session-config snapshot, the voice-key abuse
+test, and the voice states of the TUI and the web renderer (the utterance sent as 24 kHz
+PCM).
+
 ## V1 — TUI push-to-talk, hold (kitty keyboard protocol)
 
 1. Run `rusty-harness` in a terminal that implements the kitty keyboard protocol
@@ -66,7 +78,12 @@ to the provider.
 ## V4 — The demo recording (R32.6)
 
 Recorded with task 46: the definition-of-done demo on the TUI and the web against one
-harness, captured as a screen recording under `evidence/ui/`.
+harness, captured as a screen recording.
 
-- **Outcome:** _not yet executed_
-- **When:** —
+- **Outcome:** executed. The demo harness, the web renderer and the TUI (in a browser
+  terminal through `ttyd`, attached with `--url`) side by side, each working a task
+  through the A2UI ask to the draft:
+  [`e2e/demo-both-renderers.webm`](e2e/demo-both-renderers.webm), last frame
+  [`e2e/demo-both-renderers.png`](e2e/demo-both-renderers.png)
+  (`web/tests/e2e/demo-recording.spec.ts`, passed in 25.5 s).
+- **When:** 2026-10-25 (task 46)

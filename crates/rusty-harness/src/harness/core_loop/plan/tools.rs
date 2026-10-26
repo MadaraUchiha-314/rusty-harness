@@ -386,7 +386,13 @@ impl PlanStepDoneTool {
             plan.clone(),
         )
         .await
-        .map_err(|e| failed(STEP_DONE_TOOL, e))?;
+        .map_err(|e| match e {
+            crate::HarnessError::Vetoed(v) => ToolError::Denied {
+                tool: STEP_DONE_TOOL.into(),
+                reason: v.reason,
+            },
+            other => failed(STEP_DONE_TOOL, other),
+        })?;
         Ok(output(&plan))
     }
 }

@@ -265,3 +265,74 @@ async fn two_steps_recorded_in_one_turn_are_both_kept() {
         );
     }
 }
+
+/// Scenario: A vetoed step record is denied, not failed
+///     Given a `plan.persist` hook that refuses any plan with a finished step
+///     When the model plans and then records a step done
+///     Then the model is told the record was denied, with the hook's reason (R4)
+#[tokio::test]
+async fn a_vetoed_step_record_is_denied_not_failed() {
+    use rusty_harness::harness::core_loop::plan::{Plan, PlanPersist};
+    use rusty_harness::harness::hooks::{
+        Hook, HookCx, HookError, HookOrder, PreHook, PreOutcome, Veto,
+    };
+    use rusty_harness::registry::EntityId;
+    struct Frozen;
+    #[async_trait::async_trait]
+    impl PreHook<PlanPersist> for Frozen {
+        async fn pre(&self, _cx: &HookCx, plan: Plan) -> Result<PreOutcome<Plan>, HookError> {
+            if plan.step("a").is_some_and(|s| s.status == StepStatus::Done) {
+                Ok(PreOutcome::Veto(Veto {
+                    reason: "policy.frozen-plan".into(),
+                    detail: None,
+                    by: EntityId::new("frozen"),
+                }))
+            } else {
+                Ok(PreOutcome::Continue(plan))
+            }
+        }
+    }
+    let llm = Arc::new(RecordedLlm::new(
+        "default",
+        vec![
+            call(
+                "c1",
+                "plan.update",
+                json!({ "steps": [{ "id": "a", "name": "A" }] }),
+            ),
+            call("c2", "plan.step_done", json!({ "step": "a" })),
+            text("Noted."),
+        ],
+    ));
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    harness.hooks().register::<PlanPersist>(
+        EntityId::new("frozen"),
+        Hook::Pre(Arc::new(Frozen)),
+        HookOrder::default(),
+    );
+    let _: Vec<_> = harness
+        .send_message(request("t-veto"), None)
+        .collect()
+        .await;
+    let told = llm.requests()[2]
+        .messages
+        .iter()
+        .filter(|m| m.tool_call_id.as_deref() == Some("c2"))
+        .flat_map(|m| m.parts.iter())
+        .filter_map(|p| match p {
+            rusty_harness::harness::models::llm::ContentPart::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<String>();
+    assert!(
+        told.contains("policy.frozen-plan"),
+        "the reason reaches the model: {told}"
+    );
+    assert!(told.contains("denied"), "a veto is a denial: {told}");
+    assert!(!told.contains("failed"), "not an internal failure: {told}");
+}

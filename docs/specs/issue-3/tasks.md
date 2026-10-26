@@ -531,7 +531,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Depends on:_ 49
   - _Requirements:_ the-loop's knowledge trees (CLAUDE.md)
   - _Test:_ T16 — `bun run lint:md`
-- [ ] 51. Verification evidence: the testing plan's activities executed and ticked, every
+- [x] 51. Verification evidence: the testing plan's activities executed and ticked, every
   evidence file under `evidence/` per the evidence plan (redacted), `Verification
   results` filled, `evidence/final-validation.md` summarised from it.
   - _Depends on:_ 47, 48, 49

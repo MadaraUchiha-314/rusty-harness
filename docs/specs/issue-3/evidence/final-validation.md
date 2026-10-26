@@ -14,7 +14,8 @@ workItem: "issue-3"
 **In short:** every automated row of the test matrix ran on 2026-10-25 at `0a97f5b` and
 passed, including both live demo runs (`none` on OpenAI, `remote` on Temporal Cloud) and
 the browser leg. One gap is open: the manual voice procedures V1–V3 (R28 with a real
-microphone and speakers) were not run, and the operator was asked on #3 how to close it.
+microphone and speakers) were not run; the operator will run them after the merge
+([decided on #3](https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6409132309)).
 Verification also found and fixed three defects: a plugin path that could not be read
 was skipped silently, the chaos suite did not compile under its planned features, and
 the web `test:strings` script had never run a test.

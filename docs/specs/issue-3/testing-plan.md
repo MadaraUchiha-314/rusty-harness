@@ -238,12 +238,14 @@ fixed in this run (marked below).
 <!-- markdownlint-enable MD013 -->
 
 **Not executed:** T11's V1–V3. They need a person at a microphone and speakers. The
-operator was asked on #3 whether to run them, record them as not executed, or replan
-T11; until an answer, they are recorded as not executed and the T11 activity stays
-unticked. Their automated stand-ins ran: the TUI scenario that sends a capture as a voice
-part and queues the spoken reply (T2), the Realtime session-config snapshot (T6), the
-voice-key abuse test (T8), and the voice states of the TUI and the web renderer (T5,
-`voice: listening, then the utterance is sent as 24 kHz PCM`).
+operator chose to keep them recorded as not executed and to run them after the merge
+([decided on #3][t11-decision]); the T11 activity stays unticked until then. Their
+automated stand-ins ran: the TUI scenario that sends a capture as a voice part and
+queues the spoken reply (T2), the Realtime session-config snapshot (T6), the voice-key
+abuse test (T8), and the voice states of the TUI and the web renderer (T5, `voice:
+listening, then the utterance is sent as 24 kHz PCM`).
+
+[t11-decision]: https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6409132309
 
 ## Review comments
 

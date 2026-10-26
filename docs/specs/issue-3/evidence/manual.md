@@ -22,10 +22,10 @@ fills in **Outcome** and **When**; until then each one reads _not yet executed_.
 
 V4 is executed. V1–V3 are **not executed**: each needs a person speaking into a real
 microphone and listening to speakers, which an unattended session cannot do. The
-operator was asked on
-[#3](https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6407596204)
-whether to run them, keep them recorded as not executed, or replan T11. What does run
-automatically: the TUI scenario that sends a capture as a voice part and queues the
+operator was asked on the issue ([question][t11-question]) whether to run them, keep
+them recorded as not executed, or replan T11. The operator chose to keep them recorded
+as not executed and to run them after the merge ([decision][t11-decision]). What does
+run automatically: the TUI scenario that sends a capture as a voice part and queues the
 spoken reply for playback, the Realtime session-config snapshot, the voice-key abuse
 test, and the voice states of the TUI and the web renderer (the utterance sent as 24 kHz
 PCM).
@@ -87,3 +87,6 @@ harness, captured as a screen recording.
   [`e2e/demo-both-renderers.png`](e2e/demo-both-renderers.png)
   (`web/tests/e2e/demo-recording.spec.ts`, passed in 25.5 s).
 - **When:** 2026-10-25 (task 46)
+
+[t11-decision]: https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6409132309
+[t11-question]: https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6407596204

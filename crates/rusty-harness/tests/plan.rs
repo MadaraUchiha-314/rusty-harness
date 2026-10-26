@@ -336,3 +336,59 @@ async fn a_vetoed_step_record_is_denied_not_failed() {
     assert!(told.contains("denied"), "a veto is a denial: {told}");
     assert!(!told.contains("failed"), "not an internal failure: {told}");
 }
+
+/// Scenario: A plan hook sees the harness's registry
+///     Given a `plan.persist` hook that looks up the registered tools
+///     When the model sets a plan
+///     Then the hook finds the built-in tools, `plan.update` among them, as every other
+///     operation's hooks do
+#[tokio::test]
+async fn a_plan_hook_sees_the_harness_registry() {
+    use rusty_harness::harness::core_loop::plan::{Plan, PlanPersist};
+    use rusty_harness::harness::hooks::{Hook, HookCx, HookError, HookOrder, PreHook, PreOutcome};
+    use rusty_harness::harness::tools::Tool;
+    use rusty_harness::registry::EntityId;
+    struct Looks(Arc<std::sync::Mutex<Vec<String>>>);
+    #[async_trait::async_trait]
+    impl PreHook<PlanPersist> for Looks {
+        async fn pre(&self, cx: &HookCx, plan: Plan) -> Result<PreOutcome<Plan>, HookError> {
+            let names = cx
+                .registry
+                .list::<dyn Tool>()
+                .iter()
+                .map(|t| t.entity_id().id.to_string())
+                .collect();
+            *self.0.lock().unwrap() = names;
+            Ok(PreOutcome::Continue(plan))
+        }
+    }
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let llm = Arc::new(RecordedLlm::new(
+        "default",
+        vec![
+            call(
+                "c1",
+                "plan.update",
+                json!({ "steps": [{ "id": "a", "name": "A" }] }),
+            ),
+            text("Planned."),
+        ],
+    ));
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    harness.hooks().register::<PlanPersist>(
+        EntityId::new("looks"),
+        Hook::Pre(Arc::new(Looks(Arc::clone(&seen)))),
+        HookOrder::default(),
+    );
+    let _: Vec<_> = harness.send_message(request("t-reg"), None).collect().await;
+    let seen = seen.lock().unwrap().clone();
+    assert!(
+        seen.iter().any(|n| n == "plan.update"),
+        "the hook saw: {seen:?}"
+    );
+}

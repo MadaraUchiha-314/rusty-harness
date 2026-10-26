@@ -338,12 +338,14 @@ impl HarnessBuilder {
                 Arc::clone(&store),
                 Arc::clone(&dispatcher),
                 Arc::clone(&plan_locks),
+                Arc::clone(&registry),
             )),
             Arc::new(
                 crate::harness::core_loop::plan::tools::PlanStepDoneTool::new(
                     Arc::clone(&store),
                     Arc::clone(&dispatcher),
                     Arc::clone(&plan_locks),
+                    Arc::clone(&registry),
                 ),
             ),
         ];

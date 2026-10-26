@@ -78,8 +78,8 @@ impl PlanLocks {
     }
 }
 
-fn hook_cx(cx: &ToolCx) -> HookCx {
-    let mut hook_cx = HookCx::new(Arc::new(Registry::new()), Arc::clone(&cx.host));
+fn hook_cx(registry: &Arc<Registry>, cx: &ToolCx) -> HookCx {
+    let mut hook_cx = HookCx::new(Arc::clone(registry), Arc::clone(&cx.host));
     hook_cx.task = Some(cx.task.clone());
     hook_cx
 }
@@ -125,6 +125,7 @@ pub struct PlanUpdateTool {
     store: Arc<dyn PersistenceStore>,
     dispatcher: Arc<HookDispatcher>,
     locks: Arc<PlanLocks>,
+    registry: Arc<Registry>,
 }
 
 impl core::fmt::Debug for PlanUpdateTool {
@@ -135,12 +136,13 @@ impl core::fmt::Debug for PlanUpdateTool {
 
 impl PlanUpdateTool {
     /// The tool over `store`, persisting through `plan.persist` hooks on `dispatcher`;
-    /// `locks` is shared with [`PlanStepDoneTool`].
+    /// `locks` is shared with [`PlanStepDoneTool`]; hooks see `registry`.
     #[must_use]
     pub fn new(
         store: Arc<dyn PersistenceStore>,
         dispatcher: Arc<HookDispatcher>,
         locks: Arc<PlanLocks>,
+        registry: Arc<Registry>,
     ) -> Self {
         Self {
             id: EntityId::new(UPDATE_TOOL),
@@ -174,6 +176,7 @@ impl PlanUpdateTool {
             store,
             dispatcher,
             locks,
+            registry,
         }
     }
 }
@@ -244,7 +247,7 @@ impl PlanUpdateTool {
         persist_plan(
             self.store.as_ref(),
             &self.dispatcher,
-            &hook_cx(cx),
+            &hook_cx(&self.registry, cx),
             plan.clone(),
         )
         .await
@@ -266,6 +269,7 @@ pub struct PlanStepDoneTool {
     store: Arc<dyn PersistenceStore>,
     dispatcher: Arc<HookDispatcher>,
     locks: Arc<PlanLocks>,
+    registry: Arc<Registry>,
 }
 
 impl core::fmt::Debug for PlanStepDoneTool {
@@ -276,12 +280,13 @@ impl core::fmt::Debug for PlanStepDoneTool {
 
 impl PlanStepDoneTool {
     /// The tool over `store`, running `step.execute` and `plan.persist` hooks; `locks` is
-    /// shared with [`PlanUpdateTool`].
+    /// shared with [`PlanUpdateTool`]; hooks see `registry`.
     #[must_use]
     pub fn new(
         store: Arc<dyn PersistenceStore>,
         dispatcher: Arc<HookDispatcher>,
         locks: Arc<PlanLocks>,
+        registry: Arc<Registry>,
     ) -> Self {
         Self {
             id: EntityId::new(STEP_DONE_TOOL),
@@ -303,6 +308,7 @@ impl PlanStepDoneTool {
             store,
             dispatcher,
             locks,
+            registry,
         }
     }
 }
@@ -365,7 +371,7 @@ impl PlanStepDoneTool {
             status,
             output: summary,
         };
-        let hook_cx = hook_cx(cx);
+        let hook_cx = hook_cx(&self.registry, cx);
         let recorded = self
             .dispatcher
             .run::<StepExecute, _, _>(&hook_cx, record, |r| async move { Ok(r) })

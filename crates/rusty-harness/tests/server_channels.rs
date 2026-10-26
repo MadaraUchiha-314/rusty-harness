@@ -502,3 +502,119 @@ async fn a_command_on_the_server_runs_with_the_senders_roles_on_the_task() {
     );
     running.stop();
 }
+
+/// A long-running task `id` with alice (admin, reporter) and bob (watcher) on it.
+fn shared_task(id: &str) -> TaskRecord {
+    TaskRecord::new(
+        TaskDraft {
+            id: id.into(),
+            context_id: format!("ctx-{id}"),
+            name: id.into(),
+            r#type: None,
+            goal: "ship".into(),
+            description: String::new(),
+            acceptance_criteria: vec![],
+            mode: TaskMode::LongRunning,
+            participants: vec![
+                Participant::human("alice", "Alice", [Role::Reporter, Role::Admin]),
+                Participant::human("bob", "Bob", [Role::Watcher]),
+            ],
+            parent_tasks: vec![],
+            reference_task_ids: vec![],
+            model: ModelSelection {
+                model: "default".into(),
+                effort: None,
+            },
+        },
+        chrono::Utc::now(),
+    )
+}
+
+/// Scenario: Only a task's participants open it through the SDK, and a cancel keeps the
+/// channel's question for its members
+///     Given two shared tasks, each waiting on a question asked of alice only
+///     When mallory, on neither task, reads, follows or cancels one through the SDK
+///     Then each call answers "task not found"
+///     And when bob cancels one through the SDK and the other through the server
+///     Then both cancelled tasks come back without the question (R18.5, abuse 2)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_participants_open_a_task_and_a_cancel_keeps_the_question_private() {
+    let ask = || {
+        vec![
+            ModelEvent::ToolCall {
+                call: ToolCall {
+                    id: "c1".into(),
+                    name: "participant.ask".into(),
+                    arguments: json!({ "to": ["alice"], "question": "Deploy to prod?" }),
+                },
+            },
+            ModelEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ]
+    };
+    let h = harness(vec![ask(), ask()], |_| {}).await;
+    for id in ["one", "two"] {
+        h.store()
+            .commit(TaskCommit::of(shared_task(id)))
+            .await
+            .unwrap();
+    }
+    let mut running = start(&h).await;
+    let base = running.base.clone();
+    for id in ["one", "two"] {
+        let sent = rpc(
+            &base,
+            "alice",
+            "SendMessage",
+            json!({ "message": message("ship it", Some(id)) }),
+        )
+        .await;
+        assert_eq!(
+            sent["result"]["task"]["status"]["state"], "TASK_STATE_INPUT_REQUIRED",
+            "{sent}"
+        );
+    }
+
+    let mallory = || Some(Caller::human("mallory", [Role::Admin]));
+    assert!(
+        h.get_task("one", mallory()).await.is_err(),
+        "mallory reads nothing"
+    );
+    assert!(
+        h.subscribe("one", mallory()).await.is_err(),
+        "mallory follows nothing"
+    );
+    assert!(
+        h.cancel_task("one", mallory()).await.is_err(),
+        "mallory cancels nothing"
+    );
+    assert_eq!(
+        h.get_task("one", Some(Caller::human("alice", [Role::Admin])))
+            .await
+            .expect("still there")
+            .status
+            .state,
+        a2a::TaskState::InputRequired,
+        "mallory's cancel changed nothing"
+    );
+
+    let by_sdk = h
+        .cancel_task("one", Some(Caller::human("bob", [Role::Watcher])))
+        .await
+        .expect("bob may cancel");
+    assert!(
+        by_sdk
+            .status
+            .message
+            .as_ref()
+            .is_none_or(|m| m.parts.is_empty()),
+        "no question in the SDK's cancel answer: {by_sdk:?}"
+    );
+    let by_server = rpc(&base, "bob", "CancelTask", json!({ "id": "two" })).await;
+    assert!(
+        !by_server.to_string().contains("Deploy to prod?"),
+        "no question in the server's cancel answer: {by_server}"
+    );
+    running.stop();
+}

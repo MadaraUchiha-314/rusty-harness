@@ -730,6 +730,16 @@ impl Harness {
         )
     }
 
+    /// `TaskNotFound` unless `task` exists and `caller` may open it: the rule the A2A
+    /// server's guard applies, so the SDK grants nothing the server would refuse.
+    async fn open(&self, task: &str, caller: &Caller) -> Result<(), a2a::A2AError> {
+        match self.store.get_task(&task.to_owned()).await {
+            Ok(Some(record)) if caller.may_open(&record) => Ok(()),
+            Ok(_) => Err(a2a::A2AError::task_not_found(task)),
+            Err(e) => Err(a2a::A2AError::internal(e.to_string())),
+        }
+    }
+
     /// The task as `caller` sees it: the SDK's `getTask`.
     ///
     /// # Errors
@@ -743,15 +753,14 @@ impl Harness {
         let internal = |e: crate::harness::core_loop::persistence::StoreError| {
             a2a::A2AError::internal(e.to_string())
         };
-        // As the server's GetTask: the caller sees the channels it belongs to, and a
-        // channel's question only if it is a member (R18.5, abuse 2).
-        let viewer = crate::app_service::channels_api::viewer_for(
-            self.store.as_ref(),
-            task,
-            &caller.unwrap_or_else(operator),
-        )
-        .await
-        .map_err(internal)?;
+        // As the server's GetTask: only a participant opens the task, it sees the channels
+        // it belongs to, and a channel's question only if it is a member (R18.5, abuse 2).
+        let caller = caller.unwrap_or_else(operator);
+        self.open(task, &caller).await?;
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), task, &caller)
+                .await
+                .map_err(internal)?;
         let mut found = self
             .store
             .a2a_task(&task.to_owned(), &viewer)
@@ -778,24 +787,35 @@ impl Harness {
         task: &str,
         caller: Option<Caller>,
     ) -> Result<a2a::Task, a2a::A2AError> {
-        let by = caller.unwrap_or_else(operator).id;
-        let task = task.to_owned();
-        if self
-            .store
-            .get_task(&task)
-            .await
-            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
-            .is_none()
-        {
-            return Err(a2a::A2AError::task_not_found(&task));
-        }
-        self.agent
+        let caller = caller.unwrap_or_else(operator);
+        self.open(task, &caller).await?;
+        let internal = |e: crate::harness::core_loop::persistence::StoreError| {
+            a2a::A2AError::internal(e.to_string())
+        };
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), task, &caller)
+                .await
+                .map_err(internal)?;
+        let mut cancelled = self
+            .agent
             .cancel(
-                &task,
-                crate::app_service::durable::CancelReason::Participant { by },
+                &task.to_owned(),
+                crate::app_service::durable::CancelReason::Participant {
+                    by: caller.id.clone(),
+                },
             )
             .await
-            .map_err(|e| e.to_a2a())
+            .map_err(|e| e.to_a2a())?;
+        // The cancelled task keeps its status message: a channel's question stays for its
+        // members (R18.5).
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut cancelled,
+            &viewer,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(cancelled)
     }
 
     /// The task's log from the start, then its live events until the turn ends, as
@@ -812,15 +832,7 @@ impl Harness {
     {
         let task = task.to_owned();
         let caller = caller.unwrap_or_else(operator);
-        if self
-            .store
-            .get_task(&task)
-            .await
-            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
-            .is_none()
-        {
-            return Err(a2a::A2AError::task_not_found(&task));
-        }
+        self.open(&task, &caller).await?;
         let viewer =
             crate::app_service::channels_api::viewer_for(self.store.as_ref(), &task, &caller)
                 .await

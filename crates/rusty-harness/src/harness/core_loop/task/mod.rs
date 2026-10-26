@@ -217,6 +217,14 @@ impl Caller {
     pub fn sees(&self, task: &TaskRecord) -> bool {
         task.participants.iter().any(|p| p.id == self.id)
     }
+
+    /// Whether the caller may open a task at all, by any path (the A2A server's guard
+    /// and the SDK alike): a task nobody has joined yet is open, any other only to its
+    /// participants (abuse 2, design.md § Security design).
+    #[must_use]
+    pub fn may_open(&self, task: &TaskRecord) -> bool {
+        task.participants.is_empty() || self.sees(task)
+    }
 }
 
 /// Whether a task closes after one response or stays open across turns (R21.1).

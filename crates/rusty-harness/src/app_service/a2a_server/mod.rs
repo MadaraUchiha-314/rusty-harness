@@ -797,7 +797,7 @@ impl<H: RequestHandler> GuardedHandler<H> {
     async fn guard(&self, params: &ServiceParams, task: &str) -> Result<(), a2a::A2AError> {
         let caller = Self::caller(params);
         match self.store.get_task(&task.to_owned()).await {
-            Ok(Some(record)) if record.participants.is_empty() || caller.sees(&record) => Ok(()),
+            Ok(Some(record)) if caller.may_open(&record) => Ok(()),
             Ok(Some(_)) => Err(a2a::A2AError::task_not_found(task)),
             Ok(None) => Ok(()),
             Err(e) => Err(a2a::A2AError::internal(e.to_string())),
@@ -900,7 +900,22 @@ impl<H: RequestHandler> RequestHandler for GuardedHandler<H> {
         req: a2a::CancelTaskRequest,
     ) -> Result<a2a::Task, a2a::A2AError> {
         self.guard(params, &req.id).await?;
-        self.inner.cancel_task(params, req).await
+        let caller = Self::caller(params);
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), &req.id, &caller)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        let mut task = self.inner.cancel_task(params, req).await?;
+        // The cancelled task keeps its status message: a channel's question stays for its
+        // members (R18.5).
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut task,
+            &viewer,
+        )
+        .await
+        .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        Ok(task)
     }
 
     async fn subscribe_to_task(

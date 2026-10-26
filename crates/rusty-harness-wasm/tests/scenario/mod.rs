@@ -15,7 +15,7 @@ const host = {
   calls: [],
   allowOrigins: ["https://api.openai.com"],
   fetch: async (url, init) => {
-    host.calls.push({ url, auth: init.headers.authorization });
+    host.calls.push({ url, auth: init.headers.authorization, redirect: init.redirect });
     return new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } });
   },
   secret: (reference) =>
@@ -87,6 +87,9 @@ pub(crate) async fn the_wasm_build_runs_a_task_against_a_mocked_host() {
         "{calls}"
     );
     assert!(calls.contains("Bearer sk-test"), "{calls}");
+    // With allowOrigins, a redirect would take the request (and its key) to an origin
+    // nobody allowed: fetch is told to fail instead of following it.
+    assert!(calls.contains(r#""redirect":"error""#), "{calls}");
 }
 
 /// Scenario: A fetch outside the host's allowOrigins is refused

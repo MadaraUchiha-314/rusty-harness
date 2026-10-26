@@ -173,6 +173,12 @@ impl JsHttp {
         };
         set("method", &request.method.as_str().into())?;
         set("headers", &headers)?;
+        // Only the first URL is checked against allowOrigins: a redirect followed by
+        // fetch would re-send the body and the key headers to an origin nobody allowed,
+        // so with a list, a redirect fails the request instead (fail closed).
+        if self.allow.is_some() {
+            set("redirect", &"error".into())?;
+        }
         if !request.body.is_empty() {
             set("body", &Uint8Array::from(request.body.as_ref()).into())?;
         }

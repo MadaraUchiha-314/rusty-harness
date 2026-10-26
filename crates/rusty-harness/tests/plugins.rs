@@ -269,3 +269,24 @@ impl FileSystem for CountingFs {
         TokioFs.list(dir).await
     }
 }
+
+/// Scenario: A configured plugin path that cannot be read fails discovery
+///     Given `[plugins] paths` naming the fixture directory and a directory that does not exist
+///     When the plugins are discovered
+///     Then the fixture's plugins are found
+///     And discovery reports an error naming `paths` and the missing directory
+///     So a harness never starts silently without the plugins its operator configured
+#[tokio::test]
+async fn a_configured_plugin_path_that_cannot_be_read_fails_discovery() {
+    let missing = fixtures().join("no-such-directory");
+    let loader = PluginLoader::new("/tmp/rh-data");
+    let (specs, errors) = loader
+        .discover(&[fixtures(), missing.clone()], &TokioFs)
+        .await;
+    assert!(specs.iter().any(|s| s.manifest.name == "demo"));
+    let [PluginError::Invalid { field, reason, .. }] = errors.as_slice() else {
+        panic!("one error for the missing path: {errors:?}");
+    };
+    assert_eq!(field, "paths");
+    assert!(reason.contains("no-such-directory"), "{reason}");
+}

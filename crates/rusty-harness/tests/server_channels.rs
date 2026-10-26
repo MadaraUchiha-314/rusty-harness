@@ -10,6 +10,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt as _;
+
 use rusty_harness::app_service::a2a_server::protocol_gap::PARTICIPANT_HEADER;
 use rusty_harness::app_service::a2a_server::{AllowlistedPushStore, serve};
 use rusty_harness::config::Config;
@@ -17,7 +19,7 @@ use rusty_harness::harness::channels::CHANNELS_EXT;
 use rusty_harness::harness::commands::ModelSelection;
 use rusty_harness::harness::core_loop::persistence::TaskCommit;
 use rusty_harness::harness::core_loop::task::{
-    Participant, ParticipantKind, Role, TASK_EXT, TaskDraft, TaskMode, TaskRecord,
+    Caller, Participant, ParticipantKind, Role, TASK_EXT, TaskDraft, TaskMode, TaskRecord,
 };
 use rusty_harness::harness::models::llm::testing::RecordedLlm;
 use rusty_harness::harness::models::llm::{ModelEvent, StopReason};
@@ -107,8 +109,9 @@ fn message(text: &str, task: Option<&str>) -> Value {
 ///     Given a task with alice (admin) and bob (watcher) and a question asked of alice
 ///     When bob reads the task and subscribes to it
 ///     Then bob sees input-required and the sub-state but no question parts
-///     And alice sees the question
+///     And alice sees the question, through the server and through the SDK alike
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::too_many_lines)] // one scenario: the server, the stream and the SDK
 async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_question() {
     let ask = vec![
         ModelEvent::ToolCall {
@@ -212,6 +215,26 @@ async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_ques
         .unwrap();
     assert!(!body.contains("Deploy to prod?"), "{body}");
     assert!(body.contains("TASK_STATE_INPUT_REQUIRED"), "{body}");
+
+    // The SDK's getTask applies the same rule as the server's.
+    let as_bob = h
+        .get_task("shared", Some(Caller::human("bob", [Role::Watcher])))
+        .await
+        .expect("bob reads the task");
+    let bob_message = as_bob.status.message.as_ref().expect("a status message");
+    assert!(
+        bob_message.parts.is_empty(),
+        "no question for bob through the SDK: {bob_message:?}"
+    );
+    let as_alice = h
+        .get_task("shared", Some(Caller::human("alice", [Role::Admin])))
+        .await
+        .expect("alice reads the task");
+    assert_eq!(
+        as_alice.status.message.as_ref().and_then(|m| m.text()),
+        Some("Deploy to prod?"),
+        "alice sees the question through the SDK"
+    );
     running.stop();
 }
 
@@ -391,5 +414,311 @@ async fn abuse_push_config_naming_a_link_local_address_is_rejected() {
         "a non-participant cannot read push configs: {bob}"
     );
     let _: HashMap<String, String> = HashMap::new();
+    running.stop();
+}
+
+/// Scenario: A command on the server runs with the sender's roles on the task
+///     Given a shared task where alice is an admin and bob a watcher
+///     When each sends `/model default` into the task
+///     Then the role guard denies bob and lets alice
+///     And bob's `/model default` outside any task is an ordinary message, not a command
+///     (R10.4, boundary 4)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_command_on_the_server_runs_with_the_senders_roles_on_the_task() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let h = harness(vec![text("an ordinary answer")], |_| {}).await;
+    let record = TaskRecord::new(
+        TaskDraft {
+            id: "shared".into(),
+            context_id: "ctx".into(),
+            name: "shared".into(),
+            r#type: None,
+            goal: "ship".into(),
+            description: String::new(),
+            acceptance_criteria: vec![],
+            mode: TaskMode::LongRunning,
+            participants: vec![
+                Participant::human("alice", "Alice", [Role::Reporter, Role::Admin]),
+                Participant::human("bob", "Bob", [Role::Watcher]),
+            ],
+            parent_tasks: vec![],
+            reference_task_ids: vec![],
+            model: ModelSelection {
+                model: "default".into(),
+                effort: None,
+            },
+        },
+        chrono::Utc::now(),
+    );
+    h.store().commit(TaskCommit::of(record)).await.unwrap();
+    let mut running = start(&h).await;
+    let base = running.base.clone();
+    let outcome = |reply: &Value| -> Option<String> {
+        let meta: CommandsMeta = rusty_harness::harness::core_loop::task::decode_extension(
+            &reply["result"]["message"]["metadata"][COMMANDS_EXT],
+        )
+        .ok()?;
+        meta.result.map(|r| r.outcome)
+    };
+
+    let said = |reply: &Value| {
+        reply["result"]["message"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let send = |who: &'static str, text: &'static str, task: Option<&'static str>| {
+        let base = base.clone();
+        async move {
+            rpc(
+                &base,
+                who,
+                "SendMessage",
+                json!({ "message": message(text, task) }),
+            )
+            .await
+        }
+    };
+
+    // The role guard answers before the command runs: the denial, not "no such model".
+    let bob = send("bob", "/model default", Some("shared")).await;
+    assert_eq!(outcome(&bob).as_deref(), Some("failed"), "{bob}");
+    assert!(
+        said(&bob).contains("Watchers may not run"),
+        "a watcher may not switch models: {bob}"
+    );
+
+    let alice = send("alice", "/model default", Some("shared")).await;
+    assert_eq!(
+        outcome(&alice).as_deref(),
+        Some("done"),
+        "an admin of the task may: {alice}"
+    );
+
+    // Outside any task an authenticated sender is not the server's operator: the text
+    // goes to the agent as a message and opens a task.
+    let outside = send("bob", "/model default", None).await;
+    assert!(
+        outside["result"]["task"].is_object(),
+        "an authenticated sender's /text outside a task is a message to the agent: {outside}"
+    );
+    running.stop();
+}
+
+/// A long-running task `id` with alice (admin, reporter) and bob (watcher) on it.
+fn shared_task(id: &str) -> TaskRecord {
+    TaskRecord::new(
+        TaskDraft {
+            id: id.into(),
+            context_id: format!("ctx-{id}"),
+            name: id.into(),
+            r#type: None,
+            goal: "ship".into(),
+            description: String::new(),
+            acceptance_criteria: vec![],
+            mode: TaskMode::LongRunning,
+            participants: vec![
+                Participant::human("alice", "Alice", [Role::Reporter, Role::Admin]),
+                Participant::human("bob", "Bob", [Role::Watcher]),
+            ],
+            parent_tasks: vec![],
+            reference_task_ids: vec![],
+            model: ModelSelection {
+                model: "default".into(),
+                effort: None,
+            },
+        },
+        chrono::Utc::now(),
+    )
+}
+
+/// Scenario: Only a task's participants open it through the SDK, and a cancel keeps the
+/// channel's question for its members
+///     Given two shared tasks, each waiting on a question asked of alice only
+///     When mallory, on neither task, reads, follows, posts into or cancels one through the SDK
+///     Then each call answers "task not found"
+///     And when bob cancels one through the SDK and the other through the server
+///     Then both cancelled tasks come back without the question (R18.5, abuse 2)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn only_participants_open_a_task_and_a_cancel_keeps_the_question_private() {
+    let ask = || {
+        vec![
+            ModelEvent::ToolCall {
+                call: ToolCall {
+                    id: "c1".into(),
+                    name: "participant.ask".into(),
+                    arguments: json!({ "to": ["alice"], "question": "Deploy to prod?" }),
+                },
+            },
+            ModelEvent::Stop {
+                reason: StopReason::ToolUse,
+            },
+        ]
+    };
+    let h = harness(vec![ask(), ask()], |_| {}).await;
+    for id in ["one", "two"] {
+        h.store()
+            .commit(TaskCommit::of(shared_task(id)))
+            .await
+            .unwrap();
+    }
+    let mut running = start(&h).await;
+    let base = running.base.clone();
+    for id in ["one", "two"] {
+        let sent = rpc(
+            &base,
+            "alice",
+            "SendMessage",
+            json!({ "message": message("ship it", Some(id)) }),
+        )
+        .await;
+        assert_eq!(
+            sent["result"]["task"]["status"]["state"], "TASK_STATE_INPUT_REQUIRED",
+            "{sent}"
+        );
+    }
+
+    let mallory = || Some(Caller::human("mallory", [Role::Admin]));
+    assert!(
+        h.get_task("one", mallory()).await.is_err(),
+        "mallory reads nothing"
+    );
+    assert!(
+        h.subscribe("one", mallory()).await.is_err(),
+        "mallory follows nothing"
+    );
+    assert!(
+        h.cancel_task("one", mallory()).await.is_err(),
+        "mallory cancels nothing"
+    );
+    let mut note = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("ship it now")]);
+    note.task_id = Some("one".into());
+    let posted: Vec<_> = h
+        .send_message(
+            a2a::SendMessageRequest {
+                message: note,
+                configuration: None,
+                metadata: None,
+                tenant: None,
+            },
+            mallory(),
+        )
+        .collect()
+        .await;
+    assert!(
+        matches!(posted.as_slice(), [Err(_)]),
+        "mallory posts nothing into the task: {posted:?}"
+    );
+    assert_eq!(
+        h.get_task("one", Some(Caller::human("alice", [Role::Admin])))
+            .await
+            .expect("still there")
+            .status
+            .state,
+        a2a::TaskState::InputRequired,
+        "mallory's cancel changed nothing"
+    );
+
+    let by_sdk = h
+        .cancel_task("one", Some(Caller::human("bob", [Role::Watcher])))
+        .await
+        .expect("bob may cancel");
+    assert!(
+        by_sdk
+            .status
+            .message
+            .as_ref()
+            .is_none_or(|m| m.parts.is_empty()),
+        "no question in the SDK's cancel answer: {by_sdk:?}"
+    );
+    let by_server = rpc(&base, "bob", "CancelTask", json!({ "id": "two" })).await;
+    assert!(
+        !by_server.to_string().contains("Deploy to prod?"),
+        "no question in the server's cancel answer: {by_server}"
+    );
+    running.stop();
+}
+
+/// Scenario: /model and /effort on a shared server change only the task they are sent in
+///     Given a server with two models and two tasks, alice an admin of one, carol of the other
+///     When alice runs `/model other` and `/effort high` in her task
+///     Then carol's next turn still goes to the default model with no effort set
+///     And alice's next turn goes to "other" at high effort, and each record keeps its own
+///     selection (R9.5, R10.2)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn model_and_effort_on_a_shared_server_change_only_the_task_they_are_sent_in() {
+    use rusty_harness::harness::models::llm::Effort;
+    let default = Arc::new(RecordedLlm::new("default", vec![text("from default")]));
+    let other = Arc::new(RecordedLlm::new("other", vec![text("from other")]));
+    let mut config = Config::default();
+    config.server.bind = "127.0.0.1:0".into();
+    let h = HarnessBuilder::new(config)
+        .host(Host::testing())
+        .llm(default.clone())
+        .llm(other.clone())
+        .build()
+        .await
+        .expect("builds");
+    let mut carols = shared_task("b");
+    carols.participants = vec![Participant::human(
+        "carol",
+        "Carol",
+        [Role::Reporter, Role::Admin],
+    )];
+    for record in [shared_task("a"), carols] {
+        h.store().commit(TaskCommit::of(record)).await.unwrap();
+    }
+    let mut running = start(&h).await;
+    let base = running.base.clone();
+    let send = |who: &'static str, text: &'static str, task: &'static str| {
+        let base = base.clone();
+        async move {
+            rpc(
+                &base,
+                who,
+                "SendMessage",
+                json!({ "message": message(text, Some(task)) }),
+            )
+            .await
+        }
+    };
+    for command in ["/model other", "/effort high"] {
+        let reply = send("alice", command, "a").await;
+        assert!(
+            reply["result"]["message"].is_object(),
+            "{command} is answered as a command: {reply}"
+        );
+    }
+
+    let carol = send("carol", "hello", "b").await;
+    assert!(carol["result"].is_object(), "{carol}");
+    assert_eq!(
+        default.requests().len(),
+        1,
+        "carol's turn went to the default model"
+    );
+    assert_eq!(default.requests()[0].effort, None, "with no effort set");
+    assert!(
+        other.requests().is_empty(),
+        "alice's switch did not reach carol's task"
+    );
+
+    let alice = send("alice", "hello", "a").await;
+    assert!(alice["result"].is_object(), "{alice}");
+    let to_other = other.requests();
+    assert_eq!(
+        to_other.len(),
+        1,
+        "alice's turn went to the model she chose"
+    );
+    assert_eq!(to_other[0].effort, Some(Effort::High));
+
+    let a = h.store().get_task(&"a".to_owned()).await.unwrap().unwrap();
+    let b = h.store().get_task(&"b".to_owned()).await.unwrap().unwrap();
+    assert_eq!(
+        (a.model.model.as_str(), a.model.effort),
+        ("other", Some(Effort::High))
+    );
+    assert_eq!((b.model.model.as_str(), b.model.effort), ("default", None));
     running.stop();
 }

@@ -9,14 +9,19 @@ use crate::config::{Config, DurableMode, ModelProvider};
 use crate::harness::a2a_client::AgentCallTool;
 use crate::harness::channels::{ParticipantAskTool, ParticipantDelegateTool};
 use crate::harness::commands::{ModelRouter, ModelSelection, install_builtins};
-use crate::harness::core_loop::agent::{LocalAgent, LocalAgentParts};
+use crate::harness::core_loop::agent::{
+    Agent as _, AgentRequest, CallContext, LocalAgent, LocalAgentParts,
+};
 use crate::harness::core_loop::persistence::{MemoryStore, PersistenceStore};
+use crate::harness::core_loop::task::{Caller, Role};
 use crate::harness::hooks::{Hook, HookDispatcher, HookOrder};
 use crate::harness::models::llm::Llm;
 use crate::harness::plugins::{InstalledPlugin, McpServerEntity, PluginError, PluginLoader};
 use crate::harness::tools::{McpServer, Tool, ToolError, ToolExecute, ToolPolicy};
 use crate::host::Host;
 use crate::registry::{Entity, EntityId, Registry};
+use crate::runtime::{HarnessStream, boxed_stream};
+use futures::StreamExt as _;
 
 /// Why a harness could not be built; every variant is fail-closed (nothing half-built
 /// is returned).
@@ -58,6 +63,9 @@ pub enum SdkError {
     /// A registry conflict between the pieces.
     #[error("registry: {0}")]
     Registry(String),
+    /// The configured system prompt could not be loaded (R7.2).
+    #[error("system prompt: {0}")]
+    Prompt(String),
     /// A durable mode this build cannot run.
     #[error("durable mode {0:?} needs the `durable-temporal` feature and the service layer")]
     Durable(DurableMode),
@@ -173,7 +181,7 @@ impl HarnessBuilder {
     #[allow(clippy::too_many_lines)]
     pub async fn build(self) -> Result<Harness, SdkError> {
         let Self {
-            config,
+            mut config,
             host,
             llms,
             tools,
@@ -308,7 +316,9 @@ impl HarnessBuilder {
             None => open_store(&config).await?,
         };
 
-        // Built-in tools and commands (R17.3, R18.4, R10.2), the tool policy guard.
+        // Built-in tools and commands (R17.3, R18.4, R10.2), the tool policy guard. The two
+        // plan tools share one lock per task's plan.
+        let plan_locks = Arc::new(crate::harness::core_loop::plan::tools::PlanLocks::default());
         let built_ins: Vec<Arc<dyn Tool>> = vec![
             Arc::new(AgentCallTool::new(
                 Arc::clone(&registry),
@@ -324,6 +334,20 @@ impl HarnessBuilder {
                 Arc::clone(&dispatcher),
                 router.selection(),
             )),
+            Arc::new(crate::harness::core_loop::plan::tools::PlanUpdateTool::new(
+                Arc::clone(&store),
+                Arc::clone(&dispatcher),
+                Arc::clone(&plan_locks),
+                Arc::clone(&registry),
+            )),
+            Arc::new(
+                crate::harness::core_loop::plan::tools::PlanStepDoneTool::new(
+                    Arc::clone(&store),
+                    Arc::clone(&dispatcher),
+                    Arc::clone(&plan_locks),
+                    Arc::clone(&registry),
+                ),
+            ),
         ];
         for tool in built_ins.into_iter().chain(tools) {
             registry.register(tool).map_err(reg)?;
@@ -348,6 +372,23 @@ impl HarnessBuilder {
             let agent: Arc<dyn crate::harness::core_loop::agent::Agent> =
                 Arc::new(connect_sub_agent(name, sub, &host).await?);
             registry.register(agent).map_err(reg)?;
+        }
+
+        // A `file:` system prompt (R7.2), read through the host before the registry is shared.
+        if config
+            .agent
+            .system_prompt
+            .as_deref()
+            .is_some_and(|v| v.starts_with("file:"))
+        {
+            let fs = host.fs().map_err(|e| SdkError::Prompt(e.to_string()))?;
+            crate::harness::system_prompt::load_replacement(
+                &mut prompts,
+                &mut config.agent,
+                fs.as_ref(),
+            )
+            .await
+            .map_err(|e| SdkError::Prompt(e.to_string()))?;
         }
 
         let prompts = Arc::new(prompts);
@@ -464,9 +505,11 @@ async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkErr
         "memory" => Ok(Arc::new(MemoryStore::new())),
         #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
         "file" => {
-            let path = config.persistence.path.clone().ok_or_else(|| {
-                SdkError::Store("[persistence] path is required for the file store".into())
-            })?;
+            let path = store_path(config)
+                .map_err(SdkError::Store)?
+                .ok_or_else(|| {
+                    SdkError::Store("[persistence] path is required for the file store".into())
+                })?;
             Ok(Arc::new(
                 crate::harness::core_loop::persistence::FileStore::open(path)
                     .await
@@ -475,6 +518,18 @@ async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkErr
         }
         other => Err(SdkError::Store(format!("unknown store {other}"))),
     }
+}
+
+/// `[persistence] path` with `~/` under the home directory, as the default config writes
+/// it (`~/.rusty-harness/data`).
+#[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+fn store_path(config: &Config) -> Result<Option<std::path::PathBuf>, String> {
+    config
+        .persistence
+        .path
+        .as_deref()
+        .map(crate::host::native_home_relative)
+        .transpose()
 }
 
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
@@ -636,6 +691,179 @@ impl Harness {
         self.heartbeat.as_ref()
     }
 
+    /// Sends `request` as `caller` (the operator when `None`) and streams the turn back as
+    /// A2A events: the SDK's `sendMessage` (R30, design.md § Packaging and SDK parity).
+    pub fn send_message(
+        &self,
+        request: a2a::SendMessageRequest,
+        caller: Option<Caller>,
+    ) -> HarnessStream<'_, Result<a2a::StreamResponse, a2a::A2AError>> {
+        let task_id = request
+            .message
+            .task_id
+            .clone()
+            .unwrap_or_else(a2a::new_task_id);
+        let extensions = request.message.extensions.clone().unwrap_or_default();
+        let resolved = async move {
+            let caller = caller.unwrap_or_else(operator);
+            let stored = match self.store.get_task(&task_id).await {
+                Ok(stored) => stored,
+                Err(e) => {
+                    let failed = a2a::A2AError::internal(e.to_string());
+                    return boxed_stream(futures::stream::iter([Err(failed)]));
+                }
+            };
+            // As the server's guard: a task with participants takes messages from them
+            // only (abuse 2).
+            if let Some(record) = &stored
+                && !caller.may_open(record)
+            {
+                let refused = a2a::A2AError::task_not_found(&task_id);
+                return boxed_stream(futures::stream::iter([Err(refused)]));
+            }
+            // A follow-up may name only its task (the task the client was handed): it
+            // belongs to that task's context, not a fresh one (R21.5).
+            let context_id = match (request.message.context_id.clone(), stored) {
+                (Some(context), _) => context,
+                (None, Some(record)) => record.context_id,
+                (None, None) => a2a::new_context_id(),
+            };
+            let agent_request = AgentRequest {
+                message: request.message,
+                call: CallContext {
+                    task_id,
+                    context_id,
+                    stored_task: None,
+                    caller,
+                    service_params: std::collections::BTreeMap::new(),
+                },
+                metadata: request.metadata,
+                extensions,
+                inbox_event_id: None,
+                traceparent: None,
+            };
+            boxed_stream(
+                self.agent
+                    .send_message(agent_request)
+                    .map(|r| r.map_err(|e| e.to_a2a())),
+            )
+        };
+        boxed_stream(futures::stream::once(resolved).flatten())
+    }
+
+    /// `TaskNotFound` unless `task` exists and `caller` may open it: the rule the A2A
+    /// server's guard applies, so the SDK grants nothing the server would refuse.
+    async fn open(&self, task: &str, caller: &Caller) -> Result<(), a2a::A2AError> {
+        match self.store.get_task(&task.to_owned()).await {
+            Ok(Some(record)) if caller.may_open(&record) => Ok(()),
+            Ok(_) => Err(a2a::A2AError::task_not_found(task)),
+            Err(e) => Err(a2a::A2AError::internal(e.to_string())),
+        }
+    }
+
+    /// The task as `caller` sees it: the SDK's `getTask`.
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or the store.
+    pub async fn get_task(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        let internal = |e: crate::harness::core_loop::persistence::StoreError| {
+            a2a::A2AError::internal(e.to_string())
+        };
+        // As the server's GetTask: only a participant opens the task, it sees the channels
+        // it belongs to, and a channel's question only if it is a member (R18.5, abuse 2).
+        let caller = caller.unwrap_or_else(operator);
+        self.open(task, &caller).await?;
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), task, &caller)
+                .await
+                .map_err(internal)?;
+        let mut found = self
+            .store
+            .a2a_task(&task.to_owned(), &viewer)
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| a2a::A2AError::task_not_found(task))?;
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut found,
+            &viewer,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(found)
+    }
+
+    /// Cancels the task on behalf of `caller`: the SDK's `cancelTask`.
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or a task already in a terminal state.
+    pub async fn cancel_task(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        let caller = caller.unwrap_or_else(operator);
+        self.open(task, &caller).await?;
+        let internal = |e: crate::harness::core_loop::persistence::StoreError| {
+            a2a::A2AError::internal(e.to_string())
+        };
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), task, &caller)
+                .await
+                .map_err(internal)?;
+        let mut cancelled = self
+            .agent
+            .cancel(
+                &task.to_owned(),
+                crate::app_service::durable::CancelReason::Participant {
+                    by: caller.id.clone(),
+                },
+            )
+            .await
+            .map_err(|e| e.to_a2a())?;
+        // The cancelled task keeps its status message: a channel's question stays for its
+        // members (R18.5).
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut cancelled,
+            &viewer,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(cancelled)
+    }
+
+    /// The task's log from the start, then its live events until the turn ends, as
+    /// `caller` may see them: the SDK's `subscribe` (R19.7).
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or the store.
+    pub async fn subscribe(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<HarnessStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>, a2a::A2AError>
+    {
+        let task = task.to_owned();
+        let caller = caller.unwrap_or_else(operator);
+        self.open(&task, &caller).await?;
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), &task, &caller)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        Ok(
+            crate::app_service::channels_api::log_stream(Arc::clone(&self.store), task, 1, viewer)
+                .await,
+        )
+    }
+
     /// The Temporal mode, when durable execution runs on it (`embedded` or `remote`).
     #[must_use]
     #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
@@ -646,9 +874,35 @@ impl Harness {
     }
 }
 
+/// Who an SDK call acts as when the embedder names no one: the operator, as on loopback.
+fn operator() -> Caller {
+    Caller::human("operator", [Role::Admin])
+}
+
 /// Where `embedded` keeps the downloaded Temporal CLI: `~/.cache/rusty-harness/temporal`.
 #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
 fn temporal_cache_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME")
         .map(|home| std::path::PathBuf::from(home).join(".cache/rusty-harness/temporal"))
+}
+
+#[cfg(all(test, feature = "rt-tokio"))]
+mod tests {
+    use super::store_path;
+    use crate::config::Config;
+
+    #[test]
+    fn the_file_store_path_expands_home() {
+        let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+        let mut config = Config::default();
+        config.persistence.path = Some("~/.rusty-harness/data".into());
+        assert_eq!(
+            store_path(&config),
+            Ok(Some(home.join(".rusty-harness/data")))
+        );
+        config.persistence.path = Some("/var/lib/rh".into());
+        assert_eq!(store_path(&config), Ok(Some("/var/lib/rh".into())));
+        config.persistence.path = None;
+        assert_eq!(store_path(&config), Ok(None));
+    }
 }

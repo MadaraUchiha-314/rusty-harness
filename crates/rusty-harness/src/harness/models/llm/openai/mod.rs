@@ -1,9 +1,11 @@
 //! The `OpenAI` client over the provider's HTTP API; a configurable base URL serves
 //! `OpenAI`-compatible providers (R9.3).
 //!
-//! Chat Completions with streaming, tool calling, image and audio input and
-//! `reasoning_effort`; prompt caching is automatic on `OpenAI`'s side, which the context
-//! builder's stable prefix serves.
+//! Two wires behind one client: the Responses API for `OpenAI`'s own models, where Chat
+//! Completions refuses function tools with reasoning, and Chat Completions for
+//! `OpenAI`-compatible servers ([`OpenAiApi`]). Both stream, call tools, take image and
+//! audio input and set the reasoning effort; prompt caching is automatic on `OpenAI`'s
+//! side, which the context builder's stable prefix serves.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -14,12 +16,14 @@ use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+pub mod responses;
+
 use super::sse;
 use super::{
     ContentPart, EventStream, Llm, MessageRole, Modality, ModelCapabilities, ModelError,
-    ModelEvent, ModelRequest, StopReason, Usage, check_modalities, retry_after,
+    ModelEvent, ModelRequest, StopReason, Usage, WireNames, check_modalities, retry_after,
 };
-use crate::config::ModelConfig;
+use crate::config::{ModelConfig, OpenAiApi};
 use crate::harness::tools::ToolCall;
 use crate::harness_async_trait;
 use crate::host::{Host, HttpClient, HttpRequest, Secret};
@@ -28,10 +32,11 @@ use crate::registry::{Entity, EntityId, EntityKind, Placement, RemoteEndpoint};
 /// The default base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com/v1";
 
-/// A model served through `OpenAI`'s Chat Completions API.
+/// A model served through `OpenAI`'s Responses or Chat Completions API.
 pub struct OpenAiLlm {
     id: EntityId,
     model: String,
+    api: OpenAiApi,
     base_url: url::Url,
     api_key: Secret<String>,
     http: Arc<dyn HttpClient>,
@@ -44,6 +49,7 @@ impl core::fmt::Debug for OpenAiLlm {
             .field("id", &self.id)
             .field("model", &self.model)
             .field("base_url", &self.base_url)
+            .field("api", &self.api)
             .finish_non_exhaustive()
     }
 }
@@ -84,7 +90,19 @@ impl OpenAiLlm {
             },
             Ok,
         )?;
-        Ok(Self::new(alias, &config.model, base_url, api_key, http))
+        let api = config.api.unwrap_or(if config.base_url.is_none() {
+            OpenAiApi::Responses
+        } else {
+            OpenAiApi::ChatCompletions
+        });
+        Ok(Self::new(alias, &config.model, base_url, api_key, http).with_api(api))
+    }
+
+    /// Uses `api` as the wire.
+    #[must_use]
+    pub fn with_api(mut self, api: OpenAiApi) -> Self {
+        self.api = api;
+        self
     }
 
     /// Builds the client from its parts.
@@ -99,6 +117,7 @@ impl OpenAiLlm {
         Self {
             id: EntityId::new(alias),
             model: model.to_owned(),
+            api: OpenAiApi::ChatCompletions,
             base_url,
             api_key,
             http,
@@ -120,9 +139,11 @@ impl OpenAiLlm {
         }
     }
 
-    /// The Chat Completions request body for `request` (snapshot-tested).
+    /// The Chat Completions request body for `request` (snapshot-tested); the Responses
+    /// body is [`responses::body`].
     #[must_use]
     pub fn body(&self, request: &ModelRequest) -> Value {
+        let names = WireNames::new(&request.tools);
         let mut messages =
             vec![json!({ "role": "system", "content": request.instructions.render() })];
         for message in &request.messages {
@@ -135,7 +156,7 @@ impl OpenAiLlm {
                             message
                                 .tool_calls
                                 .iter()
-                                .map(|c| json!({ "id": c.id, "type": "function", "function": { "name": c.name, "arguments": c.arguments.to_string() } }))
+                                .map(|c| json!({ "id": c.id, "type": "function", "function": { "name": names.wire(&c.name), "arguments": c.arguments.to_string() } }))
                                 .collect(),
                         );
                     }
@@ -150,7 +171,7 @@ impl OpenAiLlm {
                 request
                     .tools
                     .iter()
-                    .map(|t| json!({ "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.parameters } }))
+                    .map(|t| json!({ "type": "function", "function": { "name": names.wire(&t.name), "description": t.description, "parameters": t.parameters } }))
                     .collect(),
             );
         }
@@ -163,9 +184,21 @@ impl OpenAiLlm {
         body
     }
 
+    /// The request body for `request` on this model's wire.
+    fn wire_body(&self, request: &ModelRequest) -> Value {
+        match self.api {
+            OpenAiApi::Responses => responses::body(&self.model, request),
+            OpenAiApi::ChatCompletions => self.body(request),
+        }
+    }
+
     fn endpoint(&self) -> url::Url {
         let mut url = self.base_url.clone();
-        let path = format!("{}/chat/completions", url.path().trim_end_matches('/'));
+        let resource = match self.api {
+            OpenAiApi::Responses => "responses",
+            OpenAiApi::ChatCompletions => "chat/completions",
+        };
+        let path = format!("{}/{resource}", url.path().trim_end_matches('/'));
         url.set_path(&path);
         url
     }
@@ -339,7 +372,17 @@ impl Decoder {
         }
     }
 
-    fn finish(&mut self) -> Vec<ModelEvent> {
+    /// The buffered calls and the stop, once the stream has ended. Every complete
+    /// response carries a `finish_reason`; a stream cut before one is a retryable
+    /// failure, not a truncated answer.
+    fn finish(&mut self) -> Result<Vec<ModelEvent>, ModelError> {
+        let Some(reason) = self.stop.take() else {
+            return Err(ModelError::Retryable {
+                status: None,
+                message: "the stream ended before the model's stop reason".into(),
+                retry_after: None,
+            });
+        };
         let mut out: Vec<ModelEvent> = self
             .calls
             .drain(..)
@@ -348,10 +391,8 @@ impl Decoder {
                 call: finish_call(c),
             })
             .collect();
-        out.push(ModelEvent::Stop {
-            reason: self.stop.take().unwrap_or(StopReason::EndTurn),
-        });
-        out
+        out.push(ModelEvent::Stop { reason });
+        Ok(out)
     }
 }
 
@@ -365,7 +406,10 @@ pub fn decode(bytes: crate::host::ByteStream) -> EventStream<'static> {
             }
             Some(match sse.next().await {
                 None => (
-                    decoder.finish().into_iter().map(Ok).collect::<Vec<_>>(),
+                    decoder.finish().map_or_else(
+                        |e| vec![Err(e)],
+                        |events| events.into_iter().map(Ok).collect(),
+                    ),
                     (sse, decoder, true),
                 ),
                 Some(Err(err)) => (
@@ -410,7 +454,7 @@ harness_async_trait! {
             let auth = http::HeaderValue::from_str(&format!("Bearer {}", self.api_key.expose()))
                 .map_err(|_| ModelError::NonRetryable { status: None, message: "credential is not a valid header value".into() })?;
             http_request.headers.insert(http::header::AUTHORIZATION, auth);
-            http_request.body = Bytes::from(serde_json::to_vec(&self.body(&request)).map_err(|e| ModelError::Decode(e.to_string()))?);
+            http_request.body = Bytes::from(serde_json::to_vec(&self.wire_body(&request)).map_err(|e| ModelError::Decode(e.to_string()))?);
             let response = self
                 .http
                 .send_streaming(http_request)
@@ -427,7 +471,11 @@ harness_async_trait! {
                 }
                 return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).replace(self.api_key.expose(), "[redacted]"), retry_after(&response.headers)));
             }
-            Ok(decode(response.body))
+            let events = match self.api {
+                OpenAiApi::Responses => responses::decode(response.body),
+                OpenAiApi::ChatCompletions => decode(response.body),
+            };
+            Ok(WireNames::new(&request.tools).restore(events))
         }
     }
 }
@@ -537,6 +585,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dotted_tool_names_go_out_sanitised_and_come_back_as_ours() {
+        let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let bodies2 = bodies.clone();
+        let http = Arc::new(MockHttp::new(move |req| {
+            bodies2
+                .lock()
+                .unwrap()
+                .push(String::from_utf8_lossy(&req.body).into_owned());
+            Ok(HttpResponse { status: http::StatusCode::OK, headers: http::HeaderMap::new(), body: concat!(
+                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"agent_call\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+                "data: [DONE]\n\n").into() })
+        }));
+        let mut req = request();
+        req.tools[0].name = "agent.call".into();
+        req.messages[1].tool_calls[0].name = "agent.call".into();
+        let turn = collect(client(http).stream(req).await.expect("stream"), None)
+            .await
+            .expect("turn");
+        assert_eq!(turn.tool_calls[0].name, "agent.call");
+        let body = bodies.lock().unwrap()[0].clone();
+        assert!(body.contains("\"name\":\"agent_call\""), "{body}");
+        assert!(
+            !body.contains("agent.call"),
+            "no dotted name reaches the provider: {body}"
+        );
+    }
+
+    #[tokio::test]
     async fn statuses_classify_into_retryable_and_not() {
         let mut headers = http::HeaderMap::new();
         headers.insert(
@@ -567,5 +643,17 @@ mod tests {
         let bad: Vec<_> =
             futures::StreamExt::collect::<Vec<_>>(decode(chunks(vec!["data: not json\n\n"]))).await;
         assert!(matches!(bad[0], Err(ModelError::Decode(_))));
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_before_its_finish_reason_is_retryable() {
+        let events: Vec<_> = futures::StreamExt::collect(decode(chunks(vec![
+            "data: {\"choices\":[{\"delta\":{\"content\":\"The answer is\"}}]}\n\n",
+        ])))
+        .await;
+        assert!(
+            matches!(events.last(), Some(Err(e)) if e.is_retryable()),
+            "{events:?}"
+        );
     }
 }

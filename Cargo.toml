@@ -102,6 +102,14 @@ tracing-subscriber = { version = "0.3", default-features = false, features = [
   "json",
 ] }
 wasm-bindgen = "0.2"
+web-time = "1"
+jsonschema = { version = "0.60", default-features = false }
+criterion = { version = "0.8", default-features = false, features = [
+  "async_tokio",
+  "cargo_bench_support",
+] }
+js-sys = "0.3"
+web-sys = "0.3"
 zeroize = "1"
 wasm-bindgen-futures = "0.4"
 wasm-bindgen-test = "0.3"
@@ -118,3 +126,13 @@ pedantic = { level = "warn", priority = -1 }
 dbg_macro = "warn"
 todo = "warn"
 unimplemented = "warn"
+
+# The shipped `rusty-harness` binary (npm, PyPI, the GitHub release): under the 25 MB
+# budget (T7, decision-006). `release` stays as it is for benchmarks and dependants.
+[profile.dist]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

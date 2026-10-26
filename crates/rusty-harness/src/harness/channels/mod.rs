@@ -196,7 +196,7 @@ impl ChannelsMeta {
     #[must_use]
     pub fn of(message: &a2a::Message) -> Option<Self> {
         let value = message.metadata.as_ref()?.get(CHANNELS_EXT)?;
-        serde_json::from_value(value.clone()).ok()
+        crate::harness::core_loop::task::decode_extension(value).ok()
     }
 }
 

@@ -4,7 +4,8 @@
 //! The `embedded` mode: the SDK's ephemeral dev server (the `temporal` CLI, downloaded
 //! once into `~/.cache/rusty-harness/temporal/`), a worker in this process, and the
 //! data converter that keeps secrets out of payloads (boundary 6).
-#![cfg(feature = "durable-embedded")]
+//! Some scenarios serve the task over A2A, hence `server` too.
+#![cfg(all(feature = "durable-embedded", feature = "server"))]
 
 use std::fmt::Write as _;
 use std::sync::Arc;

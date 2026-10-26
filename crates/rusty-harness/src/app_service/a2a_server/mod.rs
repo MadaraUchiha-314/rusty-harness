@@ -22,6 +22,7 @@ use futures::StreamExt as _;
 use futures::stream::BoxStream;
 
 use crate::Harness;
+use crate::app_service::channels_api::{log_stream, turn_ends};
 use crate::assets::{Catalog, FmtArgs, keys};
 use crate::config::{Config, SecuritySchemeConfig};
 use crate::harness::core_loop::agent::{Agent as _, AgentRequest, CallContext, LocalAgent};
@@ -85,6 +86,42 @@ impl HarnessExecutor {
         })
     }
 
+    /// Who a `/command` runs as (R10.4, boundary 4). Inside a task: the sender as that
+    /// task's participant record says, its roles there, and a person only if it is a human
+    /// participant; anyone else's `/text` is not a command. Outside a task (or on the SDK's
+    /// empty shell for a new conversation): the server's
+    /// owner (its credential's principal, or the loopback operator) as itself; a named
+    /// participant's `/text` there is an ordinary message. Fails closed: a store error makes
+    /// nobody a commander.
+    async fn command_caller(
+        store: &dyn crate::harness::core_loop::persistence::PersistenceStore,
+        task: &str,
+        caller: &Caller,
+        owner: bool,
+    ) -> Caller {
+        let not_a_commander = Caller::system(caller.id.clone());
+        match store.get_task(&task.to_owned()).await {
+            // The SDK's shell for a new conversation has nobody on it yet: as no task.
+            Ok(Some(record)) if record.participants.is_empty() && owner => caller.clone(),
+            Ok(Some(record)) if record.participants.is_empty() => not_a_commander,
+            Ok(Some(record)) => record
+                .participants
+                .iter()
+                .find(|p| p.id == caller.id)
+                .filter(|p| {
+                    matches!(
+                        p.kind,
+                        crate::harness::core_loop::task::ParticipantKind::Human
+                    )
+                })
+                .map_or(not_a_commander, |p| {
+                    Caller::human(p.id.clone(), p.roles.iter().copied())
+                }),
+            Ok(None) if owner => caller.clone(),
+            _ => not_a_commander,
+        }
+    }
+
     /// The caller of a request: the authenticated principal when the service layer set
     /// one (task 21), else the SDK's user, else the loopback operator.
     fn caller(ctx: &ExecutorContext) -> Caller {
@@ -98,87 +135,6 @@ impl HarnessExecutor {
     }
 }
 
-/// The task's log as a stream for `viewer`: the Task snapshot first (redacted for a
-/// non-member of a channel), then the stored events from `from` without the raw
-/// `Message` entries, following live commits until the turn ends (R19.7, R19.8).
-pub async fn log_stream(
-    store: Arc<dyn PersistenceStore>,
-    task: String,
-    from: u64,
-    viewer: Caller,
-) -> BoxStream<'static, Result<a2a::StreamResponse, a2a::A2AError>> {
-    let first: Vec<Result<a2a::StreamResponse, a2a::A2AError>> =
-        match store.a2a_task(&task, &viewer).await {
-            Ok(Some(mut t)) => {
-                let _ = crate::app_service::channels_api::redact_for_viewer(
-                    store.as_ref(),
-                    &mut t,
-                    &viewer,
-                )
-                .await;
-                vec![Ok(a2a::StreamResponse::Task(t))]
-            }
-            Ok(None) => vec![Err(a2a::A2AError::task_not_found(&task))],
-            Err(e) => vec![Err(a2a::A2AError::internal(e.to_string()))],
-        };
-    let is_message = |e: &crate::harness::core_loop::persistence::StoredEvent| {
-        matches!(e.response, a2a::StreamResponse::Message(_))
-    };
-    let live = store.get_task(&task).await.ok().flatten().is_some_and(|r| {
-        r.state == a2a::TaskState::Working || r.state == a2a::TaskState::Submitted
-    });
-    if !live {
-        let events = store
-            .events(&task, from, usize::MAX, &viewer)
-            .await
-            .unwrap_or_default();
-        return futures::stream::iter(
-            first
-                .into_iter()
-                .chain(
-                    events
-                        .into_iter()
-                        .filter(|e| !is_message(e))
-                        .map(|e| Ok(e.response)),
-                )
-                .collect::<Vec<_>>(),
-        )
-        .boxed();
-    }
-    let tail = store
-        .tail_events(&task, from, &viewer)
-        .filter(move |r| futures::future::ready(!matches!(r, Ok(e) if is_message(e))))
-        .map(|r| {
-            r.map(|e| e.response)
-                .map_err(|e| a2a::A2AError::internal(e.to_string()))
-        });
-    futures::stream::iter(first)
-        .chain(futures::stream::unfold(
-            (tail, false),
-            |(mut tail, done)| async move {
-                if done {
-                    return None;
-                }
-                let item = tail.next().await?;
-                let stop = matches!(&item, Ok(e) if turn_ends(e));
-                Some((item, (tail, stop)))
-            },
-        ))
-        .boxed()
-}
-
-/// Ends a tail after the event that leaves the task waiting or terminal: one turn per
-/// request on the wire (R21.3).
-fn turn_ends(event: &a2a::StreamResponse) -> bool {
-    match event {
-        a2a::StreamResponse::StatusUpdate(u) => {
-            u.status.state.is_terminal() || u.status.state == a2a::TaskState::InputRequired
-        }
-        a2a::StreamResponse::Task(t) => t.status.state.is_terminal(),
-        _ => false,
-    }
-}
-
 #[async_trait::async_trait]
 impl AgentExecutor for HarnessExecutor {
     #[allow(clippy::too_many_lines)] // one stream, read top to bottom
@@ -189,6 +145,9 @@ impl AgentExecutor for HarnessExecutor {
         let agent = Arc::clone(&self.agent);
         let inbox = Arc::clone(&self.inbox);
         let caller = Self::caller(&ctx);
+        // The server's owner: the holder of its credential (or the loopback operator when
+        // none is configured), speaking without naming a participant.
+        let owner = caller.id == protocol_gap::DEFAULT_PRINCIPAL;
         let Some(message) = ctx.message else {
             return Box::pin(futures::stream::iter(vec![Err(
                 a2a::A2AError::invalid_params("execute without a message"),
@@ -225,6 +184,23 @@ impl AgentExecutor for HarnessExecutor {
         let task = ctx.task_id;
         Box::pin(
             futures::stream::once(async move {
+                // A person's command runs instead of the model (R10.1), before the message
+                // becomes an inbox event: the answer is one message, and no task is opened
+                // or changed.
+                let as_participant =
+                    Self::command_caller(agent.store().as_ref(), &task, &caller, owner).await;
+                let mut command = request.clone();
+                command.call.caller = as_participant;
+                match agent.command(&command).await {
+                    Ok(Some(reply)) => {
+                        return futures::stream::iter(vec![Ok(a2a::StreamResponse::Message(
+                            reply,
+                        ))])
+                        .boxed();
+                    }
+                    Ok(None) => {}
+                    Err(e) => return futures::stream::iter(vec![Err(e.to_a2a())]).boxed(),
+                }
                 let store = Arc::clone(agent.store());
                 // The viewer, with the caller's memberships, decides what the log shows;
                 // the tail starts after the last event it can see (a sequence, not a
@@ -821,7 +797,7 @@ impl<H: RequestHandler> GuardedHandler<H> {
     async fn guard(&self, params: &ServiceParams, task: &str) -> Result<(), a2a::A2AError> {
         let caller = Self::caller(params);
         match self.store.get_task(&task.to_owned()).await {
-            Ok(Some(record)) if record.participants.is_empty() || caller.sees(&record) => Ok(()),
+            Ok(Some(record)) if caller.may_open(&record) => Ok(()),
             Ok(Some(_)) => Err(a2a::A2AError::task_not_found(task)),
             Ok(None) => Ok(()),
             Err(e) => Err(a2a::A2AError::internal(e.to_string())),
@@ -924,7 +900,22 @@ impl<H: RequestHandler> RequestHandler for GuardedHandler<H> {
         req: a2a::CancelTaskRequest,
     ) -> Result<a2a::Task, a2a::A2AError> {
         self.guard(params, &req.id).await?;
-        self.inner.cancel_task(params, req).await
+        let caller = Self::caller(params);
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), &req.id, &caller)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        let mut task = self.inner.cancel_task(params, req).await?;
+        // The cancelled task keeps its status message: a channel's question stays for its
+        // members (R18.5).
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut task,
+            &viewer,
+        )
+        .await
+        .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        Ok(task)
     }
 
     async fn subscribe_to_task(

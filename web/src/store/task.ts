@@ -309,6 +309,10 @@ function foldArtifact(
   artifact: Task["artifacts"][number],
   append: boolean,
 ): TaskView {
+  // The plan travels as an artifact under plan/v1 (R13.4): it is the task's plan, not an
+  // output to list.
+  const plan = ext<Plan>(artifact.metadata, PLAN_EXT);
+  if (plan?.steps) return { ...view, plan };
   const attempt = attemptOf(artifact.metadata);
   const existing = view.artifacts.find((a) => a.id === artifact.artifactId);
   const parts = existing && append ? [...existing.parts, ...artifact.parts] : artifact.parts;

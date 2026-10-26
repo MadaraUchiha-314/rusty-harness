@@ -462,7 +462,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M7 — Packaging, parity, docs and the demo (PR 7: `loop/issue-3-m7-ship`)
 
-- [ ] 42. WASM SDK: the npm package exposing `Harness.create(config, host)`,
+- [x] 42. WASM SDK: the npm package exposing `Harness.create(config, host)`,
   `sendMessage`, `cancelTask`, `subscribe` with generated types, the `Host` built from
   JS callbacks (`fetch`, WebSocket, `crypto`, `Date`, console sink), the `wasm_transport`
   JSON-RPC client over the official types, the unavailable-feature list documented.
@@ -471,7 +471,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T12 — `Scenario: The wasm build runs a task against a mocked host`
     (`wasm-pack test --node`, `--headless --chrome`), `bun run test` in the wasm crate;
     T3 — `contract_typescript_declarations` (snapshot of the generated `.d.ts`)
-- [ ] 43. Python bindings: `Harness`, `Config.from_toml`/`from_dict`, awaitable and
+- [x] 43. Python bindings: `Harness`, `Config.from_toml`/`from_dict`, awaitable and
   `*_sync` twins for every exported API, `TypedDict`s generated from the JSON schema,
   the regenerated stub, maturin `bin` bindings shipping the `rusty-harness` binary in
   the wheel (Q8).
@@ -479,7 +479,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R30.2, R3.3, R27.1, Q8
   - _Test:_ T15 — `uv run pytest` (parity table generated from the stub, one test per
     name), `uv run pyright`; T3 — the stub diff check
-- [ ] 44. CLI distribution on npm: `@rusty-harness/cli` with per-platform optional
+- [x] 44. CLI distribution on npm: `@rusty-harness/cli` with per-platform optional
   dependencies built by the release workflow, the `rusty-harness` bin shim, the release
   pipeline changes (`release.yml`, `wheels.yml`) with the binaries attached to the tag.
   - _Depends on:_ 43
@@ -487,14 +487,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T16 — a dry run of the release workflow on a tag of the PR branch (artifact
     names and sizes); T7 — `scripts/measure.sh` binary size (< 25 MB) and wasm bundle
     (< 3 MB gzipped)
-- [ ] 45. Prompt caching and performance: cache breakpoints verified against both
+- [x] 45. Prompt caching and performance: cache breakpoints verified against both
   providers' usage fields, the demo flow's hit rate measured, the `loop_overhead`
   criterion benchmark (p50 < 5 ms with `RecordedLlm`), TUI cold start measured.
   - _Depends on:_ 42
   - _Requirements:_ R15.2, NFR performance, Q13
   - _Test:_ T7 — `cargo bench -p rusty_harness --bench loop_overhead`,
     `scripts/measure.sh`; results into `evidence/performance.md`
-- [ ] 46. The definition-of-done demo: `tests/fixtures/demo/config.toml` (GPT 6.1, Temporal
+- [x] 46. The definition-of-done demo: `tests/fixtures/demo/config.toml` (GPT 6.1, Temporal
   Cloud by reference, `remote` and `none` variants), the `e2e_none_*` and
   `e2e_remote_*` tests gated on credentials, the browser leg in Playwright, the
   recording and trace capture scripts.
@@ -502,7 +502,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R32.1–6, R31.4
   - _Test:_ T4 — `Scenario: The demo runs end to end in none mode`, `Scenario: The demo
     runs end to end in remote mode`, `bun run --cwd web test:e2e`
-- [ ] 47. Contract and snapshot sweep: every public interface of `design.md` §Components
+- [x] 47. Contract and snapshot sweep: every public interface of `design.md` §Components
   & interfaces has its `contract_*` test (Rust trait shapes via `cargo semver-checks`
   baseline, Python stub, TypeScript declarations, the six extension schemas, the config
   schema, the agent card), every serialized artifact its `snapshot_*`.
@@ -510,40 +510,67 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R3.5–6, R31.2
   - _Test:_ T3 — `cargo nextest run -p rusty_harness -E 'test(contract_)'`,
     `cargo semver-checks`; T6 — `-E 'test(snapshot_)'`
-- [ ] 48. Security sweep: every abuse scenario of `design.md` green in one `abuse_*` run,
+- [x] 48. Security sweep: every abuse scenario of `design.md` green in one `abuse_*` run,
   the canary across all four legs, `cargo deny`, the bundle scan, the least-privilege
   checks (scrubbed MCP environment, namespace-scoped Temporal key). 🔒 all boundaries.
   - _Depends on:_ 46
   - _Requirements:_ Security considerations, abuse 1–11
   - _Test:_ T8 — `cargo nextest run --workspace --all-features -E 'test(abuse_)'`,
     `bun run --cwd web test:bundle-scan`, `cargo deny check`
-- [ ] 49. Documentation and capability docs: `docs/capabilities/capabilities.md` indexed
+- [x] 49. Documentation and capability docs: `docs/capabilities/capabilities.md` indexed
   per module of the diagram, `docs/architecture/architecture.md` one section per layer,
   the VitePress nav and guide pages complete, `README.md` front page updated,
   `evidence/documentation.md` filled (`## Documentation` and `## Capability docs`).
   - _Depends on:_ 46
   - _Requirements:_ NFR documentation
   - _Test:_ T16 — `bun run lint:md`, `bun run --cwd docs build`
-- [ ] 50. Decisions and learnings: `decision-002`…`decision-00n` from the design's
+- [x] 50. Decisions and learnings: `decision-002`…`decision-00n` from the design's
   trade-off table that landed in M1–M7 are indexed in `docs/decisions/decisions.md`;
   learnings worth keeping (the critic-run flags, the quiz Location format, the commit
   subject rule) under `docs/learnings/`.
   - _Depends on:_ 49
   - _Requirements:_ the-loop's knowledge trees (CLAUDE.md)
   - _Test:_ T16 — `bun run lint:md`
-- [ ] 51. Verification evidence: the testing plan's activities executed and ticked, every
+- [x] 51. Verification evidence: the testing plan's activities executed and ticked, every
   evidence file under `evidence/` per the evidence plan (redacted), `Verification
   results` filled, `evidence/final-validation.md` summarised from it.
   - _Depends on:_ 47, 48, 49
   - _Requirements:_ R31, R32.6
   - _Test:_ every row of the matrix; the `verification` node re-gates `testing-plan.md`
-- [ ] 52. M7 pull request and the stack: the reviewer briefing from
+- [x] 52. M7 pull request and the stack: the reviewer briefing from
   `templates/pr-briefing.md` with the mermaid diagrams and the locked prototypes'
   stills, `evidence/pull-requests.md` complete for the seven PRs, the stack merged
   bottom-up on approval per `routing.mergeOnApproval`.
   - _Depends on:_ 50, 51
   - _Requirements:_ S3, Q6
+  - _Merge:_ carried out by the graph's `human-approval` node on the reviewer's approval
+    (per `routing.mergeOnApproval`); this task delivers the briefing, the record and a
+    stack ready to merge.
   - _Test:_ T16 — the CI jobs on the final head
+
+- [x] 53. Plan tools (found by the task 47 sweep: no task carried R13.3–4's runtime): the
+  `plan.update` and `plan.step_done` built-in tools of design.md § Plan and Step, behind
+  `plan.persist` and a new `step.execute` operation, one plan per task (`plan-<task>`) in
+  the context's `Plan` position, and the plan to surfaces as an
+  `application/vnd.rusty-harness.plan+json` artifact under `plan/v1` that the TUI's plan
+  strip and the web's task panel read.
+  - _Depends on:_ 47
+  - _Requirements:_ R13.1–4
+  - _Test:_ T2 — `Scenario: The model plans, records a step, and everyone sees the plan`,
+    `Scenario: A plan with a cycle is refused` (`tests/plan.rs`); T1 —
+    `a_plan_artifact_feeds_the_plan_strip_not_the_chat`, the web store's
+    `takes a plan/v1 artifact as the task's plan, not as an output`
+
+- [x] 54. Commands at runtime (found by the task 47 sweep: `CommandParser` and
+  `commands::invoke` had no caller outside their unit tests, so a person's `/model` went
+  to the model): `LocalAgent::send_message` runs a human participant's `/<name>`
+  through `command.invoke` instead of the loop and answers with the line and the
+  `commands/v1` token and outcome, a role veto as the denied line, an unknown name with
+  its suggestion (R10.1, R10.6), on every path (SDK, server, TUI, web).
+  - _Depends on:_ 47
+  - _Requirements:_ R10.1, R10.4, R10.6
+  - _Test:_ T2 — `a_persons_command_runs_instead_of_the_model` (`tests/sdk.rs`); T3 —
+    `contract_extension_payloads_match_their_schemas` (the `commands/v1` message form)
 
 ## Dependency graph (DAG)
 

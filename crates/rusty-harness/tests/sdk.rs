@@ -113,3 +113,226 @@ async fn building_fails_closed_without_a_default_model_or_with_a_bad_store() {
         .expect_err("fails");
     assert!(matches!(err, SdkError::Store(_)), "{err}");
 }
+
+/// Scenario: A `file:` system prompt replaces the default (R7.2)
+///     Given `[agent] system_prompt = "file:prompts/mine.md"` and that file on the host
+///     When a message is sent
+///     Then the model is instructed with the file's body, not the default prompt
+#[tokio::test]
+async fn a_file_system_prompt_replaces_the_default() {
+    use rusty_harness::host::testing::{MemFs, MockHttp};
+    let file = "---\nid: prompts/mine\nversion: 1.0.0\nplaceholders: []\ndescription: Mine.\n---\nYou are the replacement prompt.\n";
+    let host = Host::builder()
+        .http(Arc::new(MockHttp::always(
+            http::StatusCode::NOT_FOUND,
+            bytes::Bytes::new(),
+        )))
+        .clock(Arc::new(rusty_harness::host::testing::FixedClock::default()))
+        .rng(Arc::new(rusty_harness::host::testing::SeededRng::new(7)))
+        .secrets(Arc::new(rusty_harness::host::testing::MapSecrets::default()))
+        .fs(Arc::new(MemFs::new([(
+            std::path::PathBuf::from("prompts/mine.md"),
+            bytes::Bytes::from_static(file.as_bytes()),
+        )])))
+        .build();
+    let mut config = Config::default();
+    config.agent.system_prompt = Some("file:prompts/mine.md".into());
+    let llm = scripted();
+    let harness = HarnessBuilder::new(config)
+        .host(host)
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds with the replacement");
+    let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("hi")]);
+    message.task_id = Some("t-file".into());
+    let request = a2a::SendMessageRequest {
+        message,
+        configuration: None,
+        metadata: None,
+        tenant: None,
+    };
+    let _: Vec<_> = harness.send_message(request, None).collect().await;
+    let instructions = llm.requests()[0].instructions.render();
+    assert!(
+        instructions.contains("You are the replacement prompt."),
+        "{instructions}"
+    );
+    assert!(
+        !instructions.contains("You work on one task at a time"),
+        "the default is replaced"
+    );
+
+    let mut missing = Config::default();
+    missing.agent.system_prompt = Some("file:prompts/absent.md".into());
+    let err = HarnessBuilder::new(missing)
+        .host(Host::testing())
+        .llm(scripted())
+        .build()
+        .await
+        .expect_err("fails closed");
+    assert!(matches!(err, SdkError::Prompt(_)), "{err}");
+}
+
+/// Scenario: A person's command runs instead of the model (R10.1, R10.6)
+///     Given a harness whose model must not be called
+///     When `/model default` and then `/modle` are sent
+///     Then each is answered with its line and a `commands/v1` outcome, and the model is
+///     never called
+#[tokio::test]
+async fn a_persons_command_runs_instead_of_the_model() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let llm = Arc::new(RecordedLlm::new("default", vec![]));
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    let send = |text: &str| {
+        let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text(text)]);
+        message.task_id = Some(format!("t-{}", text.len()));
+        a2a::SendMessageRequest {
+            message,
+            configuration: None,
+            metadata: None,
+            tenant: None,
+        }
+    };
+    for (text, outcome, says) in [
+        ("/model default", "done", "default"),
+        ("/modle", "unknown", "/model"),
+    ] {
+        let events: Vec<_> = harness.send_message(send(text), None).collect().await;
+        let [Ok(a2a::StreamResponse::Message(reply))] = events.as_slice() else {
+            panic!("one reply message for {text}: {events:?}");
+        };
+        let meta: CommandsMeta =
+            serde_json::from_value(reply.metadata.as_ref().unwrap()[COMMANDS_EXT].clone()).unwrap();
+        assert_eq!(
+            meta.result.as_ref().map(|r| r.outcome.as_str()),
+            Some(outcome),
+            "{text}"
+        );
+        assert_eq!(
+            meta.tokens.first().map(|t| (t.start, t.end)),
+            Some((
+                0,
+                text.len()
+                    .min(1 + text[1..].find(' ').unwrap_or(text.len() - 1))
+            )),
+            "{text}"
+        );
+        assert!(
+            reply.text().is_some_and(|t| t.contains(says)),
+            "{text}: {reply:?}"
+        );
+    }
+    assert_eq!(llm.attempts(), 0, "no command reached the model");
+}
+
+/// Scenario: A watcher invoking /model is refused (abuse 10), through the agent
+///     Given a caller whose only role is watcher
+///     When it sends `/model default` to the harness
+///     Then the answer is the denied line with outcome `failed`, and nothing reaches the model
+#[tokio::test]
+async fn abuse_watcher_command_through_the_agent_is_refused() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let llm = Arc::new(RecordedLlm::new("default", vec![]));
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("/model default")]);
+    message.task_id = Some("t-watch".into());
+    let request = a2a::SendMessageRequest {
+        message,
+        configuration: None,
+        metadata: None,
+        tenant: None,
+    };
+    let watcher = Caller::human("w1", [Role::Watcher]);
+    let events: Vec<_> = harness.send_message(request, Some(watcher)).collect().await;
+    let [Ok(a2a::StreamResponse::Message(reply))] = events.as_slice() else {
+        panic!("one reply: {events:?}");
+    };
+    let meta: CommandsMeta =
+        serde_json::from_value(reply.metadata.as_ref().unwrap()[COMMANDS_EXT].clone()).unwrap();
+    assert_eq!(meta.result.map(|r| r.outcome), Some("failed".to_owned()));
+    assert!(
+        reply
+            .text()
+            .is_some_and(|t| t.contains("Watchers may not run /model")),
+        "{reply:?}"
+    );
+    assert_eq!(llm.attempts(), 0);
+}
+
+/// Scenario: A follow-up that names only its task resumes it
+///     Given a long-running task waiting for its next turn
+///     When a follow-up names the task id and no context id (as the Python and WASM
+///     clients send it from the task they were given)
+///     Then the harness takes the task's own context and the turn runs (R21.5)
+#[tokio::test]
+async fn a_follow_up_that_names_only_its_task_resumes_it() {
+    let text = |t: &str| {
+        vec![
+            ModelEvent::TextDelta { text: t.into() },
+            ModelEvent::Stop {
+                reason: StopReason::EndTurn,
+            },
+        ]
+    };
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::new(RecordedLlm::new(
+            "default",
+            vec![text("first"), text("second")],
+        )))
+        .build()
+        .await
+        .expect("builds");
+    let send = |text: &str, task: Option<&str>| {
+        let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text(text)]);
+        message.task_id = task.map(str::to_owned);
+        message.metadata = Some(
+            [(
+                rusty_harness::harness::core_loop::task::TASK_EXT.to_owned(),
+                serde_json::json!({ "mode": "long-running" }),
+            )]
+            .into(),
+        );
+        a2a::SendMessageRequest {
+            message,
+            configuration: None,
+            metadata: None,
+            tenant: None,
+        }
+    };
+    let first: Vec<_> = harness
+        .send_message(send("hello", Some("t-follow")), None)
+        .collect()
+        .await;
+    assert!(first.iter().all(Result::is_ok), "{first:?}");
+    let second: Vec<_> = harness
+        .send_message(send("again", Some("t-follow")), None)
+        .collect()
+        .await;
+    assert!(
+        second.iter().all(Result::is_ok),
+        "the follow-up is accepted: {second:?}"
+    );
+    let task = harness.get_task("t-follow", None).await.expect("the task");
+    let said: Vec<_> = task
+        .history
+        .iter()
+        .flatten()
+        .filter_map(|m| m.text())
+        .collect();
+    assert!(
+        said.contains(&"second"),
+        "the second turn ran in the same task: {said:?}"
+    );
+}

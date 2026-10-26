@@ -19,12 +19,23 @@ export async function send(page: Page, text: string): Promise<void> {
 }
 
 export async function settle(page: Page): Promise<void> {
-  // Fonts and the stick-to-bottom scroll.
-  await page.evaluate(() => document.fonts.ready);
+  // Fonts, finite transitions (a theme switch fades colours) and the stick-to-bottom scroll.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const finite = document
+      .getAnimations()
+      .filter((a) => a.effect?.getTiming().iterations !== Infinity);
+    await Promise.all(finite.map((a) => a.finished.catch(() => undefined)));
+  });
   await page.waitForTimeout(250);
 }
 
 export async function dark(page: Page): Promise<void> {
   await page.emulateMedia({ colorScheme: "dark" });
+  await settle(page);
+}
+
+export async function light(page: Page): Promise<void> {
+  await page.emulateMedia({ colorScheme: "light" });
   await settle(page);
 }

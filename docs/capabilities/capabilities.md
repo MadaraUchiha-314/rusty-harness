@@ -7,6 +7,7 @@ behaviour. Add one line per capability doc here.
 |---|---|
 | [Entities and the registry](registry.md) | one identity and one trait per pluggable unit; resolve or replace by `(id, version)` |
 | [Hooks on the whole lifecycle](hooks.md) | pre, guard, in and post stages on 40 catalogue points, local or remote |
+| [The host](host.md) | the platform behind typed capabilities: native by default, page-supplied on `wasm32`, credentials by reference only |
 | [Configuration](config.md) | one typed `Config` from file, environment and code; credentials by reference |
 | [Prompts and strings as assets](assets.md) | prompts are markdown files, strings come from one catalog per locale |
 | [Models, LLM and System One](models.md) | one `Llm` over every provider, retried and modality-checked; `/model` switches the next call |
@@ -26,3 +27,4 @@ behaviour. Add one line per capability doc here.
 | [The terminal renderer](tui.md) | one command opens a TUI that is an A2A client of the harness it started or of `--url`; native A2UI forms, images, `NO_COLOR` |
 | [The web renderer](web.md) | a browser chat on shadcn AI Elements over the official A2A SDK; one store per task, A2UI through `@a2ui/react`, strings from `en.json` |
 | [Multi-modal and voice](voice.md) | images and audio in, images and speech out; every provider session and key held by the harness |
+| [The harness in the browser](browser.md) | the whole harness as an npm package; the page supplies `fetch`, sockets, time and secrets, and the unavailable list is short |

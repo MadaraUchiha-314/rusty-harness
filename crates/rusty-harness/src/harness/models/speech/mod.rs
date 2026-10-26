@@ -144,31 +144,11 @@ pub fn audio_part(chunk: &AudioChunk, meta: &VoiceMeta) -> a2a::Part {
     part
 }
 
-/// `value` with every whole-number float made an integer: metadata that crossed the A2A
-/// SDK is a protobuf `Struct`, whose numbers are all doubles (`1` arrives as `1.0`).
-fn integral(value: serde_json::Value) -> serde_json::Value {
-    use serde_json::Value;
-    match value {
-        Value::Number(n) => match n.as_f64() {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Some(f) if n.is_f64() && f.fract() == 0.0 && (0.0..9.0e15).contains(&f) => {
-                Value::from(f as u64)
-            }
-            _ => Value::Number(n),
-        },
-        Value::Array(items) => Value::Array(items.into_iter().map(integral).collect()),
-        Value::Object(map) => {
-            Value::Object(map.into_iter().map(|(k, v)| (k, integral(v))).collect())
-        }
-        other => other,
-    }
-}
-
 /// The `voice/v1` metadata and the bytes of an audio part, if it is one.
 #[must_use]
 pub fn audio_of(part: &a2a::Part) -> Option<(VoiceMeta, bytes::Bytes)> {
     let meta = part.metadata.as_ref()?.get(VOICE_EXT)?;
-    let meta: VoiceMeta = serde_json::from_value(integral(meta.clone())).ok()?;
+    let meta: VoiceMeta = crate::harness::core_loop::task::decode_extension(meta).ok()?;
     match &part.content {
         a2a::PartContent::Raw(bytes) => Some((meta, bytes::Bytes::from(bytes.clone()))),
         _ => None,

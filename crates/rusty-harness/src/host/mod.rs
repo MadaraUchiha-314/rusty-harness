@@ -26,6 +26,10 @@ mod native;
 #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
 pub mod audio;
 
+/// `~/…` under `$HOME`, for the paths a configuration names (the file store's).
+#[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+pub(crate) use native::home_relative as native_home_relative;
+
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
 pub use native::{
     NativeSecrets, OsRng, ReqwestHttp, SystemClock, TokioFs, TokioProcess, TungsteniteClient,

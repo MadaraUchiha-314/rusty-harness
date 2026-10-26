@@ -1,0 +1,139 @@
+{
+  "id": "01a1766f-f36c-77bd-a903-b63e02f87f34",
+  "contextId": "01a1766f-f36c-77bd-a903-b63fa81e75ab",
+  "status": {
+    "state": "TASK_STATE_INPUT_REQUIRED",
+    "message": {
+      "messageId": "01a17670-30d1-7480-a76a-a3b9b7da8d41",
+      "contextId": "01a1766f-f36c-77bd-a903-b63fa81e75ab",
+      "taskId": "01a1766f-f36c-77bd-a903-b63e02f87f34",
+      "role": "ROLE_AGENT",
+      "parts": [
+        {
+          "text": "**Draft — rusty-harness 0.2 adds more ways to build and interact with agents.**\n\n- npm and PyPI packages for JavaScript/TypeScript and Python projects.\n- Responses API support for agent workflows.\n- Voice capabilities for spoken interactions."
+        }
+      ],
+      "metadata": {
+        "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1": {
+          "sub_state": {
+            "kind": "awaiting-next-turn"
+          }
+        }
+      }
+    },
+    "timestamp": "2026-10-26T04:20:26.450247787Z"
+  },
+  "history": [
+    {
+      "messageId": "01a1766f-f36b-7562-96eb-4c61978fc57e",
+      "role": "ROLE_USER",
+      "parts": [
+        {
+          "text": "Draft the release notes for rusty-harness 0.2: the npm and PyPI packages, the Responses API, voice. Keep the task open."
+        }
+      ],
+      "metadata": {
+        "a2uiClientCapabilities": {
+          "v0.9.1": {
+            "supportedCatalogIds": [
+              "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+            ]
+          }
+        },
+        "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1": {
+          "mode": "long-running"
+        }
+      }
+    },
+    {
+      "messageId": "01a17670-1a7c-71fb-a3f2-3e4088e526a7",
+      "contextId": "01a1766f-f36c-77bd-a903-b63fa81e75ab",
+      "taskId": "01a1766f-f36c-77bd-a903-b63e02f87f34",
+      "role": "ROLE_AGENT",
+      "parts": [
+        {
+          "text": ""
+        }
+      ]
+    },
+    {
+      "messageId": "01a17670-2640-70ec-a8d3-617f10b69712",
+      "contextId": "01a1766f-f36c-77bd-a903-b63fa81e75ab",
+      "taskId": "01a1766f-f36c-77bd-a903-b63e02f87f34",
+      "role": "ROLE_AGENT",
+      "parts": [
+        {
+          "text": "**Draft — rusty-harness 0.2 brings npm and PyPI packages, Responses API support, and voice capabilities to your agent workflows.**\n\n- **npm package:** Bring rusty-harness into your JavaScript and TypeScript projects.\n- **PyPI package:** Use rusty-harness in your Python projects.\n- **Responses API:** Build agent workflows using the Responses API.\n- **Voice:** Add voice interactions to your agents."
+        }
+      ]
+    },
+    {
+      "messageId": "01a17670-264f-7084-abdb-46c71e788884",
+      "contextId": "01a1766f-f36c-77bd-a903-b63fa81e75ab",
+      "taskId": "01a1766f-f36c-77bd-a903-b63e02f87f34",
+      "role": "ROLE_USER",
+      "parts": [
+        {
+          "text": "Shorter, please: three bullets at most."
+        }
+      ],
+      "metadata": {
+        "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1": {
+          "mode": "long-running"
+        }
+      }
+    },
+    {
+      "messageId": "01a17670-30d1-7480-a76a-a3b9b7da8d41",
+      "contextId": "01a1766f-f36c-77bd-a903-b63fa81e75ab",
+      "taskId": "01a1766f-f36c-77bd-a903-b63e02f87f34",
+      "role": "ROLE_AGENT",
+      "parts": [
+        {
+          "text": "**Draft — rusty-harness 0.2 adds more ways to build and interact with agents.**\n\n- npm and PyPI packages for JavaScript/TypeScript and Python projects.\n- Responses API support for agent workflows.\n- Voice capabilities for spoken interactions."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1": {
+      "acceptance_criteria": [],
+      "description": "",
+      "goal": "Draft the release notes for rusty-harness 0.2: the npm and PyPI packages, the Responses API, voice. Keep the task open.",
+      "mode": "long-running",
+      "name": "Draft the release notes for rusty-harness 0.2: the npm and P",
+      "parent_tasks": [],
+      "reference_task_ids": [],
+      "sub_state": {
+        "kind": "awaiting-next-turn"
+      },
+      "sub_tasks": []
+    },
+    "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/participants/v1": {
+      "participants": [
+        {
+          "display": "operator",
+          "id": "operator",
+          "kind": "human",
+          "roles": [
+            "reporter",
+            "admin"
+          ]
+        },
+        {
+          "display": "demo-agent",
+          "id": "demo-agent",
+          "kind": {
+            "agent": {
+              "id": "demo-agent",
+              "version": null
+            }
+          },
+          "roles": [
+            "assignee"
+          ]
+        }
+      ]
+    }
+  }
+}

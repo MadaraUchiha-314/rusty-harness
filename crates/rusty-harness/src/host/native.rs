@@ -112,30 +112,78 @@ harness_async_trait! {
                     Ok(_) => Err(unresolvable(reference, "the variable is empty")),
                     Err(_) => Err(unresolvable(reference, "the variable is not set")),
                 },
-                SecretRef::File(path) => tokio::fs::read_to_string(path)
-                    .await
-                    .map(|s| Secret::new(s.trim_end().to_owned()))
-                    .map_err(|e| unresolvable(reference, e.kind().to_string())),
-                SecretRef::Keyring { service, user } => {
-                    let output = tokio::process::Command::new("secret-tool")
-                        .args(["lookup", "service", service, "username", user])
-                        .env_clear()
-                        .env("PATH", std::env::var("PATH").unwrap_or_default())
-                        .envs(std::env::var("DBUS_SESSION_BUS_ADDRESS").map(|v| ("DBUS_SESSION_BUS_ADDRESS", v)))
-                        .envs(std::env::var("XDG_RUNTIME_DIR").map(|v| ("XDG_RUNTIME_DIR", v)))
-                        .output()
+                SecretRef::File(path) => {
+                    let path = home_relative(path).map_err(|e| unresolvable(reference, e))?;
+                    tokio::fs::read_to_string(path)
                         .await
-                        .map_err(|e| unresolvable(reference, format!("secret-tool could not run: {}", e.kind())))?;
-                    if !output.status.success() || output.stdout.is_empty() {
-                        return Err(unresolvable(reference, "no such keyring entry"));
-                    }
-                    let value = String::from_utf8(output.stdout)
-                        .map_err(|_| unresolvable(reference, "the entry is not UTF-8"))?;
-                    Ok(Secret::new(value.trim_end().to_owned()))
+                        .map(|s| Secret::new(s.trim_end().to_owned()))
+                        .map_err(|e| unresolvable(reference, e.kind().to_string()))
+                }
+                SecretRef::Keyring { service, user } => {
+                    keyring(reference, &[("service", service.as_str()), ("username", user.as_str())]).await
+                }
+                SecretRef::KeyringAttributes(attributes) => {
+                    let pairs: Vec<(&str, &str)> = attributes.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+                    keyring(reference, &pairs).await
                 }
             }
         }
     }
+}
+
+/// `~/…` under `$HOME`; any other path as written.
+///
+/// # Errors
+///
+/// A path under `~` while `HOME` is not set: read as written it would be a `~` directory
+/// in the working directory, whatever happens to be there.
+pub(crate) fn home_relative(path: &Path) -> Result<std::path::PathBuf, String> {
+    expand_home(path, std::env::var_os("HOME"))
+}
+
+fn expand_home(
+    path: &Path,
+    home: Option<std::ffi::OsString>,
+) -> Result<std::path::PathBuf, String> {
+    match (path.strip_prefix("~"), home) {
+        (Ok(rest), Some(home)) => Ok(std::path::PathBuf::from(home).join(rest)),
+        (Ok(_), None) => Err(format!(
+            "{} is under ~, and HOME is not set",
+            path.display()
+        )),
+        (Err(_), _) => Ok(path.to_path_buf()),
+    }
+}
+
+/// `secret-tool lookup <attr> <value> …`, with a scrubbed environment.
+async fn keyring(
+    reference: &SecretRef,
+    attributes: &[(&str, &str)],
+) -> Result<Secret<String>, SecretError> {
+    let mut command = tokio::process::Command::new("secret-tool");
+    command.arg("lookup");
+    for (k, v) in attributes {
+        command.args([k, v]);
+    }
+    let output = command
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .envs(std::env::var("DBUS_SESSION_BUS_ADDRESS").map(|v| ("DBUS_SESSION_BUS_ADDRESS", v)))
+        .envs(std::env::var("XDG_RUNTIME_DIR").map(|v| ("XDG_RUNTIME_DIR", v)))
+        .output()
+        .await
+        .map_err(|e| {
+            unresolvable(
+                reference,
+                format!("secret-tool could not run: {}", e.kind()),
+            )
+        })?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return Err(unresolvable(reference, "no such keyring entry"));
+    }
+    let value = String::from_utf8(output.stdout)
+        .map_err(|_| unresolvable(reference, "the entry is not UTF-8"))?;
+    Ok(Secret::new(value.trim_end().to_owned()))
 }
 
 /// tokio's file system.
@@ -339,11 +387,36 @@ pub fn scrubbed_env(extra: impl IntoIterator<Item = (String, String)>) -> BTreeM
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeSecrets, TokioFs, TokioProcess, scrubbed_env};
+    use super::{NativeSecrets, TokioFs, TokioProcess, expand_home, home_relative, scrubbed_env};
     #[cfg(not(feature = "audio"))]
     use crate::error::Capability;
     use crate::host::{Command, FileSystem, Host, ProcessSpawner, SecretRef, SecretResolver};
     use bytes::Bytes;
+
+    #[test]
+    fn a_file_reference_under_tilde_is_under_home() {
+        let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+        assert_eq!(
+            home_relative(std::path::Path::new("~/.config/rusty-harness/key")),
+            Ok(home.join(".config/rusty-harness/key"))
+        );
+        assert_eq!(
+            home_relative(std::path::Path::new("/run/secrets/key")),
+            Ok(std::path::PathBuf::from("/run/secrets/key"))
+        );
+    }
+
+    /// Without HOME (a bare systemd unit, a container) a path under `~` is an error, not a
+    /// `~` directory in the working directory that anything could have planted.
+    #[test]
+    fn a_path_under_tilde_without_home_is_refused() {
+        let refused = expand_home(std::path::Path::new("~/.config/rusty-harness/key"), None);
+        assert!(refused.is_err_and(|e| e.contains("HOME is not set")));
+        assert_eq!(
+            expand_home(std::path::Path::new("/run/secrets/key"), None),
+            Ok(std::path::PathBuf::from("/run/secrets/key"))
+        );
+    }
 
     #[tokio::test]
     async fn env_and_file_references_resolve_and_missing_ones_fail_by_name() {

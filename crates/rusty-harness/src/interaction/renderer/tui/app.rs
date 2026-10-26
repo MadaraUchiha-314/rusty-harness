@@ -457,11 +457,11 @@ impl App {
     ) {
         let meta: Option<TaskMeta> = metadata
             .and_then(|m| m.get(TASK_EXT))
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+            .and_then(|v| crate::harness::core_loop::task::decode_extension(v).ok());
         let sub_state = metadata
             .and_then(|m| m.get(TASK_EXT))
             .and_then(|v| v.get("sub_state"))
-            .and_then(|v| serde_json::from_value::<SubState>(v.clone()).ok());
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<SubState>(v).ok());
         if self.task.as_ref().is_none_or(|t| t.id != id) {
             self.task = Some(TaskHeader {
                 id: id.to_owned(),
@@ -482,7 +482,7 @@ impl App {
     fn plan_from(&mut self, metadata: Option<&HashMap<String, Value>>) {
         if let Some(plan) = metadata
             .and_then(|m| m.get(PLAN_EXT))
-            .and_then(|v| serde_json::from_value::<Plan>(v.clone()).ok())
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<Plan>(v).ok())
         {
             self.plan = plan
                 .steps()
@@ -540,7 +540,7 @@ impl App {
             .metadata
             .as_ref()
             .and_then(|m| m.get(COMMANDS_EXT))
-            .and_then(|v| serde_json::from_value::<CommandsMeta>(v.clone()).ok())
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<CommandsMeta>(v).ok())
             .map_or_else(
                 || self.command_tokens(&text),
                 |c| {
@@ -554,7 +554,7 @@ impl App {
             .metadata
             .as_ref()
             .and_then(|m| m.get(COMMANDS_EXT))
-            .and_then(|v| serde_json::from_value::<CommandsMeta>(v.clone()).ok())
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<CommandsMeta>(v).ok())
             .and_then(|c| c.result)
             && result.outcome == "exit"
         {
@@ -576,6 +576,16 @@ impl App {
     }
 
     fn artifact(&mut self, artifact: &a2a::Artifact) {
+        // The plan travels as an artifact under plan/v1 (R13.4): it feeds the plan strip,
+        // it is not an output to show in the chat.
+        if artifact
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key(PLAN_EXT))
+        {
+            self.plan_from(artifact.metadata.as_ref());
+            return;
+        }
         let name = artifact
             .name
             .clone()

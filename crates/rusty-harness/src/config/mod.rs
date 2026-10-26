@@ -113,6 +113,20 @@ pub struct ModelConfig {
     /// Retry policy for retryable provider errors (R9.6).
     #[serde(default)]
     pub retry: RetryConfig,
+    /// `openai` only: the wire. `responses` on `OpenAI`'s own endpoint and
+    /// `chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.
+    #[serde(default)]
+    pub api: Option<OpenAiApi>,
+}
+
+/// Which `OpenAI` API a model is reached through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OpenAiApi {
+    /// `POST /responses`: function tools with reasoning on current models.
+    Responses,
+    /// `POST /chat/completions`: what `OpenAI`-compatible servers implement.
+    ChatCompletions,
 }
 
 /// `[system_one.<alias>]`.
@@ -470,6 +484,14 @@ pub struct VoiceConfig {
     pub model: Option<String>,
     /// The credential, by reference.
     pub api_key: Option<SecretRef>,
+    /// The API base (`https://api.openai.com/v1` when absent).
+    pub base_url: Option<url::Url>,
+    /// The streaming transcription model (`gpt-live-transcribe` when absent).
+    pub transcribe_model: Option<String>,
+    /// The synthesis model (`gpt-4o-mini-tts` when absent).
+    pub speech_model: Option<String>,
+    /// The voice the model speaks with (`marin` when absent).
+    pub voice: Option<String>,
 }
 
 /// `[o11y]`.
@@ -614,6 +636,42 @@ impl Config {
         table
             .try_into()
             .map_err(|e: toml::de::Error| ConfigError::Invalid(e.message().to_owned()))
+    }
+
+    /// [`Config::from_layers`] with the code layer as JSON, the shape the SDKs hold it in
+    /// (a Python `dict`, a JavaScript object). `null`s are dropped: TOML has none, and an
+    /// absent key already means "the layer below".
+    ///
+    /// # Errors
+    ///
+    /// As [`Config::from_layers`]; [`ConfigError::Invalid`] when `overrides` is not an
+    /// object.
+    pub fn from_layers_json(
+        file: Option<&str>,
+        env: impl IntoIterator<Item = (String, String)>,
+        overrides: Option<serde_json::Value>,
+    ) -> Result<Self, ConfigError> {
+        fn without_nulls(value: serde_json::Value) -> serde_json::Value {
+            match value {
+                serde_json::Value::Object(map) => serde_json::Value::Object(
+                    map.into_iter()
+                        .filter(|(_, v)| !v.is_null())
+                        .map(|(k, v)| (k, without_nulls(v)))
+                        .collect(),
+                ),
+                serde_json::Value::Array(items) => {
+                    serde_json::Value::Array(items.into_iter().map(without_nulls).collect())
+                }
+                other => other,
+            }
+        }
+        let overrides = overrides
+            .map(|v| {
+                toml::Table::try_from(without_nulls(v))
+                    .map_err(|e| ConfigError::Invalid(format!("the code layer: {e}")))
+            })
+            .transpose()?;
+        Self::from_layers(file, env, overrides)
     }
 
     /// Loads from [`ConfigSources`] through the host's file system (R27.2).

@@ -166,6 +166,17 @@ pub enum HistoryEntry {
         /// The text.
         text: String,
     },
+    /// An image or audio file a participant sent with a message, right after its
+    /// `User` entry; the model receives it as a content part (R28.1).
+    UserMedia {
+        /// `image/png`, `audio/wav`, …
+        media_type: String,
+        /// The bytes.
+        data: bytes::Bytes,
+        /// The file name, when the sender gave one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    },
     /// The model's answer, with the calls it made.
     Assistant {
         /// The text.
@@ -241,6 +252,27 @@ impl Turn {
                     MessageRole::User,
                     Prompt::data(DataRole::UserMessage, text).render(),
                 )
+            }
+            HistoryEntry::UserMedia {
+                media_type, data, ..
+            } => {
+                let part = if media_type.starts_with("audio/") {
+                    ContentPart::Audio {
+                        media_type: media_type.clone(),
+                        data: data.clone(),
+                    }
+                } else {
+                    ContentPart::Image {
+                        media_type: media_type.clone(),
+                        data: data.clone(),
+                    }
+                };
+                ContextMessage {
+                    role: MessageRole::User,
+                    parts: vec![part],
+                    tool_calls: Vec::new(),
+                    tool_call_id: None,
+                }
             }
             HistoryEntry::Assistant { text, tool_calls } => {
                 let mut m = ContextMessage::text(MessageRole::Assistant, text);

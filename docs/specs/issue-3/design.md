@@ -1595,6 +1595,9 @@ them (`decision-002` onwards); the table is the index.
 | `clap` 4 | the CLI (R27.1) | `cli` |
 | `cpal` | microphone and speaker (R28.6) | `audio` |
 | `wasm-bindgen`, `web-sys`, `js-sys` (exist) + `gloo-net`-free `fetch` via `web-sys` | host capabilities on wasm | `rt-wasm` |
+| `web-time` 1 | `std::time::Instant::now` compiles on `wasm32` and panics there (learning-006); `web-time` is std's `Instant` natively and `performance.now()` in the browser, behind `runtime::Instant` (added in M7, task 42) | core |
+| `jsonschema` 0.60 (dev) | the contract tests validate each extension payload against its published schema under `specs/a2a-ext/` (T3, added in M7, task 47); no schema validator exists in std or in the tree | tests only |
+| `criterion` 0.8 (dev) | the T7 loop-overhead benchmark this section's testing strategy names (added in M7, task 45) | benches only |
 | web: `react` 19, `vite`, `tailwindcss` 4, shadcn (copy-in), `@a2a-js/sdk` 1.3, `@a2ui/react` 0.14, `intl-messageformat`, `streamdown` | R26 as specified | `web/` |
 
 Rejected at rung 1–5: a graph crate for plans (Kahn's algorithm inline), a template

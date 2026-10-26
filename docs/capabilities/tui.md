@@ -39,6 +39,12 @@ terminal answers the graphics query (kitty, iTerm2, sixel, half blocks); otherwi
 artifact's name and alt text are shown. `NO_COLOR` (or `TERM=dumb`) selects the
 monochrome theme: the same glyphs, modifiers only.
 
+Voice (R27.5, R28.6, Q7): with a microphone on the host (`cpal`, feature `audio`),
+space on an empty composer is push-to-talk — held when the terminal reports key releases
+(kitty keyboard protocol: press starts, release sends), toggled otherwise (press starts,
+the next press sends); `esc` drops a capture. The capture is sent as one `voice/v1`
+audio part, PCM16 at 24 kHz mono; a spoken reply plays through the speaker.
+
 ## Current behaviour
 
 - WHEN `rusty-harness` starts without `--no-tui` THEN it SHALL open the TUI as an A2A
@@ -69,14 +75,15 @@ monochrome theme: the same glyphs, modifiers only.
   (`cargo nextest run -p rusty_harness --features tui -E 'test(tui_snapshot_)'`;
   `UPDATE_SNAPSHOTS=1` rewrites them).
 - Not yet on the wire, so not yet rendered: tool-call boxes and streamed text deltas; the
-  loop stores them but the stream carries replies on status updates. Push-to-talk arrives
-  with voice (M6).
+  loop stores them but the stream carries replies on status updates.
 
 ## History
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
 | issue-3 (M5, task 34) | The TUI: layout per the prototype, A2A client of the loopback or `--url`, controls, `/model` picker, command highlighting, native A2UI forms, images with the alt-text fallback, `NO_COLOR` | PR #11 |
+| issue-3 (M6, task 40) | Push-to-talk (hold and toggle) on `cpal`, spoken-reply playback, `tui_snapshot_voice` | PR #12 |
 | issue-3 (M5, task 37) | A remote card supplies the agent name, the commands and the model aliases; the one-harness A2UI scenario (`tests/tui.rs::on_one_harness`) | PR #11 |
+| issue-3 (M7, SR1-25) | Plan, command and task payloads that crossed the A2A wire (every number a double) decode through `task::decode_extension`; before, the plan strip and command outcomes were silently dropped when attached to a server | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

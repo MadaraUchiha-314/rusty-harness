@@ -48,7 +48,18 @@ Every registry uses **trusted publishing (OIDC)** — no long-lived tokens are s
 - Create the `crates-io`, `pypi` and `npm` environments in the repository settings.
 - Register this repository and `release.yml` as a trusted publisher on each registry.
   crates.io and npm only allow that after the first version exists, so the very first
-  publish of each package is a manual one.
+  publish of each package is a manual one. Before the first tagged release, every
+  package the workflow publishes needs it:
+  - **npm:** `rusty-harness` (the SDK, from `crates/rusty-harness-wasm`),
+    `@rusty-harness/cli` and the five platform packages
+    `@rusty-harness/cli-{linux-x64,linux-arm64,darwin-x64,darwin-arm64,win32-x64}`.
+    Publish a placeholder `0.0.0` of each by hand (`npm publish --access public` from a
+    minimal `package.json`), then add this repository, `release.yml` and the `npm`
+    environment as its trusted publisher. Without that, the first `npm-cli` run fails at
+    the first platform package with `E404`/`ENEEDAUTH`.
+  - **PyPI:** `rusty_harness` and `rusty-harness-cli`. PyPI takes a *pending* publisher
+    for a project that does not exist yet, so no placeholder is needed: register both.
+  - **crates.io:** `rusty_harness`.
 - Settings → Pages → Source: **GitHub Actions**.
 - Optional: a `RELEASE_PLZ_TOKEN` secret (a fine-grained PAT or GitHub App token). Pull
   requests opened with the default `GITHUB_TOKEN` do not trigger `ci.yml`, so without it

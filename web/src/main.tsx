@@ -1,3 +1,5 @@
+// oxlint-disable-next-line import/no-unassigned-import -- installs Buffer before the SDK loads
+import "./polyfills";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app";

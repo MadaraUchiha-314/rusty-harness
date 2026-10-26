@@ -1,0 +1,82 @@
+{
+  "channels": {
+    "ask": "<uuid>",
+    "channel": "<uuid>",
+    "question_kind": "a2ui",
+    "to": ["operator"]
+  },
+  "commands": {
+    "result": {
+      "name": "model",
+      "outcome": "done"
+    },
+    "tokens": [
+      {
+        "end": 6,
+        "name": "model",
+        "start": 0
+      }
+    ]
+  },
+  "participants": {
+    "participants": [
+      {
+        "display": "operator",
+        "id": "operator",
+        "kind": "human",
+        "roles": ["reporter", "admin"]
+      },
+      {
+        "display": "rusty-harness",
+        "id": "rusty-harness",
+        "kind": {
+          "agent": {
+            "id": "rusty-harness",
+            "version": null
+          }
+        },
+        "roles": ["assignee"]
+      }
+    ]
+  },
+  "plan": {
+    "edges": [],
+    "id": "plan-t-ext",
+    "steps": [
+      {
+        "description": "",
+        "id": "draft",
+        "linked_tasks": [],
+        "name": "Draft the notes",
+        "output": null,
+        "status": "pending"
+      }
+    ],
+    "task": "t-ext",
+    "version": 2
+  },
+  "task": {
+    "acceptance_criteria": [],
+    "description": "",
+    "goal": "Draft the release notes.",
+    "mode": "long-running",
+    "name": "Draft the release notes.",
+    "parent_tasks": [],
+    "reference_task_ids": [],
+    "sub_state": {
+      "ask": "<uuid>",
+      "kind": "awaiting-participant"
+    },
+    "sub_tasks": []
+  },
+  "voice": {
+    "attempt": {
+      "iteration": 1,
+      "n": 1
+    },
+    "final": true,
+    "format": "pcm16@24k",
+    "seq": 0,
+    "session": "s1"
+  }
+}

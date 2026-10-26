@@ -75,6 +75,13 @@ pub struct TuiOptions {
     pub footer: Footer,
     /// Monochrome (`NO_COLOR`).
     pub mono: bool,
+    /// A microphone is available: push-to-talk is offered (R27.5).
+    pub voice: bool,
+    /// The push-to-talk key (`[tui] push_to_talk_key`, space by default).
+    pub push_to_talk: char,
+    /// The terminal reports key releases (kitty keyboard protocol): hold to talk;
+    /// otherwise a press starts and the next press sends (Q7).
+    pub hold: bool,
 }
 
 impl Default for TuiOptions {
@@ -86,6 +93,9 @@ impl Default for TuiOptions {
             commands: vec!["model".into(), "effort".into(), "exit".into()],
             footer: Footer::default(),
             mono: false,
+            voice: false,
+            push_to_talk: ' ',
+            hold: false,
         }
     }
 }
@@ -99,6 +109,13 @@ pub enum Outgoing {
     Cancel(TaskId),
     /// Leave.
     Quit,
+    /// Start capturing the microphone (push-to-talk pressed).
+    StartListening,
+    /// Stop capturing; with `send`, send what was captured as a spoken message.
+    StopListening {
+        /// Whether to send the capture.
+        send: bool,
+    },
 }
 
 /// What arrives from the harness.
@@ -227,6 +244,12 @@ pub struct App {
     seen_messages: BTreeSet<String>,
     picker: Option<ratatui_image::picker::Picker>,
     scroll: u16,
+    /// Push-to-talk is capturing since this moment.
+    pub listening: Option<DateTime<Utc>>,
+    /// The time the last frame is drawn for (the listening timer).
+    pub now: Option<DateTime<Utc>>,
+    /// Spoken replies waiting to be played, PCM16 at 24 kHz mono (R28.4).
+    playback: Vec<bytes::Bytes>,
 }
 
 impl core::fmt::Debug for App {
@@ -260,6 +283,9 @@ impl App {
             seen_messages: BTreeSet::new(),
             picker: None,
             scroll: 0,
+            listening: None,
+            now: None,
+            playback: Vec::new(),
         }
     }
 
@@ -431,11 +457,11 @@ impl App {
     ) {
         let meta: Option<TaskMeta> = metadata
             .and_then(|m| m.get(TASK_EXT))
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+            .and_then(|v| crate::harness::core_loop::task::decode_extension(v).ok());
         let sub_state = metadata
             .and_then(|m| m.get(TASK_EXT))
             .and_then(|v| v.get("sub_state"))
-            .and_then(|v| serde_json::from_value::<SubState>(v.clone()).ok());
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<SubState>(v).ok());
         if self.task.as_ref().is_none_or(|t| t.id != id) {
             self.task = Some(TaskHeader {
                 id: id.to_owned(),
@@ -456,7 +482,7 @@ impl App {
     fn plan_from(&mut self, metadata: Option<&HashMap<String, Value>>) {
         if let Some(plan) = metadata
             .and_then(|m| m.get(PLAN_EXT))
-            .and_then(|v| serde_json::from_value::<Plan>(v.clone()).ok())
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<Plan>(v).ok())
         {
             self.plan = plan
                 .steps()
@@ -514,7 +540,7 @@ impl App {
             .metadata
             .as_ref()
             .and_then(|m| m.get(COMMANDS_EXT))
-            .and_then(|v| serde_json::from_value::<CommandsMeta>(v.clone()).ok())
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<CommandsMeta>(v).ok())
             .map_or_else(
                 || self.command_tokens(&text),
                 |c| {
@@ -528,7 +554,7 @@ impl App {
             .metadata
             .as_ref()
             .and_then(|m| m.get(COMMANDS_EXT))
-            .and_then(|v| serde_json::from_value::<CommandsMeta>(v.clone()).ok())
+            .and_then(|v| crate::harness::core_loop::task::decode_extension::<CommandsMeta>(v).ok())
             .and_then(|c| c.result)
             && result.outcome == "exit"
         {
@@ -550,6 +576,16 @@ impl App {
     }
 
     fn artifact(&mut self, artifact: &a2a::Artifact) {
+        // The plan travels as an artifact under plan/v1 (R13.4): it feeds the plan strip,
+        // it is not an output to show in the chat.
+        if artifact
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key(PLAN_EXT))
+        {
+            self.plan_from(artifact.metadata.as_ref());
+            return;
+        }
         let name = artifact
             .name
             .clone()
@@ -564,6 +600,14 @@ impl App {
                         at: Utc::now(),
                         text: t.clone(),
                         tokens: Vec::new(),
+                    });
+                }
+                a2a::PartContent::Raw(bytes) if media.starts_with("audio/pcm") => {
+                    self.playback.push(bytes::Bytes::from(bytes.clone()));
+                    self.entries.push(Entry::Artifact {
+                        name: name.clone(),
+                        alt: artifact.description.clone().unwrap_or_default(),
+                        image: None,
                     });
                 }
                 a2a::PartContent::Raw(bytes) if media.starts_with("image/") => {
@@ -661,6 +705,9 @@ impl App {
 
     /// Handles a key at `now`.
     pub fn key(&mut self, key: KeyEvent, now: DateTime<Utc>) -> Vec<Outgoing> {
+        if let Some(out) = self.push_to_talk(key, now) {
+            return out;
+        }
         if key.kind == KeyEventKind::Release {
             return Vec::new();
         }
@@ -670,6 +717,80 @@ impl App {
             Mode::ModelPicker { selected } => self.key_picker(key, selected, now),
             Mode::ConfirmComplete => self.key_confirm(key, now),
         }
+    }
+
+    /// Push-to-talk on an empty composer (R27.5, Q7): held with the kitty keyboard
+    /// protocol (press starts, release sends), toggled otherwise (press starts, the next
+    /// press sends); `esc` drops a capture. `None` when the key is not push-to-talk's.
+    fn push_to_talk(&mut self, key: KeyEvent, now: DateTime<Utc>) -> Option<Vec<Outgoing>> {
+        if !self.opts.voice || self.mode != Mode::Chat {
+            return None;
+        }
+        if self.listening.is_some() && key.code == KeyCode::Esc {
+            self.listening = None;
+            return Some(vec![Outgoing::StopListening { send: false }]);
+        }
+        if key.code != KeyCode::Char(self.opts.push_to_talk) || !self.composer.is_empty() {
+            return None;
+        }
+        let out = match (key.kind, self.listening.is_some(), self.opts.hold) {
+            (KeyEventKind::Press, false, _) => {
+                self.listening = Some(now);
+                vec![Outgoing::StartListening]
+            }
+            (KeyEventKind::Press, true, false) | (KeyEventKind::Release, true, true) => {
+                self.listening = None;
+                self.busy = true;
+                vec![Outgoing::StopListening { send: true }]
+            }
+            // Repeats, a release with nothing captured or without hold, a press while held.
+            _ => Vec::new(),
+        };
+        Some(out)
+    }
+
+    /// A captured utterance as the spoken message to send: one `voice/v1` audio part,
+    /// PCM16 at 24 kHz mono (R28.6).
+    #[must_use]
+    pub fn spoken_message(&mut self, pcm: Vec<u8>, now: DateTime<Utc>) -> a2a::Message {
+        use crate::harness::models::speech::{AudioChunk, VoiceMeta, audio_part};
+        let chunk = AudioChunk {
+            format: crate::harness::models::speech::openai::PCM24K,
+            data: bytes::Bytes::from(pcm),
+            seq: 1,
+        };
+        let meta = VoiceMeta {
+            seq: 1,
+            attempt: crate::harness::core_loop::task::Attempt { iteration: 0, n: 1 },
+            format: "pcm16@24k".into(),
+            is_final: true,
+            session: format!("tui-{}", now.timestamp_millis()),
+        };
+        let text = self.text(keys::tui::voice::SENT);
+        self.entries.push(Entry::Turn {
+            who: Who::You,
+            at: now,
+            text,
+            tokens: Vec::new(),
+        });
+        let message = self.user_message(vec![audio_part(&chunk, &meta)], HashMap::new());
+        self.seen_messages.insert(message.message_id.clone());
+        message
+    }
+
+    /// Spoken replies that arrived since the last call, to play in order.
+    pub fn take_playback(&mut self) -> Vec<bytes::Bytes> {
+        std::mem::take(&mut self.playback)
+    }
+
+    /// Whether the terminal reports key releases (hold to talk) or not (toggle).
+    pub fn set_hold(&mut self, hold: bool) {
+        self.opts.hold = hold;
+    }
+
+    /// The moment the next frame is drawn for.
+    pub fn tick(&mut self, now: DateTime<Utc>) {
+        self.now = Some(now);
     }
 
     fn key_chat(&mut self, key: KeyEvent, now: DateTime<Utc>) -> Vec<Outgoing> {

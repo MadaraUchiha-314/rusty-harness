@@ -1,6 +1,8 @@
 //! Runs in Node via `wasm-pack test --node`; `browser.rs` covers the browser.
 #![cfg(target_arch = "wasm32")]
 
+mod scenario;
+
 use wasm_bindgen_test::wasm_bindgen_test;
 
 #[wasm_bindgen_test(async)]
@@ -28,4 +30,14 @@ fn an_unavailable_capability_fails_at_construction_on_wasm32() {
         Err(HarnessError::Unsupported(Capability::FileSystem))
     ));
     assert!(host.supplied().is_empty());
+}
+
+#[wasm_bindgen_test(async)]
+async fn the_wasm_build_runs_a_task_against_a_mocked_host() {
+    scenario::the_wasm_build_runs_a_task_against_a_mocked_host().await;
+}
+
+#[wasm_bindgen_test(async)]
+async fn a_fetch_outside_allow_origins_is_refused() {
+    scenario::a_fetch_outside_allow_origins_is_refused().await;
 }

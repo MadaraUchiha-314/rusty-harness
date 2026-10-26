@@ -45,6 +45,10 @@ pub trait MaybeSync {}
 #[cfg(target_arch = "wasm32")]
 impl<T: ?Sized> MaybeSync for T {}
 
+/// A monotonic instant: std's natively, `performance.now()` on `wasm32`, where
+/// `std::time::Instant::now` panics.
+pub use web_time::Instant;
+
 /// The capabilities the harness needs from an async runtime.
 pub trait Runtime {
     /// Runs `future` in the background, detached from the caller.

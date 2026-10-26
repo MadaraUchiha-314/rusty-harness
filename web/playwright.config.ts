@@ -17,6 +17,11 @@ export default defineConfig({
   },
   use: {
     baseURL: "http://127.0.0.1:4173",
+    // A fake microphone for the voice state (R26.4): no prompt, a synthetic tone.
+    launchOptions: {
+      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+    },
+    permissions: ["microphone"],
     trace: "retain-on-failure",
     video: process.env.PW_VIDEO ? "on" : "off",
   },

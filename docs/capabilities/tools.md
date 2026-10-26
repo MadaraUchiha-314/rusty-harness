@@ -36,6 +36,9 @@ flowchart LR
   environment, or streamable HTTP), list its tools and register each under the server's
   identity; the legacy SSE transport is refused.
 - The memory and sandbox providers are typed seams with no implementation (S2).
+- WHEN a tool returns `ToolOutput::Artifacts` THEN its artifacts SHALL reach the task's
+  participants as artifact updates in the same commit as the turn, and the model SHALL
+  see the value plus one line naming each artifact, never its bytes (R28.2).
 
 ## Design
 
@@ -46,6 +49,7 @@ flowchart LR
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
+| issue-3 (M6, task 38) | `ToolOutput::Artifacts`: images and files for the participants | PR #12 |
 | issue-3 (M2, task 15) | Executor, policy guard, size policy, MCP over `rmcp` and the host channel | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

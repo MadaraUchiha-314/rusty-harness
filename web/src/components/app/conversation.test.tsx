@@ -1,5 +1,6 @@
 // Feature: Web renderer — the conversation composed from the AI Elements (T1)
 // Requirement: docs/specs/issue-3/requirements.md#R26
+import { Part } from "@a2a-js/sdk";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { TaskView, Turn } from "@/store/task";
@@ -122,5 +123,64 @@ describe("the conversation", () => {
     );
     expect(screen.getByTestId("retracted")).toBeInTheDocument();
     expect(screen.getByTestId("terminal-note")).toHaveTextContent("completed · 12:41");
+  });
+
+  it("renders an image artifact as an image with its alt text (R28.2)", () => {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const task = {
+      ...view([turn("a1", "agent", "Here is the chart.")], 6),
+      artifacts: [
+        {
+          id: "chart-1",
+          name: "chart.png",
+          description: "revenue by quarter",
+          attempt: 0,
+          parts: [
+            {
+              content: { $case: "raw" as const, value: Buffer.from(png) },
+              metadata: undefined,
+              filename: "chart.png",
+              mediaType: "image/png",
+            },
+          ],
+        },
+      ],
+    };
+    render(
+      <ConversationView
+        task={task}
+        agent="demo-agent"
+        commands={[]}
+        busy={false}
+        onA2uiAction={vi.fn<() => void>()}
+      />,
+    );
+    const img = screen.getByAltText("revenue by quarter");
+    expect(img.getAttribute("src")).toMatch(/^data:image\/png;base64,iVBORw0KGgo=$/);
+    expect(screen.getByTestId("artifact")).toHaveTextContent("chart.png");
+  });
+
+  it("shows a form answer as the action it sent, and only audio as a spoken message", () => {
+    const answer = turn("u2", "user", "", {
+      a2ui: [
+        { version: "v0.9.1", action: { name: "answer", context: { audience: ["customers"] } } },
+      ],
+    });
+    const spoken = turn("u3", "user", "", {
+      parts: [Part.fromJSON({ raw: "", mediaType: "audio/pcm" })],
+    });
+    render(
+      <ConversationView
+        task={view([answer, spoken])}
+        agent="demo-agent"
+        commands={[]}
+        busy={false}
+        onA2uiAction={vi.fn<() => void>()}
+      />,
+    );
+    const users = screen.getAllByTestId("turn-user");
+    expect(users[0]).toHaveTextContent("→ answer");
+    expect(users[0]).not.toHaveTextContent("spoken");
+    expect(users[1]).toHaveTextContent("🎙 spoken message");
   });
 });

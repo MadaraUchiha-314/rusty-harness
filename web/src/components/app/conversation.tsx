@@ -47,8 +47,11 @@ function ArtifactRow({ artifact }: { artifact: ArtifactView }) {
   let src: string | undefined;
   if (image?.content?.$case === "url") src = image.content.value;
   if (image?.content?.$case === "raw") {
-    const bytes: unknown = image.content.value;
-    if (bytes instanceof Uint8Array) {
+    // The SDK hands raw bytes over as a Buffer; `isView` works across realms where
+    // `instanceof Uint8Array` does not.
+    const raw: unknown = image.content.value;
+    if (ArrayBuffer.isView(raw)) {
+      const bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
       let binary = "";
       for (const b of bytes) binary += String.fromCharCode(b);
       src = `data:${image.mediaType};base64,${btoa(binary)}`;
@@ -83,6 +86,27 @@ function ArtifactRow({ artifact }: { artifact: ArtifactView }) {
       {text && <pre className="mt-2 overflow-auto rounded-md bg-muted p-2 text-xs">{text}</pre>}
     </div>
   );
+}
+
+/** What a user turn with no text shows: the A2UI action it answered with ("→ answer",
+ * as the TUI shows it), or that it was spoken when it carries audio. */
+function userFallback(turn: Turn): string {
+  for (const message of turn.a2ui) {
+    const action = actionName(message);
+    if (action) return t("web.a2ui.answered", { action });
+  }
+  if (turn.parts.some((part) => part.mediaType?.startsWith("audio/"))) {
+    return t("web.voice.sent");
+  }
+  return "";
+}
+
+/** The `action.name` of an A2UI client message, if it is one. */
+function actionName(message: unknown): string | undefined {
+  if (typeof message !== "object" || message === null || !("action" in message)) return undefined;
+  const action: unknown = message.action;
+  if (typeof action !== "object" || action === null || !("name" in action)) return undefined;
+  return typeof action.name === "string" ? action.name : undefined;
 }
 
 function TurnView({
@@ -122,7 +146,11 @@ function TurnView({
           <MessageContent>
             {turn.role === "user" ? (
               <p className="whitespace-pre-wrap">
-                <Highlight text={turn.text} commands={commands} />
+                {turn.text ? (
+                  <Highlight text={turn.text} commands={commands} />
+                ) : (
+                  userFallback(turn)
+                )}
               </p>
             ) : turn.a2ui.length > 0 ? (
               <A2uiBlock messages={turn.a2ui} onAction={(action) => onA2uiAction(turn, action)} />

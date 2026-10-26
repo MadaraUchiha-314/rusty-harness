@@ -378,8 +378,9 @@ impl PluginLoader {
     ///
     /// # Errors
     ///
-    /// [`PluginError`] for a directory whose files cannot be read or parsed; other
-    /// plugins are still returned, so one bad plugin does not hide the rest.
+    /// [`PluginError`] for a configured path that cannot be listed, and for a directory
+    /// whose files cannot be read or parsed; other plugins are still returned, so one bad
+    /// plugin does not hide the rest.
     pub async fn discover(
         &self,
         paths: &[PathBuf],
@@ -388,8 +389,18 @@ impl PluginLoader {
         let mut specs = Vec::new();
         let mut errors = Vec::new();
         for path in paths {
-            let Ok(children) = fs.list(path).await else {
-                continue;
+            // A path the operator configured and the host cannot list is an error, not an
+            // empty directory: otherwise the harness starts without the plugins it was given.
+            let children = match fs.list(path).await {
+                Ok(children) => children,
+                Err(e) => {
+                    errors.push(invalid(
+                        "<plugins>",
+                        "paths",
+                        format!("{}: {e}", path.display()),
+                    ));
+                    continue;
+                }
             };
             for child in children {
                 if fs.read(&child.join("plugin.json")).await.is_err() {

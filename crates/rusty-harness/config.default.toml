@@ -1,6 +1,7 @@
 # rusty-harness configuration. Written on first run with every default; edit what you need.
 # Precedence: code overrides > RH__SECTION__KEY environment variables > this file > defaults.
-# Credentials are references only (env:NAME, keyring:SERVICE/USER, file:PATH), never values.
+# Credentials are references only (env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,…,
+# file:PATH with ~/ for home), never values.
 # Schema: https://madarauchiha-314.github.io/rusty-harness/rusty-harness.schema.json
 
 [agent]
@@ -11,9 +12,10 @@ description = "An agent served by rusty-harness."
 # Models by alias; the loop starts with `default`.
 # [models.default]
 # provider = "openai"            # openai | anthropic
-# model = "gpt-6.1"
+# model = "gpt-6.1-sol"
 # api_key = "env:OPENAI_API_KEY"
 # base_url = "http://127.0.0.1:11434/v1"   # any OpenAI-compatible endpoint
+# api = "responses"             # openai: responses (OpenAI itself) | chat-completions (the default with base_url)
 # effort = "high"
 
 [server]
@@ -96,6 +98,9 @@ heartbeat_interval = "5s"
 # provider = "openai-realtime"
 # model = "gpt-realtime-2.1"
 # api_key = "env:OPENAI_API_KEY"
+# transcribe_model = "gpt-live-transcribe"
+# speech_model = "gpt-4o-mini-tts"
+# voice = "marin"
 
 [o11y]
 log_level = "info"

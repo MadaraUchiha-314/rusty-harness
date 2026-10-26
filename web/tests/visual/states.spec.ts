@@ -93,6 +93,26 @@ test("done: complete is confirmed, then the controls close", async ({ page }) =>
   await mock.close();
 });
 
+test("voice: listening, then the utterance is sent as 24 kHz PCM", async ({ page }) => {
+  const mock = await openWith(page, "idle");
+  await send(page, USER);
+  await expect(page.getByText(/Waiting for your next message/)).toBeVisible();
+  await page.getByTestId("voice").click();
+  await expect(page.getByTestId("voice-listening")).toBeVisible();
+  await expect(page.getByTestId("voice")).toHaveAttribute("aria-pressed", "true");
+  await shoot(page, "voice");
+  await page.waitForTimeout(600);
+  await page.getByTestId("voice").click();
+  await expect
+    .poll(() => mock.requests.filter((r) => r.method === "SendStreamingMessage").length)
+    .toBe(2);
+  const spoken = list(rec(rec(mock.requests.at(-1)?.params).message).parts)[0];
+  expect(spoken?.mediaType).toBe("audio/pcm");
+  expect(typeof spoken?.raw).toBe("string");
+  expect(String(spoken?.raw).length).toBeGreaterThan(100);
+  await mock.close();
+});
+
 test("tool and denied: the tool card states", async ({ page }) => {
   // Tool activity is not on the wire yet; the `Tool` composition is shown from the
   // fixtures page the test build adds (design/web-renderer.html, states tool and denied).

@@ -99,18 +99,7 @@ pub async fn remote_options(
         Some(reference) => Some(resolve("api_key", reference).await?),
         None => None,
     };
-    let mut target = address.expose().clone();
-    if !target.contains("://") {
-        target = format!(
-            "{}://{target}",
-            if api_key.is_some() { "https" } else { "http" }
-        );
-    }
-    let target: url::Url = target.parse().map_err(|e| {
-        DurableError::Failed(format!(
-            "durable.temporal.address does not parse as a URL: {e}"
-        ))
-    })?;
+    let target = target(address.expose(), api_key.is_some())?;
     if let Some(key) = &api_key {
         guard.protect(key);
     }
@@ -377,8 +366,57 @@ impl Drop for TemporalWorker {
     }
 }
 
+/// The URL to dial for `address`: `https` by default when an API key is sent, `http`
+/// otherwise. An API key is a bearer credential, so it is only sent over TLS, except to a
+/// loopback host (a local dev server).
+fn target(address: &str, with_key: bool) -> Result<url::Url, DurableError> {
+    let address = if address.contains("://") {
+        address.to_owned()
+    } else {
+        format!("{}://{address}", if with_key { "https" } else { "http" })
+    };
+    let url: url::Url = address.parse().map_err(|e| {
+        DurableError::Failed(format!(
+            "durable.temporal.address does not parse as a URL: {e}"
+        ))
+    })?;
+    let loopback = match url.host() {
+        Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    };
+    if with_key && url.scheme() != "https" && !loopback {
+        return Err(DurableError::Failed(format!(
+            "durable.temporal.address is {}:// to {}, and the API key would travel in clear text: use https",
+            url.scheme(),
+            url.host_str().unwrap_or_default()
+        )));
+    }
+    Ok(url)
+}
+
 #[cfg(test)]
 mod tests {
+    /// An API key goes only over TLS, except to a local dev server; a bare address takes
+    /// https when a key is set.
+    #[test]
+    fn an_api_key_is_never_sent_in_clear_text_to_a_remote_host() {
+        assert!(super::target("http://ns.tmprl.cloud:7233", true).is_err());
+        assert_eq!(
+            super::target("ns.tmprl.cloud:7233", true).unwrap().scheme(),
+            "https"
+        );
+        assert!(super::target("https://ns.tmprl.cloud:7233", true).is_ok());
+        assert!(super::target("http://127.0.0.1:7233", true).is_ok());
+        assert!(super::target("http://localhost:7233", true).is_ok());
+        assert_eq!(
+            super::target("temporal:7233", false).unwrap().scheme(),
+            "http",
+            "no key, no TLS needed"
+        );
+    }
+
     use super::{SecretGuard, remote_options};
     use crate::app_service::durable::temporal::workflow::TaskWorkflow;
 

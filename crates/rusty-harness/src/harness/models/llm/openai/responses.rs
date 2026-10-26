@@ -126,6 +126,8 @@ struct Event {
     response: Option<Response>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    code: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -174,6 +176,34 @@ struct Incomplete {
 struct ResponseError {
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    code: Option<String>,
+}
+
+/// Whether a failure the stream reports is worth retrying: the transient codes are; any
+/// other code (a refused or invalid prompt) fails the same way every time; with no code,
+/// `unknown` decides.
+fn retryable(code: Option<&str>, unknown: bool) -> bool {
+    match code {
+        Some("server_error" | "rate_limit_exceeded" | "overloaded" | "timeout") => true,
+        Some(_) => false,
+        None => unknown,
+    }
+}
+
+fn stream_error(code: Option<&str>, message: String, unknown: bool) -> ModelError {
+    if retryable(code, unknown) {
+        ModelError::Retryable {
+            status: None,
+            message,
+            retry_after: None,
+        }
+    } else {
+        ModelError::NonRetryable {
+            status: None,
+            message,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -253,22 +283,16 @@ impl Decoder {
                 });
             }
             "response.failed" => {
-                let message = event
-                    .response
-                    .and_then(|r| r.error)
+                let error = event.response.and_then(|r| r.error);
+                let code = error.as_ref().and_then(|e| e.code.clone());
+                let message = error
                     .and_then(|e| e.message)
                     .unwrap_or_else(|| "the response failed".into());
-                return Err(ModelError::Retryable {
-                    status: None,
-                    message,
-                    retry_after: None,
-                });
+                return Err(stream_error(code.as_deref(), message, true));
             }
             "error" => {
-                return Err(ModelError::NonRetryable {
-                    status: None,
-                    message: event.message.unwrap_or_else(|| "stream error".into()),
-                });
+                let message = event.message.unwrap_or_else(|| "stream error".into());
+                return Err(stream_error(event.code.as_deref(), message, false));
             }
             _ => {}
         }
@@ -473,6 +497,31 @@ mod tests {
         assert!(
             matches!(events.first(), Some(Err(e)) if e.is_retryable()),
             "the tool never runs on arguments it was not given: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stream_failure_is_retried_only_when_its_code_says_so() {
+        let first = |line: &'static str| async move {
+            let events: Vec<_> = futures::StreamExt::collect(decode(chunks(vec![line]))).await;
+            match events.into_iter().next() {
+                Some(Err(e)) => e.is_retryable(),
+                other => panic!("an error first: {other:?}"),
+            }
+        };
+        assert!(
+            !first("data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"invalid_prompt\",\"message\":\"refused\"}}}\n\n").await,
+            "a refused prompt fails the same way on every retry"
+        );
+        assert!(
+            first("data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"oops\"}}}\n\n").await
+        );
+        assert!(
+            first("data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"slow down\"}\n\n").await,
+            "a rate limit on the stream is worth a retry"
+        );
+        assert!(
+            !first("data: {\"type\":\"error\",\"code\":\"invalid_request_error\",\"message\":\"bad\"}\n\n").await
         );
     }
 }

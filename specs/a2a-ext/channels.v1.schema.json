@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChannelsMeta",
+  "description": "The `channels/v1` payload: on the status message of an ask, on a reply message.",
+  "type": "object",
+  "properties": {
+    "ask": {
+      "description": "The ask (the pending call's resume key).",
+      "type": "string"
+    },
+    "channel": {
+      "description": "The channel.",
+      "type": "string"
+    },
+    "question_kind": {
+      "description": "What the question is.",
+      "$ref": "#/$defs/QuestionKind",
+      "default": "text"
+    },
+    "reply_to": {
+      "description": "On a reply: the ask it answers.",
+      "type": ["string", "null"]
+    },
+    "to": {
+      "description": "Whom the question addresses.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": ["channel", "ask"],
+  "$defs": {
+    "QuestionKind": {
+      "description": "What kind of question an ask carries.",
+      "oneOf": [
+        {
+          "description": "Plain text.",
+          "type": "string",
+          "const": "text"
+        },
+        {
+          "description": "An A2UI payload (`application/a2ui+json`).",
+          "type": "string",
+          "const": "a2ui"
+        }
+      ]
+    }
+  }
+}

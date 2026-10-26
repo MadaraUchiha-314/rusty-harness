@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "echo": {
+      "type": "stdio",
+      "command": "${PLUGIN_ROOT}/bin/echo-mcp",
+      "args": ["--data", "${PLUGIN_DATA}"],
+      "env": { "ECHO_MODE": "test" }
+    }
+  }
+}

@@ -6,6 +6,7 @@
 //! `WasmRuntime` (feature `rt-wasm`) on `wasm32`.
 
 use core::future::Future;
+use core::pin::Pin;
 use core::time::Duration;
 
 /// `Send` on native targets, nothing on `wasm32`.
@@ -27,6 +28,26 @@ pub trait MaybeSend {}
 
 #[cfg(target_arch = "wasm32")]
 impl<T: ?Sized> MaybeSend for T {}
+
+/// `Sync` on native targets, nothing on `wasm32`: the twin of [`MaybeSend`] for shared
+/// references across the registry and the hook dispatcher.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSync: Sync {}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Sync + ?Sized> MaybeSync for T {}
+
+/// `Sync` on native targets, nothing on `wasm32`: the twin of [`MaybeSend`] for shared
+/// references across the registry and the hook dispatcher.
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSync {}
+
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> MaybeSync for T {}
+
+/// A monotonic instant: std's natively, `performance.now()` on `wasm32`, where
+/// `std::time::Instant::now` panics.
+pub use web_time::Instant;
 
 /// The capabilities the harness needs from an async runtime.
 pub trait Runtime {
@@ -137,4 +158,54 @@ mod wasm {
             gloo_timers::future::sleep(duration)
         }
     }
+}
+
+/// A boxed future that is `Send` on native targets and plain on `wasm32`.
+///
+/// A trait object may name only one non-auto trait, so this cannot be written with
+/// [`MaybeSend`]; the two definitions are the same shape with `Send` added natively.
+#[cfg(not(target_arch = "wasm32"))]
+pub type HarnessFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// A boxed future that is `Send` on native targets and plain on `wasm32`.
+#[cfg(target_arch = "wasm32")]
+pub type HarnessFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+/// A boxed stream that is `Send` on native targets and plain on `wasm32`.
+#[cfg(not(target_arch = "wasm32"))]
+pub type HarnessStream<'a, T> = Pin<Box<dyn futures::Stream<Item = T> + Send + 'a>>;
+
+/// A boxed stream that is `Send` on native targets and plain on `wasm32`.
+#[cfg(target_arch = "wasm32")]
+pub type HarnessStream<'a, T> = Pin<Box<dyn futures::Stream<Item = T> + 'a>>;
+
+/// `async_trait` natively and `async_trait(?Send)` on `wasm32`, for every dyn-compatible
+/// async trait and its implementations.
+///
+/// Wrap the whole item: `harness_async_trait! { pub trait Clock { async fn now(&self); } }`.
+#[macro_export]
+macro_rules! harness_async_trait {
+    ($($item:tt)*) => {
+        #[cfg_attr(not(target_arch = "wasm32"), ::async_trait::async_trait)]
+        #[cfg_attr(target_arch = "wasm32", ::async_trait::async_trait(?Send))]
+        $($item)*
+    };
+}
+
+/// Boxes a stream as a [`HarnessStream`]: `Send` natively, local on `wasm32`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn boxed_stream<'a, S>(stream: S) -> HarnessStream<'a, S::Item>
+where
+    S: futures::Stream + Send + 'a,
+{
+    Box::pin(stream)
+}
+
+/// Boxes a stream as a [`HarnessStream`]: `Send` natively, local on `wasm32`.
+#[cfg(target_arch = "wasm32")]
+pub fn boxed_stream<'a, S>(stream: S) -> HarnessStream<'a, S::Item>
+where
+    S: futures::Stream + 'a,
+{
+    Box::pin(stream)
 }

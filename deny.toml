@@ -15,20 +15,50 @@ ignore = [
   { id = "RUSTSEC-2025-0090", reason = "unic-emoji-char, via pyo3-stub-gen" },
   { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version, via pyo3-stub-gen" },
   { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident, via pyo3-stub-gen" },
+  # The Temporal SDK's ephemeral dev server (`durable-embedded`, development only) unpacks the
+  # `temporal` CLI it downloads over TLS from temporal.download: a tarball on Linux and macOS, a
+  # zip on Windows, read through `zip`'s stream API, never `ZipArchive::extract`. The SDK pins
+  # zip 8.4 and the fixes are in zip 9; revisit when the SDK moves.
+  { id = "RUSTSEC-2026-0367", reason = "zip 8 via the Temporal SDK's ephemeral dev server (zip 8.4 pinned upstream)" },
+  { id = "RUSTSEC-2026-0368", reason = "zip 8 via the Temporal SDK's ephemeral dev server (zip 8.4 pinned upstream)" },
+  { id = "RUSTSEC-2026-0369", reason = "zip 8 via the Temporal SDK's ephemeral dev server (zip 8.4 pinned upstream)" },
+  # zip 8 pins zstd 0.13 (zstd-safe 7), whose fixes are in zstd 0.14.3 / zstd-safe 8.2. zip only
+  # reads through `zstd::Decoder::with_buffer` (the read-side stream decoder, a fresh context per
+  # entry), and zstd's `seekable` feature is off, so none of the three affected paths is reached.
+  { id = "RUSTSEC-2026-0391", reason = "zstd 0.13 via zip 8: only `with_context` reuse is affected; zip never reuses a context" },
+  { id = "RUSTSEC-2026-0398", reason = "zstd-safe 7 via zip 8: `Seekable::decompress` only; the `seekable` feature is off" },
+  { id = "RUSTSEC-2026-0403", reason = "zstd-safe 7 via zip 8: the write-side decoder only; zip reads with the read-side one" },
 ]
 
 [licenses]
 version = 2
 confidence-threshold = 0.9
-allow = ["Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "MIT", "Unicode-3.0"]
+# ISC, BSD-3-Clause, MIT-0 and CDLA-Permissive-2.0 arrive with reqwest's rustls/aws-lc TLS stack
+# and uuid's sha1 (issue-3, M1); all permissive.
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "Unicode-3.0",
+  "Zlib", # foldhash, via the official A2A client crate
+  "0BSD", # enum-iterator, via the official Temporal SDK
+]
 # Permissive licences pulled in by pyo3-stub-gen -> rustpython-parser, scoped to them.
 exceptions = [
-  { crate = "tiny-keccak", allow = [
-    "CC0-1.0",
-  ] },
-  { crate = "unicode_names2", allow = [
-    "Unicode-DFS-2016",
-  ] },
+  # uuid's `v5` feature (deterministic ids, design.md § Durable execution) -> sha1_smol.
+  { crate = "sha1_smol", allow = ["BSD-3-Clause"] },
+  { crate = "tiny-keccak", allow = ["CC0-1.0"] },
+  { crate = "unicode_names2", allow = ["Unicode-DFS-2016"] },
+  # The Temporal SDK's ephemeral dev server unpacks the downloaded CLI (zip -> bzip2 bindings),
+  # and its environment loader reads the profile from the home directory (dirs -> option-ext,
+  # MPL-2.0 is file-scoped and the crate is used unmodified).
+  { crate = "libbz2-rs-sys", allow = ["bzip2-1.0.6"] },
+  { crate = "option-ext", allow = ["MPL-2.0"] },
 ]
 
 [licenses.private]

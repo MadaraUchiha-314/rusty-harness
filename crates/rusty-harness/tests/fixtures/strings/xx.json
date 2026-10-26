@@ -1,0 +1,5 @@
+{
+  "tui.status.working": "[xx] working",
+  "tui.task.sub_tasks": "[xx] {n, plural, one {# sub-task} other {# sub-tasks}}",
+  "command.unknown": "[xx] Unknown command {name}. Did you mean {suggestion}?"
+}

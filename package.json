@@ -3,7 +3,9 @@
   "private": true,
   "workspaces": [
     "docs",
-    "crates/rusty-harness-wasm"
+    "crates/rusty-harness-wasm",
+    "packaging/npm",
+    "web"
   ],
   "type": "module",
   "scripts": {

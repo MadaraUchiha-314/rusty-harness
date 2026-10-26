@@ -1,0 +1,30 @@
+┌ demo-agent · task_01HZX4V3K9N2 · ctx_9a1f ────────────────── ◐ input-required awaiting next turn ┐
+│                                                                                                  │
+│ demo-agent 12:35                                                                                 │
+│   Done: the draft is attached as release-notes-q4.md. Tell me what to change, or complete.       │
+│                                                                                                  │
+│ sub-task classify-25-prs                                                                         │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│             ┌ /model ──────────────────────────────────────────────────────────────┐             │
+│             │pick the model for the next call · applies without restarting         │             │
+│             │                                                                      │             │
+│             │▸ openai/gpt-6.1 (gpt-6.1)            current · tools · vision · voice│             │
+│             │  openai/gpt-6.1-mini (gpt-6.1-mini)  tools · vision                  │             │
+│             │  anthropic/claude-fable-5-1 (fable)  tools · vision                  │             │
+│             │  openai/qwen3-coder (qwen)           tools                           │             │
+│             │  openai/llama4 (local)               tools                           │             │
+│             │                                                                      │             │
+│             │↑↓  move   enter  select   esc  close                                 │             │
+│             └──────────────────────────────────────────────────────────────────────┘             │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│ plan ■ collect ■ group ■ draft ▣ review ─────────────────────────────────────────────────────────│
+│ ›                                                                                                │
+│                                                                                                  │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│  ↑↓  move  enter  select  esc  close                                     gpt-6.1 · high · remote │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

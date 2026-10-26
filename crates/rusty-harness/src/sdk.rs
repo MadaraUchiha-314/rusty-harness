@@ -1,0 +1,908 @@
+//! The SDK door: [`HarnessBuilder`] assembles what the CLI assembles, from the same
+//! `Config`, and hands back a [`Harness`] usable in process with no service layer
+//! (R30.1, R11.6; design.md § Packaging and SDK parity).
+
+use std::sync::Arc;
+
+use crate::assets::PromptRegistry;
+use crate::config::{Config, DurableMode, ModelProvider};
+use crate::harness::a2a_client::AgentCallTool;
+use crate::harness::channels::{ParticipantAskTool, ParticipantDelegateTool};
+use crate::harness::commands::{ModelRouter, ModelSelection, install_builtins};
+use crate::harness::core_loop::agent::{
+    Agent as _, AgentRequest, CallContext, LocalAgent, LocalAgentParts,
+};
+use crate::harness::core_loop::persistence::{MemoryStore, PersistenceStore};
+use crate::harness::core_loop::task::{Caller, Role};
+use crate::harness::hooks::{Hook, HookDispatcher, HookOrder};
+use crate::harness::models::llm::Llm;
+use crate::harness::plugins::{InstalledPlugin, McpServerEntity, PluginError, PluginLoader};
+use crate::harness::tools::{McpServer, Tool, ToolError, ToolExecute, ToolPolicy};
+use crate::host::Host;
+use crate::registry::{Entity, EntityId, Registry};
+use crate::runtime::{HarnessStream, boxed_stream};
+use futures::StreamExt as _;
+
+/// Why a harness could not be built; every variant is fail-closed (nothing half-built
+/// is returned).
+#[derive(Debug, thiserror::Error)]
+pub enum SdkError {
+    /// A model under `[models]` could not be constructed.
+    #[error("model {alias}: {reason}")]
+    Model {
+        /// The alias.
+        alias: String,
+        /// Why.
+        reason: String,
+    },
+    /// No `default` model: neither configured nor handed to the builder.
+    #[error("no `default` model: configure [models.default] or pass one to the builder")]
+    NoDefaultModel,
+    /// A plugin was refused.
+    #[error(transparent)]
+    Plugin(#[from] PluginError),
+    /// An MCP server could not be connected.
+    #[error("mcp server {server}: {source}")]
+    Mcp {
+        /// The server.
+        server: String,
+        /// Why.
+        source: ToolError,
+    },
+    /// A sub-agent's card was refused.
+    #[error("sub-agent {name}: {reason}")]
+    SubAgent {
+        /// The alias under `[agents]`.
+        name: String,
+        /// Why.
+        reason: String,
+    },
+    /// The store could not be opened.
+    #[error("store: {0}")]
+    Store(String),
+    /// A registry conflict between the pieces.
+    #[error("registry: {0}")]
+    Registry(String),
+    /// The configured system prompt could not be loaded (R7.2).
+    #[error("system prompt: {0}")]
+    Prompt(String),
+    /// A durable mode this build cannot run.
+    #[error("durable mode {0:?} needs the `durable-temporal` feature and the service layer")]
+    Durable(DurableMode),
+    /// Durable execution could not be reached or started (fail-closed at startup).
+    #[error("durable execution: {0}")]
+    DurableConnect(String),
+}
+
+/// Builds a [`Harness`]: `HarnessBuilder::new(config).host(host).llm(..).build().await`.
+pub struct HarnessBuilder {
+    config: Config,
+    host: Option<Host>,
+    llms: Vec<Arc<dyn Llm>>,
+    tools: Vec<Arc<dyn Tool>>,
+    store: Option<Arc<dyn PersistenceStore>>,
+    registry: Option<Arc<Registry>>,
+    dispatcher: Option<Arc<HookDispatcher>>,
+    prompts: Option<PromptRegistry>,
+    tracing: bool,
+}
+
+impl core::fmt::Debug for HarnessBuilder {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HarnessBuilder")
+            .field("agent", &self.config.agent.name)
+            .field("llms", &self.llms.len())
+            .field("tools", &self.tools.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl HarnessBuilder {
+    /// A builder for `config`.
+    #[must_use]
+    pub fn new(config: Config) -> Self {
+        Self {
+            config,
+            host: None,
+            llms: Vec::new(),
+            tools: Vec::new(),
+            store: None,
+            registry: None,
+            dispatcher: None,
+            prompts: None,
+            tracing: true,
+        }
+    }
+
+    /// The platform. Natively the default is [`Host::native`]; in the browser the host
+    /// must be supplied.
+    #[must_use]
+    pub fn host(mut self, host: Host) -> Self {
+        self.host = Some(host);
+        self
+    }
+
+    /// A model registered under its own alias, besides (or instead of) `[models]`.
+    #[must_use]
+    pub fn llm(mut self, llm: Arc<dyn Llm>) -> Self {
+        self.llms.push(llm);
+        self
+    }
+
+    /// A tool registered besides the built-ins and the plugins'.
+    #[must_use]
+    pub fn tool(mut self, tool: Arc<dyn Tool>) -> Self {
+        self.tools.push(tool);
+        self
+    }
+
+    /// A store, replacing `[persistence]`.
+    #[must_use]
+    pub fn store(mut self, store: Arc<dyn PersistenceStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// A registry to build into (yours, with entities already registered).
+    #[must_use]
+    pub fn registry(mut self, registry: Arc<Registry>) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
+    /// A dispatcher to build onto (yours, with hooks already registered).
+    #[must_use]
+    pub fn hooks(mut self, dispatcher: Arc<HookDispatcher>) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    /// The prompt registry to start from (default: the built-in fragments).
+    #[must_use]
+    pub fn prompts(mut self, prompts: PromptRegistry) -> Self {
+        self.prompts = Some(prompts);
+        self
+    }
+
+    /// Whether to install the tracing hooks on every operation (default: yes).
+    #[must_use]
+    pub fn tracing(mut self, on: bool) -> Self {
+        self.tracing = on;
+        self
+    }
+
+    /// Assembles the harness (R30.1). Fails closed: a bad model, plugin, server or card
+    /// returns an error and nothing is left behind in a shared registry beyond what was
+    /// registered before the failure.
+    ///
+    /// # Errors
+    ///
+    /// [`SdkError`].
+    #[allow(clippy::too_many_lines)]
+    pub async fn build(self) -> Result<Harness, SdkError> {
+        let Self {
+            mut config,
+            host,
+            llms,
+            tools,
+            store,
+            registry,
+            dispatcher,
+            prompts,
+            tracing,
+        } = self;
+        #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+        let host = Arc::new(host.unwrap_or_else(Host::native));
+        #[cfg(not(all(feature = "rt-tokio", not(target_arch = "wasm32"))))]
+        let host = Arc::new(host.unwrap_or_else(|| Host::builder().build()));
+        let registry = registry.unwrap_or_else(|| Arc::new(Registry::new()));
+        let dispatcher = dispatcher.unwrap_or_else(|| Arc::new(HookDispatcher::new()));
+        let mut prompts = prompts.unwrap_or_else(PromptRegistry::builtin);
+        let reg = |e: crate::registry::RegistryError| SdkError::Registry(e.to_string());
+
+        // Models (R9): configured ones, then the ones handed in.
+        for (alias, model) in &config.models {
+            let llm: Arc<dyn Llm> = match model.provider {
+                ModelProvider::Openai => Arc::new(
+                    crate::harness::models::llm::openai::OpenAiLlm::from_config(
+                        alias, model, &host,
+                    )
+                    .await
+                    .map_err(|e| SdkError::Model {
+                        alias: alias.clone(),
+                        reason: e.to_string(),
+                    })?,
+                ),
+                ModelProvider::Anthropic => Arc::new(
+                    crate::harness::models::llm::anthropic::AnthropicLlm::from_config(
+                        alias, model, &host,
+                    )
+                    .await
+                    .map_err(|e| SdkError::Model {
+                        alias: alias.clone(),
+                        reason: e.to_string(),
+                    })?,
+                ),
+            };
+            registry.register(llm).map_err(reg)?;
+        }
+        for llm in llms {
+            registry.register(llm).map_err(reg)?;
+        }
+        if registry.latest::<dyn Llm>("default").is_err() {
+            return Err(SdkError::NoDefaultModel);
+        }
+
+        // Voice (R28.3–5): the providers `[voice]` names, all held by the harness.
+        match config.voice.provider.as_deref() {
+            None => {}
+            Some("openai-realtime" | "openai") => {
+                let (voice, stt, tts) =
+                    crate::harness::models::speech::openai::providers(&config.voice, &host)
+                        .await
+                        .map_err(|e| SdkError::Model {
+                            alias: "voice".into(),
+                            reason: e.to_string(),
+                        })?;
+                registry
+                    .register::<dyn crate::harness::models::speech::Voice>(Arc::new(voice))
+                    .map_err(reg)?;
+                registry
+                    .register::<dyn crate::harness::models::speech::SpeechToText>(Arc::new(stt))
+                    .map_err(reg)?;
+                registry
+                    .register::<dyn crate::harness::models::speech::TextToSpeech>(Arc::new(tts))
+                    .map_err(reg)?;
+            }
+            Some(other) => {
+                return Err(SdkError::Model {
+                    alias: "voice".into(),
+                    reason: format!("unknown voice provider {other:?}; known: openai-realtime"),
+                });
+            }
+        }
+        let router = Arc::new(ModelRouter::new(
+            Arc::clone(&registry),
+            ModelSelection {
+                model: "default".into(),
+                effort: None,
+            },
+        ));
+
+        // Plugins (R5), their MCP servers (R8.1).
+        let mut plugins = Vec::new();
+        if !config.plugins.paths.is_empty() {
+            let fs = host.fs().map_err(|e| {
+                SdkError::Plugin(PluginError::Invalid {
+                    plugin: "<plugins>".into(),
+                    field: "paths".into(),
+                    reason: e.to_string(),
+                })
+            })?;
+            let data_dir = config
+                .persistence
+                .path
+                .clone()
+                .unwrap_or_else(|| std::path::PathBuf::from(".rusty-harness"));
+            let loader = PluginLoader::new(data_dir);
+            let (specs, errors) = loader.discover(&config.plugins.paths, fs.as_ref()).await;
+            if let Some(error) = errors.into_iter().next() {
+                return Err(error.into());
+            }
+            for spec in &specs {
+                plugins.push(loader.install(spec, &registry, &mut prompts)?);
+            }
+        }
+        for entity in registry.list::<McpServerEntity>() {
+            let server = McpServer::connect(entity.entity_id().clone(), &entity.spec, &host)
+                .await
+                .map_err(|source| SdkError::Mcp {
+                    server: entity.entity_id().id.to_string(),
+                    source,
+                })?;
+            server
+                .register_tools(&registry)
+                .await
+                .map_err(|source| SdkError::Mcp {
+                    server: entity.entity_id().id.to_string(),
+                    source,
+                })?;
+            registry.register(Arc::new(server)).map_err(reg)?;
+        }
+
+        // Store (R14.2).
+        let store: Arc<dyn PersistenceStore> = match store {
+            Some(s) => s,
+            None => open_store(&config).await?,
+        };
+
+        // Built-in tools and commands (R17.3, R18.4, R10.2), the tool policy guard. The two
+        // plan tools share one lock per task's plan.
+        let plan_locks = Arc::new(crate::harness::core_loop::plan::tools::PlanLocks::default());
+        let built_ins: Vec<Arc<dyn Tool>> = vec![
+            Arc::new(AgentCallTool::new(
+                Arc::clone(&registry),
+                Arc::clone(&dispatcher),
+                Arc::clone(&store),
+            )),
+            Arc::new(ParticipantAskTool::new(
+                Arc::clone(&store),
+                Arc::clone(&dispatcher),
+            )),
+            Arc::new(ParticipantDelegateTool::new(
+                Arc::clone(&store),
+                Arc::clone(&dispatcher),
+                router.selection(),
+            )),
+            Arc::new(crate::harness::core_loop::plan::tools::PlanUpdateTool::new(
+                Arc::clone(&store),
+                Arc::clone(&dispatcher),
+                Arc::clone(&plan_locks),
+                Arc::clone(&registry),
+            )),
+            Arc::new(
+                crate::harness::core_loop::plan::tools::PlanStepDoneTool::new(
+                    Arc::clone(&store),
+                    Arc::clone(&dispatcher),
+                    Arc::clone(&plan_locks),
+                    Arc::clone(&registry),
+                ),
+            ),
+        ];
+        for tool in built_ins.into_iter().chain(tools) {
+            registry.register(tool).map_err(reg)?;
+        }
+        install_builtins(&registry, &dispatcher, &router)
+            .map_err(|e| SdkError::Registry(e.to_string()))?;
+        dispatcher.register::<ToolExecute>(
+            EntityId::new("tools.policy"),
+            Hook::Guard(Arc::new(ToolPolicy::default())),
+            HookOrder::default(),
+        );
+        if tracing {
+            install_tracing(&dispatcher);
+            if config.o11y.langfuse {
+                crate::app_service::o11y::LangfuseHooks::install(&dispatcher);
+            }
+        }
+
+        // Sub-agents (R17.1).
+        #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+        for (name, sub) in &config.agents {
+            let agent: Arc<dyn crate::harness::core_loop::agent::Agent> =
+                Arc::new(connect_sub_agent(name, sub, &host).await?);
+            registry.register(agent).map_err(reg)?;
+        }
+
+        // A `file:` system prompt (R7.2), read through the host before the registry is shared.
+        if config
+            .agent
+            .system_prompt
+            .as_deref()
+            .is_some_and(|v| v.starts_with("file:"))
+        {
+            let fs = host.fs().map_err(|e| SdkError::Prompt(e.to_string()))?;
+            crate::harness::system_prompt::load_replacement(
+                &mut prompts,
+                &mut config.agent,
+                fs.as_ref(),
+            )
+            .await
+            .map_err(|e| SdkError::Prompt(e.to_string()))?;
+        }
+
+        let prompts = Arc::new(prompts);
+        let agent = Arc::new(LocalAgent::new(LocalAgentParts {
+            config: config.clone(),
+            registry: Arc::clone(&registry),
+            dispatcher: Arc::clone(&dispatcher),
+            host: Arc::clone(&host),
+            store: Arc::clone(&store),
+            prompts: Arc::clone(&prompts),
+            router,
+        }));
+        // The harness as its own sub-agent (R15.3).
+        let loopback =
+            crate::harness::a2a_client::loopback_agent(&agent).map_err(|e| SdkError::SubAgent {
+                name: "loopback".into(),
+                reason: e.to_string(),
+            })?;
+        let loopback: Arc<dyn crate::harness::core_loop::agent::Agent> = Arc::new(loopback);
+        registry.register(loopback).map_err(reg)?;
+
+        #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+        let mut temporal: Option<
+            Arc<crate::app_service::durable::temporal::TemporalExecution>,
+        > = None;
+        #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> =
+            Some(match config.durable.mode {
+                DurableMode::None => {
+                    Arc::new(crate::app_service::durable::none::InProcessExecution::new(
+                        Arc::clone(&agent),
+                        Arc::new(crate::runtime::TokioRuntime::current()),
+                        crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
+                    ))
+                }
+                // Temporal (R22.1): connect first, so an unreachable service stops the
+                // start (fail-closed list); the worker runs in this process.
+                #[cfg(feature = "durable-temporal")]
+                DurableMode::Embedded | DurableMode::Remote => {
+                    use crate::app_service::durable::temporal::{
+                        TemporalConnection, TemporalExecution,
+                    };
+                    let secrets = agent
+                        .host()
+                        .secrets()
+                        .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
+                    let connection = TemporalConnection::connect(
+                        &config.durable,
+                        secrets.as_ref(),
+                        temporal_cache_dir(),
+                    )
+                    .await
+                    .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
+                    let execution = Arc::new(
+                        TemporalExecution::new(
+                            Arc::new(connection),
+                            Arc::clone(&agent),
+                            &crate::app_service::durable::RetryPolicy::from(&config.durable.retry),
+                        )
+                        .with_heartbeat_every(config.r#loop.heartbeat_interval.into()),
+                    );
+                    execution
+                        .start_worker()
+                        .map_err(|e| SdkError::DurableConnect(e.to_string()))?;
+                    temporal = Some(Arc::clone(&execution));
+                    execution
+                }
+                #[cfg(not(feature = "durable-temporal"))]
+                other => return Err(SdkError::Durable(other)),
+            });
+        #[cfg(not(all(feature = "rt-tokio", not(target_arch = "wasm32"))))]
+        let durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>> = {
+            if config.durable.mode != DurableMode::None {
+                return Err(SdkError::Durable(config.durable.mode));
+            }
+            None
+        };
+        let inbox = durable.as_ref().map(|d| {
+            Arc::new(crate::app_service::inbox::Inbox::new(
+                Arc::clone(&agent),
+                Arc::clone(d),
+                Arc::clone(&dispatcher),
+            ))
+        });
+        let heartbeat = durable.as_ref().map(|d| {
+            Arc::new(crate::app_service::heartbeat::Heartbeat::new(
+                format!("{}-{}", config.agent.name, std::process::id()),
+                &config.r#loop,
+                Arc::clone(&agent),
+                Arc::clone(d),
+                Arc::clone(&dispatcher),
+            ))
+        });
+        Ok(Harness {
+            config,
+            host,
+            registry,
+            dispatcher,
+            store,
+            prompts,
+            agent,
+            plugins,
+            durable,
+            inbox,
+            heartbeat,
+            #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+            temporal,
+        })
+    }
+}
+
+async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkError> {
+    match config.persistence.store.as_str() {
+        "memory" => Ok(Arc::new(MemoryStore::new())),
+        #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+        "file" => {
+            let path = store_path(config)
+                .map_err(SdkError::Store)?
+                .ok_or_else(|| {
+                    SdkError::Store("[persistence] path is required for the file store".into())
+                })?;
+            Ok(Arc::new(
+                crate::harness::core_loop::persistence::FileStore::open(path)
+                    .await
+                    .map_err(|e| SdkError::Store(e.to_string()))?,
+            ))
+        }
+        other => Err(SdkError::Store(format!("unknown store {other}"))),
+    }
+}
+
+/// `[persistence] path` with `~/` under the home directory, as the default config writes
+/// it (`~/.rusty-harness/data`).
+#[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+fn store_path(config: &Config) -> Result<Option<std::path::PathBuf>, String> {
+    config
+        .persistence
+        .path
+        .as_deref()
+        .map(crate::host::native_home_relative)
+        .transpose()
+}
+
+#[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+async fn connect_sub_agent(
+    name: &str,
+    sub: &crate::config::SubAgentConfig,
+    host: &Host,
+) -> Result<crate::harness::a2a_client::RemoteAgent, SdkError> {
+    use crate::harness::a2a_client::official::{OfficialTransport, fetch_card};
+    let err = |reason: String| SdkError::SubAgent {
+        name: name.to_owned(),
+        reason,
+    };
+    let card = fetch_card(host, &sub.card_url)
+        .await
+        .map_err(|e| err(e.to_string()))?;
+    let bearer = match &sub.api_key {
+        Some(reference) => {
+            let secrets = host.secrets().map_err(|e| err(e.to_string()))?;
+            Some(
+                secrets
+                    .resolve(reference)
+                    .await
+                    .map_err(|e| err(e.to_string()))?,
+            )
+        }
+        None => None,
+    };
+    let transport =
+        OfficialTransport::from_card(&card, bearer, crate::harness::core_loop::task::ext::uris())
+            .map_err(|e| err(e.to_string()))?;
+    crate::harness::a2a_client::RemoteAgent::new(EntityId::new(name), card, Arc::new(transport))
+        .map_err(|e| err(e.to_string()))
+}
+
+/// Installs the tracing span hook on every operation the harness dispatches (R24).
+fn install_tracing(dispatcher: &HookDispatcher) {
+    use crate::app_service::o11y::TracingHooks;
+    use crate::harness::core_loop::agent::{ModelCall, ResponseDeliver, ResponseParse, TaskRun};
+    TracingHooks::install::<TaskRun>(dispatcher);
+    TracingHooks::install::<ModelCall>(dispatcher);
+    TracingHooks::install::<ResponseParse>(dispatcher);
+    TracingHooks::install::<ResponseDeliver>(dispatcher);
+    TracingHooks::install::<ToolExecute>(dispatcher);
+    TracingHooks::install::<crate::harness::tools::ToolResultSize>(dispatcher);
+    TracingHooks::install::<crate::harness::core_loop::context_window::ContextBuild>(dispatcher);
+    TracingHooks::install::<crate::harness::core_loop::compaction::ContextCompact>(dispatcher);
+    TracingHooks::install::<crate::harness::core_loop::task::TaskCreate>(dispatcher);
+    TracingHooks::install::<crate::harness::core_loop::task::TaskStateChange>(dispatcher);
+    TracingHooks::install::<crate::harness::core_loop::plan::PlanPersist>(dispatcher);
+    TracingHooks::install::<crate::harness::core_loop::state::StatePersist>(dispatcher);
+    TracingHooks::install::<crate::harness::system_prompt::PromptAssemble>(dispatcher);
+    TracingHooks::install::<crate::harness::commands::CommandInvoke>(dispatcher);
+    TracingHooks::install::<crate::harness::a2a_client::A2aSend>(dispatcher);
+    TracingHooks::install::<crate::harness::channels::ParticipantAsk>(dispatcher);
+    TracingHooks::install::<crate::harness::channels::ParticipantDelegate>(dispatcher);
+    TracingHooks::install::<crate::harness::skills::SkillInvoke>(dispatcher);
+    TracingHooks::install::<crate::app_service::inbox::InboxAccept>(dispatcher);
+    TracingHooks::install::<crate::app_service::inbox::InboxDeliver>(dispatcher);
+    TracingHooks::install::<crate::app_service::heartbeat::HeartbeatTick>(dispatcher);
+    TracingHooks::install::<crate::app_service::heartbeat::TaskStalled>(dispatcher);
+    TracingHooks::install::<crate::app_service::durable::ActivityRun>(dispatcher);
+    TracingHooks::install::<crate::app_service::durable::ActivityFailed>(dispatcher);
+    TracingHooks::install::<crate::app_service::durable::ActivityRetry>(dispatcher);
+}
+
+/// A built harness: the agent and the pieces behind it.
+pub struct Harness {
+    config: Config,
+    host: Arc<Host>,
+    registry: Arc<Registry>,
+    dispatcher: Arc<HookDispatcher>,
+    store: Arc<dyn PersistenceStore>,
+    prompts: Arc<PromptRegistry>,
+    agent: Arc<LocalAgent>,
+    plugins: Vec<InstalledPlugin>,
+    durable: Option<Arc<dyn crate::app_service::durable::DurableExecution>>,
+    inbox: Option<Arc<crate::app_service::inbox::Inbox>>,
+    heartbeat: Option<Arc<crate::app_service::heartbeat::Heartbeat>>,
+    #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+    temporal: Option<Arc<crate::app_service::durable::temporal::TemporalExecution>>,
+}
+
+impl core::fmt::Debug for Harness {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Harness")
+            .field("agent", &self.config.agent.name)
+            .field("plugins", &self.plugins.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Harness {
+    /// The agent: `harness.agent().send_message(req)` runs a task in process.
+    #[must_use]
+    pub fn agent(&self) -> &Arc<LocalAgent> {
+        &self.agent
+    }
+
+    /// The configuration the harness was built from.
+    #[must_use]
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// The platform.
+    #[must_use]
+    pub fn host(&self) -> &Arc<Host> {
+        &self.host
+    }
+
+    /// Every entity.
+    #[must_use]
+    pub fn registry(&self) -> &Arc<Registry> {
+        &self.registry
+    }
+
+    /// Every hook.
+    #[must_use]
+    pub fn hooks(&self) -> &Arc<HookDispatcher> {
+        &self.dispatcher
+    }
+
+    /// The store.
+    #[must_use]
+    pub fn store(&self) -> &Arc<dyn PersistenceStore> {
+        &self.store
+    }
+
+    /// The prompt fragments, built-ins and plugins' together.
+    #[must_use]
+    pub fn prompts(&self) -> &Arc<PromptRegistry> {
+        &self.prompts
+    }
+
+    /// What the plugins installed.
+    #[must_use]
+    pub fn plugins(&self) -> &[InstalledPlugin] {
+        &self.plugins
+    }
+
+    /// Durable execution over this harness's agent (mode `none` in process): resumes open
+    /// tasks after a restart (R14.4) and signals running ones. `None` where no runtime
+    /// can spawn (the browser build drives the loop itself).
+    #[must_use]
+    pub fn durable(&self) -> Option<&Arc<dyn crate::app_service::durable::DurableExecution>> {
+        self.durable.as_ref()
+    }
+
+    /// The durable inbox: the one ingestion path for every event (R20.2).
+    #[must_use]
+    pub fn inbox(&self) -> Option<&Arc<crate::app_service::inbox::Inbox>> {
+        self.inbox.as_ref()
+    }
+
+    /// The heartbeat (R23); the server starts it, an embedder may tick it.
+    #[must_use]
+    pub fn heartbeat(&self) -> Option<&Arc<crate::app_service::heartbeat::Heartbeat>> {
+        self.heartbeat.as_ref()
+    }
+
+    /// Sends `request` as `caller` (the operator when `None`) and streams the turn back as
+    /// A2A events: the SDK's `sendMessage` (R30, design.md § Packaging and SDK parity).
+    pub fn send_message(
+        &self,
+        request: a2a::SendMessageRequest,
+        caller: Option<Caller>,
+    ) -> HarnessStream<'_, Result<a2a::StreamResponse, a2a::A2AError>> {
+        let task_id = request
+            .message
+            .task_id
+            .clone()
+            .unwrap_or_else(a2a::new_task_id);
+        let extensions = request.message.extensions.clone().unwrap_or_default();
+        let resolved = async move {
+            let caller = caller.unwrap_or_else(operator);
+            let stored = match self.store.get_task(&task_id).await {
+                Ok(stored) => stored,
+                Err(e) => {
+                    let failed = a2a::A2AError::internal(e.to_string());
+                    return boxed_stream(futures::stream::iter([Err(failed)]));
+                }
+            };
+            // As the server's guard: a task with participants takes messages from them
+            // only (abuse 2).
+            if let Some(record) = &stored
+                && !caller.may_open(record)
+            {
+                let refused = a2a::A2AError::task_not_found(&task_id);
+                return boxed_stream(futures::stream::iter([Err(refused)]));
+            }
+            // A follow-up may name only its task (the task the client was handed): it
+            // belongs to that task's context, not a fresh one (R21.5).
+            let context_id = match (request.message.context_id.clone(), stored) {
+                (Some(context), _) => context,
+                (None, Some(record)) => record.context_id,
+                (None, None) => a2a::new_context_id(),
+            };
+            let agent_request = AgentRequest {
+                message: request.message,
+                call: CallContext {
+                    task_id,
+                    context_id,
+                    stored_task: None,
+                    caller,
+                    service_params: std::collections::BTreeMap::new(),
+                },
+                metadata: request.metadata,
+                extensions,
+                inbox_event_id: None,
+                traceparent: None,
+            };
+            boxed_stream(
+                self.agent
+                    .send_message(agent_request)
+                    .map(|r| r.map_err(|e| e.to_a2a())),
+            )
+        };
+        boxed_stream(futures::stream::once(resolved).flatten())
+    }
+
+    /// `TaskNotFound` unless `task` exists and `caller` may open it: the rule the A2A
+    /// server's guard applies, so the SDK grants nothing the server would refuse.
+    async fn open(&self, task: &str, caller: &Caller) -> Result<(), a2a::A2AError> {
+        match self.store.get_task(&task.to_owned()).await {
+            Ok(Some(record)) if caller.may_open(&record) => Ok(()),
+            Ok(_) => Err(a2a::A2AError::task_not_found(task)),
+            Err(e) => Err(a2a::A2AError::internal(e.to_string())),
+        }
+    }
+
+    /// The task as `caller` sees it: the SDK's `getTask`.
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or the store.
+    pub async fn get_task(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        let internal = |e: crate::harness::core_loop::persistence::StoreError| {
+            a2a::A2AError::internal(e.to_string())
+        };
+        // As the server's GetTask: only a participant opens the task, it sees the channels
+        // it belongs to, and a channel's question only if it is a member (R18.5, abuse 2).
+        let caller = caller.unwrap_or_else(operator);
+        self.open(task, &caller).await?;
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), task, &caller)
+                .await
+                .map_err(internal)?;
+        let mut found = self
+            .store
+            .a2a_task(&task.to_owned(), &viewer)
+            .await
+            .map_err(internal)?
+            .ok_or_else(|| a2a::A2AError::task_not_found(task))?;
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut found,
+            &viewer,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(found)
+    }
+
+    /// Cancels the task on behalf of `caller`: the SDK's `cancelTask`.
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or a task already in a terminal state.
+    pub async fn cancel_task(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<a2a::Task, a2a::A2AError> {
+        let caller = caller.unwrap_or_else(operator);
+        self.open(task, &caller).await?;
+        let internal = |e: crate::harness::core_loop::persistence::StoreError| {
+            a2a::A2AError::internal(e.to_string())
+        };
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), task, &caller)
+                .await
+                .map_err(internal)?;
+        let mut cancelled = self
+            .agent
+            .cancel(
+                &task.to_owned(),
+                crate::app_service::durable::CancelReason::Participant {
+                    by: caller.id.clone(),
+                },
+            )
+            .await
+            .map_err(|e| e.to_a2a())?;
+        // The cancelled task keeps its status message: a channel's question stays for its
+        // members (R18.5).
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut cancelled,
+            &viewer,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(cancelled)
+    }
+
+    /// The task's log from the start, then its live events until the turn ends, as
+    /// `caller` may see them: the SDK's `subscribe` (R19.7).
+    ///
+    /// # Errors
+    ///
+    /// `TaskNotFound`, or the store.
+    pub async fn subscribe(
+        &self,
+        task: &str,
+        caller: Option<Caller>,
+    ) -> Result<HarnessStream<'static, Result<a2a::StreamResponse, a2a::A2AError>>, a2a::A2AError>
+    {
+        let task = task.to_owned();
+        let caller = caller.unwrap_or_else(operator);
+        self.open(&task, &caller).await?;
+        let viewer =
+            crate::app_service::channels_api::viewer_for(self.store.as_ref(), &task, &caller)
+                .await
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+        Ok(
+            crate::app_service::channels_api::log_stream(Arc::clone(&self.store), task, 1, viewer)
+                .await,
+        )
+    }
+
+    /// The Temporal mode, when durable execution runs on it (`embedded` or `remote`).
+    #[must_use]
+    #[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+    pub fn temporal(
+        &self,
+    ) -> Option<&Arc<crate::app_service::durable::temporal::TemporalExecution>> {
+        self.temporal.as_ref()
+    }
+}
+
+/// Who an SDK call acts as when the embedder names no one: the operator, as on loopback.
+fn operator() -> Caller {
+    Caller::human("operator", [Role::Admin])
+}
+
+/// Where `embedded` keeps the downloaded Temporal CLI: `~/.cache/rusty-harness/temporal`.
+#[cfg(all(feature = "durable-temporal", not(target_arch = "wasm32")))]
+fn temporal_cache_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .map(|home| std::path::PathBuf::from(home).join(".cache/rusty-harness/temporal"))
+}
+
+#[cfg(all(test, feature = "rt-tokio"))]
+mod tests {
+    use super::store_path;
+    use crate::config::Config;
+
+    #[test]
+    fn the_file_store_path_expands_home() {
+        let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+        let mut config = Config::default();
+        config.persistence.path = Some("~/.rusty-harness/data".into());
+        assert_eq!(
+            store_path(&config),
+            Ok(Some(home.join(".rusty-harness/data")))
+        );
+        config.persistence.path = Some("/var/lib/rh".into());
+        assert_eq!(store_path(&config), Ok(Some("/var/lib/rh".into())));
+        config.persistence.path = None;
+        assert_eq!(store_path(&config), Ok(None));
+    }
+}

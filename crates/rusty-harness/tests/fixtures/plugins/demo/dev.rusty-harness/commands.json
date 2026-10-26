@@ -1,0 +1,8 @@
+[
+  {
+    "name": "plan",
+    "description": "Show the plan as a card.",
+    "roles": ["admin", "assignee"],
+    "handler": { "mcp": { "server": "echo" } }
+  }
+]

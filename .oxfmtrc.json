@@ -9,6 +9,8 @@
     "crates/rusty-harness-py/.venv/**",
     "docs/specs/**",
     ".the-loop/**",
-    "bun.lock"
+    "bun.lock",
+    "crates/rusty-harness-wasm/ts/config.d.ts",
+    "crates/rusty-harness-wasm/ts/__snapshots__/**"
   ]
 }

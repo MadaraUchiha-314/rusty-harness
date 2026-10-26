@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>rusty-harness web renderer</title>
+<!--
+  Design prototype for issue-3, R26 (web renderer). Self-contained: no network, no fonts,
+  no scripts beyond this file. It communicates layout, flow, states and interaction; the
+  implementation reproduces it with shadcn/ui + AI Elements, it does not lift this markup.
+  The grey bar at the top is prototype chrome (state switcher), not part of the product.
+-->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #fafafa; --panel: #ffffff; --fg: #18181b; --muted: #71717a; --line: #e4e4e7;
+  --soft: #f4f4f5; --accent: #c2410c; --accent-fg: #ffffff; --accent-soft: #ffedd5;
+  --ok: #15803d; --ok-soft: #dcfce7; --warn: #a16207; --warn-soft: #fef9c3;
+  --info: #1d4ed8; --info-soft: #dbeafe; --danger: #b91c1c; --danger-soft: #fee2e2;
+  --cmd: #6d28d9; --cmd-soft: #ede9fe; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 10px; --shadow: 0 1px 2px rgb(0 0 0 / .06);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --bg: #0f0f11; --panel: #18181b; --fg: #f4f4f5; --muted: #a1a1aa; --line: #27272a;
+  --soft: #202024; --accent: #fb923c; --accent-fg: #1c1917; --accent-soft: #3b2412;
+  --ok: #4ade80; --ok-soft: #14301f; --warn: #facc15; --warn-soft: #3a3010;
+  --info: #93c5fd; --info-soft: #172554; --danger: #fca5a5; --danger-soft: #450a0a;
+  --cmd: #c4b5fd; --cmd-soft: #2e1065; --shadow: none; } }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f0f11; --panel: #18181b; --fg: #f4f4f5; --muted: #a1a1aa; --line: #27272a;
+  --soft: #202024; --accent: #fb923c; --accent-fg: #1c1917; --accent-soft: #3b2412;
+  --ok: #4ade80; --ok-soft: #14301f; --warn: #facc15; --warn-soft: #3a3010;
+  --info: #93c5fd; --info-soft: #172554; --danger: #fca5a5; --danger-soft: #450a0a;
+  --cmd: #c4b5fd; --cmd-soft: #2e1065; --shadow: none; }
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, textarea:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+code, kbd { font-family: var(--mono); font-size: .92em; }
+
+/* prototype chrome */
+.proto { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 16px; background: #1f2937; color: #e5e7eb; font-size: 12px; }
+.proto strong { font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 11px; color: #9ca3af; }
+.proto button { padding: 3px 9px; border-radius: 999px; border: 1px solid #4b5563; color: #e5e7eb; }
+.proto button[aria-pressed="true"] { background: #f97316; border-color: #f97316; color: #111827; }
+.proto .sp { flex: 1; }
+
+/* app frame */
+.app { display: grid; grid-template-columns: 240px minmax(0, 1fr) 300px; height: calc(100% - 36px); min-height: 560px; }
+.side { border-right: 1px solid var(--line); background: var(--panel); padding: 14px 10px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 8px; padding: 2px 6px 8px; font-weight: 600; }
+.brand .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
+.brand small { font-weight: 400; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.newtask { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 7px; background: var(--soft); font-weight: 500; }
+.tasks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow: auto; }
+.tasks li { display: grid; grid-template-columns: 8px 1fr; gap: 8px; align-items: start; padding: 7px 8px; border-radius: 8px; }
+.tasks li[aria-current="true"] { background: var(--soft); }
+.tasks .st { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--muted); }
+.tasks .st.working { background: var(--info); box-shadow: 0 0 0 3px var(--info-soft); }
+.tasks .st.waiting { background: var(--warn); }
+.tasks .st.done { background: var(--ok); }
+.tasks .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tasks .meta { color: var(--muted); font-size: 12px; }
+.side .foot { margin-top: auto; color: var(--muted); font-size: 12px; padding: 4px 6px; display: flex; justify-content: space-between; }
+
+main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+header.bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+header.bar h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 500; border: 1px solid transparent; white-space: nowrap; }
+.badge.working { background: var(--info-soft); color: var(--info); }
+.badge.waiting { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.badge.canceled { background: var(--soft); color: var(--muted); border-color: var(--line); }
+.badge .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .badge .pulse, .cursor, .lvl i { animation: none; } }
+.sub { color: var(--muted); font-size: 12px; }
+header .sp { flex: 1; }
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 11px; font-weight: 500; background: var(--panel); box-shadow: var(--shadow); }
+.btn:hover { background: var(--soft); }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn.danger { color: var(--danger); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn.icon { padding: 6px; border-radius: 8px; }
+.btn svg { width: 15px; height: 15px; }
+
+.conv { flex: 1; overflow: auto; padding: 22px 16px 10px; display: flex; flex-direction: column; gap: 18px; scroll-behavior: smooth; }
+.conv > * { max-width: 760px; width: 100%; margin: 0 auto; }
+.msg { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; }
+.msg.user { grid-template-columns: minmax(0, 1fr); justify-items: end; }
+.avatar { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 12px; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+.bubble { padding: 10px 14px; border-radius: 14px; background: var(--soft); max-width: 80%; }
+.msg.user .bubble { background: var(--fg); color: var(--bg); border-bottom-right-radius: 4px; }
+.who { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
+.response p { margin: 0 0 8px; }
+.response p:last-child { margin-bottom: 0; }
+.response ul { margin: 4px 0 8px 18px; padding: 0; }
+.cmd { display: inline-block; padding: 0 6px; border-radius: 6px; background: var(--cmd-soft); color: var(--cmd); font-family: var(--mono); font-weight: 600; }
+.msg.user .cmd { background: var(--cmd); color: #fff; }
+.cursor { display: inline-block; width: 8px; height: 1em; background: var(--accent); vertical-align: -2px; animation: pulse .8s infinite; margin-left: 2px; border-radius: 1px; }
+
+details.block { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+details.block summary { list-style: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; font-weight: 500; }
+details.block summary::-webkit-details-marker { display: none; }
+details.block summary .chev { margin-left: auto; color: var(--muted); transition: transform .15s; }
+details.block[open] summary .chev { transform: rotate(180deg); }
+details.block .body { border-top: 1px solid var(--line); padding: 10px 12px; font-size: 13px; }
+.reasoning summary { color: var(--muted); font-weight: 400; font-style: italic; }
+.tool .name { font-family: var(--mono); font-size: 13px; }
+.tool .status { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; letter-spacing: .02em; }
+.tool .status.running { background: var(--info-soft); color: var(--info); }
+.tool .status.completed { background: var(--ok-soft); color: var(--ok); }
+.tool .status.error { background: var(--danger-soft); color: var(--danger); }
+.tool .status.denied { background: var(--warn-soft); color: var(--warn); }
+pre.io { margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--soft); overflow: auto; font-size: 12px; line-height: 1.45; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; margin: 6px 0 2px; }
+
+/* A2UI basic catalog rendering */
+.a2ui { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow); position: relative; }
+.a2ui::before { content: "A2UI · basic catalog"; position: absolute; top: -9px; left: 12px; background: var(--panel); padding: 0 6px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.a2ui h3 { margin: 0; font-size: 14px; }
+.a2ui p { margin: 0; color: var(--muted); font-size: 13px; }
+.a2ui .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.a2ui .col { display: flex; flex-direction: column; gap: 8px; }
+.a2ui label { font-size: 12px; font-weight: 500; }
+.a2ui input[type=text], .a2ui select { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
+.a2ui .choice { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; flex: 1; min-width: 140px; }
+.a2ui .choice input { accent-color: var(--accent); }
+.a2ui .waiting { font-size: 12px; color: var(--warn); display: flex; align-items: center; gap: 6px; }
+
+.artifact { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; background: var(--panel); }
+.artifact .thumb { height: 42px; border-radius: 6px; background: linear-gradient(135deg, var(--accent-soft), var(--info-soft)); }
+.artifact .t { font-weight: 500; } .artifact .s { color: var(--muted); font-size: 12px; }
+
+.system { text-align: center; color: var(--muted); font-size: 12px; }
+.system.err { color: var(--danger); }
+.system .chip { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--soft); border: 1px solid var(--line); }
+
+/* prompt input */
+.composer { padding: 8px 16px 14px; background: linear-gradient(to top, var(--bg) 70%, transparent); }
+.composer .box { max-width: 760px; margin: 0 auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+.composer .box:focus-within { border-color: var(--accent); }
+.suggest { max-width: 760px; margin: 0 auto 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+.suggest button { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); }
+.attach { display: flex; gap: 6px; padding: 10px 12px 0; flex-wrap: wrap; }
+.attach span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 8px; border-radius: 6px; background: var(--soft); border: 1px solid var(--line); }
+textarea { width: 100%; resize: none; border: 0; background: transparent; color: inherit; font: inherit; padding: 12px 14px 4px; min-height: 48px; }
+.toolbar { display: flex; align-items: center; gap: 4px; padding: 4px 8px 8px; }
+.toolbar .sp { flex: 1; }
+.select { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 8px; font-size: 12px; color: var(--muted); }
+.select:hover { background: var(--soft); }
+.voice { position: relative; }
+.voice.live { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
+.lvl { display: inline-flex; gap: 2px; align-items: flex-end; height: 14px; }
+.lvl i { width: 3px; background: currentColor; border-radius: 1px; animation: lv .9s infinite ease-in-out; }
+.lvl i:nth-child(2) { animation-delay: .15s; } .lvl i:nth-child(3) { animation-delay: .3s; } .lvl i:nth-child(4) { animation-delay: .45s; }
+@keyframes lv { 0%,100% { height: 3px; } 50% { height: 14px; } }
+.send { background: var(--fg); color: var(--bg); border-radius: 8px; padding: 6px; }
+.send svg { width: 15px; height: 15px; }
+.hint { max-width: 760px; margin: 6px auto 0; color: var(--muted); font-size: 11px; display: flex; gap: 12px; }
+.hint kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 10px; }
+.palette { max-width: 760px; margin: 0 auto 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: var(--shadow); overflow: hidden; }
+.palette div { display: flex; gap: 10px; padding: 7px 12px; font-size: 13px; }
+.palette div[aria-selected="true"] { background: var(--soft); }
+.palette .k { font-family: var(--mono); color: var(--cmd); min-width: 80px; font-weight: 600; }
+.palette .d { color: var(--muted); }
+
+/* task panel */
+.task { border-left: 1px solid var(--line); background: var(--panel); padding: 14px; overflow: auto; display: flex; flex-direction: column; gap: 14px; font-size: 13px; min-width: 0; }
+.task h2 { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 600; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people { display: flex; flex-direction: column; gap: 6px; }
+.people div { display: flex; align-items: center; gap: 8px; }
+.people .avatar { width: 22px; height: 22px; font-size: 10px; border-radius: 6px; }
+.people .role { margin-left: auto; color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.plan { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.plan li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; align-items: start; }
+.plan .box { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--line); margin-top: 3px; }
+.plan .box.done { background: var(--ok); border-color: var(--ok); }
+.plan .box.now { border-color: var(--info); box-shadow: inset 0 0 0 3px var(--info-soft); }
+.plan small { display: block; color: var(--muted); }
+.timeline { list-style: none; margin: 0; padding: 0 0 0 10px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.timeline li { position: relative; padding-left: 10px; color: var(--muted); font-size: 12px; }
+.timeline li::before { content: ""; position: absolute; left: -13px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.timeline li b { color: var(--fg); font-weight: 500; }
+.task .foot { margin-top: auto; font-size: 11px; color: var(--muted); }
+.task .foot code { font-size: 11px; }
+/* responsive: after every component rule so these win */
+@media (max-width: 1000px) { .app { grid-template-columns: minmax(0, 1fr) 300px; } .side { display: none; } }
+@media (max-width: 720px) { .app { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; } .task { display: none; } main { min-height: calc(100vh - 120px); } .conv { overflow: visible; } }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="proto" role="toolbar" aria-label="Prototype state switcher">
+  <strong>Prototype · state</strong>
+  <button data-state="streaming" aria-pressed="true">Streaming</button>
+  <button data-state="tool">Tool running</button>
+  <button data-state="a2ui">A2UI ask (channel)</button>
+  <button data-state="idle">Input required · next turn</button>
+  <button data-state="voice">Voice listening</button>
+  <button data-state="command">Command palette</button>
+  <button data-state="unknown">Unknown command</button>
+  <button data-state="denied">Tool denied by hook</button>
+  <button data-state="done">Completed · follow-up</button>
+  <span class="sp"></span>
+  <button id="theme">Toggle theme</button>
+</div>
+
+<div class="app">
+  <nav class="side" aria-label="Tasks">
+    <div class="brand"><span class="dot"></span> rusty-harness <small>demo-agent</small></div>
+    <button class="newtask">＋ New task</button>
+    <ul class="tasks">
+      <li aria-current="true"><span class="st working" id="side-st"></span><div><div class="name">Plan the Q4 release notes</div><div class="meta">long-running · 3 turns</div></div></li>
+      <li><span class="st waiting"></span><div><div class="name">Review PR #412 dependencies</div><div class="meta">waiting on @sam</div></div></li>
+      <li><span class="st done"></span><div><div class="name">Summarise incident 2026-10-19</div><div class="meta">completed · 1 turn</div></div></li>
+      <li><span class="st"></span><div><div class="name">Translate onboarding guide</div><div class="meta">canceled</div></div></li>
+    </ul>
+    <div class="foot"><span>agent card ✓</span><span>a2a 1.0</span></div>
+  </nav>
+
+  <main>
+    <header class="bar">
+      <h1>Plan the Q4 release notes</h1>
+      <span class="badge working" id="badge"><span class="pulse"></span> working</span>
+      <span class="sub" id="substate">step 2 of 4 · calling model</span>
+      <span class="sp"></span>
+      <button class="btn" id="btn-complete" title="Sends the task extension's complete message">✓ Complete</button>
+      <button class="btn danger" id="btn-cancel" title="Sends CancelTask">Cancel</button>
+    </header>
+
+    <section class="conv" aria-live="polite" id="conv">
+      <div class="msg user"><div class="bubble">Draft release notes for Q4. Keep the task open, I will iterate with you.</div></div>
+
+      <div class="msg">
+        <div class="avatar">rh</div>
+        <div>
+          <div class="who">demo-agent <span>· turn 1</span></div>
+          <details class="block reasoning"><summary>Thought for 4 s <span class="chev">⌄</span></summary><div class="body">Need the merged PRs since the last tag; the changelog tool covers that. Then group by area.</div></details>
+          <div class="response" style="margin-top:8px"><p>I will pull the merged pull requests since <code>v0.3.0</code>, group them by area and draft the notes. First the data:</p></div>
+        </div>
+      </div>
+
+      <details class="block tool" open id="tool-block">
+        <summary><span class="name">changelog.list_merged</span> <span class="status running" id="tool-status">running</span><span class="chev">⌄</span></summary>
+        <div class="body">
+          <div class="label">input</div>
+          <pre class="io">{ "since": "v0.3.0", "repo": "acme/platform" }</pre>
+          <div id="tool-out" hidden><div class="label">output · 1.8 s</div><pre class="io">[{ "number": 401, "title": "feat(api): rate limits per tenant" }, { "number": 407, "title": "fix(auth): refresh token rotation" }, … 23 more ]</pre></div>
+          <div id="tool-denied" hidden><div class="label">denied by pre-hook <code>policy.tools</code></div><pre class="io">tool "shell.exec" is not allowed for participant role "reporter"; returned to the model as a tool error</pre></div>
+        </div>
+      </details>
+
+      <div class="msg" id="stream-msg">
+        <div class="avatar">rh</div>
+        <div>
+          <div class="who">demo-agent <span>· streaming</span></div>
+          <div class="response"><p>Three areas changed since <code>v0.3.0</code>:</p><ul><li><b>API</b>: per-tenant rate limits (#401), pagination on <code>/events</code> (#404)</li><li><b>Auth</b>: refresh-token rotation (#407)</li><li id="stream-tail"><b>CLI</b>: the new <code>--config</code> flag<span class="cursor" aria-hidden="true"></span></li></ul></div>
+        </div>
+      </div>
+
+      <div id="a2ui-block" hidden>
+        <div class="msg">
+          <div class="avatar">rh</div>
+          <div>
+            <div class="who">demo-agent <span>· asked @you on channel <code>ch-7f3a</code></span></div>
+            <div class="a2ui" role="form" aria-label="Question from the agent">
+              <h3>Which audience are these notes for?</h3>
+              <p>The tone and the level of detail depend on it. Pick one, or type another.</p>
+              <div class="row">
+                <label class="choice"><input type="radio" name="aud" checked> Customers</label>
+                <label class="choice"><input type="radio" name="aud"> Internal engineering</label>
+                <label class="choice"><input type="radio" name="aud"> Both, two sections</label>
+              </div>
+              <div class="col"><label for="other">Something else</label><input id="other" type="text" placeholder="e.g. partners"></div>
+              <div class="row"><button class="btn primary">Send answer</button><button class="btn">Skip</button></div>
+              <div class="waiting">⏳ task is <code>input-required</code> · sub-state <code>awaiting-participant</code></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="idle-block" hidden>
+        <div class="msg">
+          <div class="avatar">rh</div>
+          <div>
+            <div class="who">demo-agent <span>· turn 3</span></div>
+            <div class="response"><p>Done: the draft is attached. Tell me what to change, or mark the task complete.</p></div>
+            <div class="artifact" style="margin-top:8px"><div class="thumb"></div><div><div class="t">release-notes-q4.md</div><div class="s">artifact · 2.1 kB · markdown</div></div><button class="btn">Open</button></div>
+          </div>
+        </div>
+        <div class="system"><span class="chip">Waiting for your next message · the task stays open</span></div>
+      </div>
+
+      <div id="done-block" hidden>
+        <div class="system"><span class="chip">✓ Task completed by @you · 12:41</span></div>
+        <div class="msg user"><div class="bubble">Actually, add a line about the deprecations.</div></div>
+        <div class="system"><span class="chip">Started a new task in the same conversation · references <code>task_01HZ…</code> (a completed task cannot be reopened)</span></div>
+      </div>
+
+      <div id="unknown-block" hidden>
+        <div class="msg user"><div class="bubble"><span class="cmd">/modle</span> gpt-6.1</div></div>
+        <div class="system err"><span class="chip">Unknown command <code>/modle</code> · not sent to the model. Did you mean <code>/model</code>?</span></div>
+      </div>
+
+      <div id="command-echo" hidden>
+        <div class="msg user"><div class="bubble"><span class="cmd">/model</span> gpt-6.1</div></div>
+        <div class="system"><span class="chip">Model for the next call: <code>openai/gpt-6.1</code> · effort <code>high</code></span></div>
+      </div>
+    </section>
+
+    <div class="composer">
+      <div class="suggest" id="suggest"><button>Group by customer impact</button><button>Add upgrade steps</button><button>Shorten to one screen</button></div>
+      <div class="palette" id="palette" hidden role="listbox" aria-label="Commands">
+        <div aria-selected="true"><span class="k">/model</span><span class="d">Pick the model for the next call · gpt-6.1, claude-fable-5-1, …</span></div>
+        <div><span class="k">/effort</span><span class="d">Reasoning effort · low · medium · high</span></div>
+        <div><span class="k">/exit</span><span class="d">Leave the session; the task stays as it is</span></div>
+        <div><span class="k">/plan</span><span class="d">Show the plan as a card (plugin: planner)</span></div>
+      </div>
+      <div class="box">
+        <div class="attach" id="attach" hidden><span>📎 screenshot.png · 220 kB ✕</span><span>🎙 voice note · 0:07 ✕</span></div>
+        <textarea id="ta" rows="1" placeholder="Message demo-agent… ( / for commands )" aria-label="Message"></textarea>
+        <div class="toolbar">
+          <button class="btn icon" title="Attach image or audio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.5 12.8 20.7a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10.6 18.3a1.6 1.6 0 0 1-2.3-2.3l7.6-7.6"/></svg></button>
+          <button class="btn icon voice" id="voice" title="Voice (separate from send)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span class="lvl" hidden><i></i><i></i><i></i><i></i></span></button>
+          <span class="select" title="/model">⌁ gpt-6.1</span>
+          <span class="select" title="/effort">effort · high</span>
+          <span class="sp"></span>
+          <span class="sub" id="voicehint" hidden>Listening… click again to send · realtime</span>
+          <button class="send" title="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+        </div>
+      </div>
+      <div class="hint"><span><kbd>Enter</kbd> send</span><span><kbd>Shift</kbd>+<kbd>Enter</kbd> newline</span><span><kbd>/</kbd> commands</span><span><kbd>Esc</kbd> close</span></div>
+    </div>
+  </main>
+
+  <aside class="task" aria-label="Task">
+    <div>
+      <h2>Task</h2>
+      <dl class="kv">
+        <dt>id</dt><dd title="task_01HZX4V3K9N2">task_01HZX4V3K9N2</dd>
+        <dt>context</dt><dd>ctx_9a1f</dd>
+        <dt>state</dt><dd id="kv-state">working</dd>
+        <dt>sub-state</dt><dd id="kv-sub">—</dd>
+        <dt>mode</dt><dd>long-running</dd>
+        <dt>durable</dt><dd>remote · temporal</dd>
+      </dl>
+    </div>
+    <div>
+      <h2>Participants</h2>
+      <div class="people">
+        <div><span class="avatar">yo</span> you <span class="role">reporter · admin</span></div>
+        <div><span class="avatar">rh</span> demo-agent <span class="role">assignee</span></div>
+        <div><span class="avatar">sa</span> sam <span class="role">watcher</span></div>
+      </div>
+    </div>
+    <div>
+      <h2>Plan</h2>
+      <ul class="plan">
+        <li><span class="box done"></span><div>Collect merged PRs since last tag</div></li>
+        <li><span class="box now"></span><div>Group by area<small>sub-task: classify 25 PRs (loopback agent)</small></div></li>
+        <li><span class="box"></span><div>Draft notes per audience</div></li>
+        <li><span class="box"></span><div>Review with reporter</div></li>
+      </ul>
+    </div>
+    <div>
+      <h2>Activity</h2>
+      <ul class="timeline">
+        <li><b>12:30</b> task created · submitted → working</li>
+        <li><b>12:30</b> model call · 1.2k in · 312 out · cache hit 78 %</li>
+        <li><b>12:31</b> tool changelog.list_merged · 1.8 s</li>
+        <li><b>12:31</b> sub-task spawned · classify PRs</li>
+        <li id="tl-extra" hidden><b>12:33</b> asked @you on channel ch-7f3a → input-required</li>
+      </ul>
+    </div>
+    <div class="foot">Trace <code>7f3a…c21</code> · workflow <code>task_01HZ…</code> · <a href="#">open in Langfuse</a></div>
+  </aside>
+</div>
+
+<script>
+(function () {
+  const $ = (s) => document.querySelector(s);
+  const byState = {
+    streaming: { badge: ['working', 'working'], sub: 'step 2 of 4 · calling model', kv: ['working', '—'], show: ['#stream-msg', '#tool-block', '#suggest'], tool: 'completed' },
+    tool:      { badge: ['working', 'working'], sub: 'step 2 of 4 · executing 1 tool', kv: ['working', '—'], show: ['#tool-block', '#suggest'], tool: 'running' },
+    a2ui:      { badge: ['waiting', 'input-required'], sub: 'waiting on you · channel ch-7f3a', kv: ['input-required', 'awaiting-participant'], show: ['#tool-block', '#stream-msg', '#a2ui-block', '#tl-extra'], tool: 'completed', nocursor: true },
+    idle:      { badge: ['waiting', 'input-required'], sub: 'your turn · task stays open', kv: ['input-required', 'awaiting-next-turn'], show: ['#tool-block', '#stream-msg', '#idle-block', '#suggest'], tool: 'completed', nocursor: true },
+    voice:     { badge: ['waiting', 'input-required'], sub: 'your turn · listening', kv: ['input-required', 'awaiting-next-turn'], show: ['#tool-block', '#stream-msg', '#idle-block', '#voicehint'], tool: 'completed', nocursor: true, voice: true },
+    command:   { badge: ['waiting', 'input-required'], sub: 'your turn', kv: ['input-required', 'awaiting-next-turn'], show: ['#tool-block', '#stream-msg', '#idle-block', '#palette'], tool: 'completed', nocursor: true, ta: '/mo' },
+    unknown:   { badge: ['waiting', 'input-required'], sub: 'your turn', kv: ['input-required', 'awaiting-next-turn'], show: ['#tool-block', '#stream-msg', '#unknown-block', '#suggest'], tool: 'completed', nocursor: true },
+    denied:    { badge: ['working', 'working'], sub: 'step 2 of 4 · tool denied, model informed', kv: ['working', '—'], show: ['#tool-block', '#tool-denied'], tool: 'denied' },
+    done:      { badge: ['done', 'completed'], sub: 'completed 12:41 · follow-up opened a new task', kv: ['completed', '—'], show: ['#tool-block', '#stream-msg', '#command-echo', '#done-block'], tool: 'completed', nocursor: true, disable: true },
+  };
+  const toggles = ['#stream-msg', '#tool-block', '#a2ui-block', '#idle-block', '#done-block', '#unknown-block', '#command-echo', '#suggest', '#palette', '#voicehint', '#tl-extra', '#tool-denied'];
+  function apply(name) {
+    const s = byState[name];
+    toggles.forEach((sel) => { $(sel).hidden = !s.show.includes(sel); });
+    $('#tool-out').hidden = s.tool !== 'completed';
+    $('#tool-status').textContent = s.tool; $('#tool-status').className = 'status ' + s.tool;
+    const b = $('#badge'); b.className = 'badge ' + s.badge[0];
+    b.innerHTML = (s.badge[0] === 'working' ? '<span class="pulse"></span> ' : '') + s.badge[1];
+    $('#substate').textContent = s.sub;
+    $('#kv-state').textContent = s.kv[0]; $('#kv-sub').textContent = s.kv[1];
+    $('#side-st').className = 'st ' + (s.badge[0] === 'done' ? 'done' : s.badge[0]);
+    $('.cursor').hidden = !!s.nocursor;
+    $('#btn-complete').disabled = !!s.disable; $('#btn-cancel').disabled = !!s.disable;
+    const v = $('#voice'); v.classList.toggle('live', !!s.voice); v.querySelector('.lvl').hidden = !s.voice; v.querySelector('svg').hidden = !!s.voice;
+    $('#ta').value = s.ta || '';
+    const conv = $('#conv'); conv.scrollTop = conv.scrollHeight;
+    document.querySelectorAll('.proto [data-state]').forEach((btn) => btn.setAttribute('aria-pressed', btn.dataset.state === name));
+    try { localStorage.setItem('rh.proto.web', name); } catch (e) {}
+  }
+  document.querySelectorAll('.proto [data-state]').forEach((btn) => btn.addEventListener('click', () => apply(btn.dataset.state)));
+  $('#theme').addEventListener('click', () => {
+    const r = document.documentElement; const dark = r.dataset.theme === 'dark' || (!r.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    r.dataset.theme = dark ? 'light' : 'dark';
+  });
+  $('#voice').addEventListener('click', () => apply($('#voice').classList.contains('live') ? 'idle' : 'voice'));
+  $('#btn-complete').addEventListener('click', () => apply('done'));
+  $('#ta').addEventListener('input', (e) => { $('#palette').hidden = !e.target.value.startsWith('/'); });
+  let initial = 'streaming'; try { initial = localStorage.getItem('rh.proto.web') || initial; } catch (e) {}
+  const h = location.hash.slice(1); if (byState[h]) initial = h;
+  apply(byState[initial] ? initial : 'streaming');
+})();
+</script>
+</body>
+</html>

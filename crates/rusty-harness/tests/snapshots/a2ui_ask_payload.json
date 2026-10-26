@@ -1,0 +1,140 @@
+{
+  "contextId": "ctx_9a1f",
+  "extensions": ["https://a2ui.org/a2a-extension/a2ui/v0.9.1"],
+  "messageId": "msg_ask",
+  "metadata": {
+    "https://a2ui.org/a2a-extension/a2ui/v0.9.1": {},
+    "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/channels/v1": {
+      "ask": "ch-7f3a",
+      "channel": "ch-7f3a",
+      "question_kind": "a2ui",
+      "to": ["you"]
+    }
+  },
+  "parts": [
+    {
+      "metadata": {
+        "alternativeFor": "application/a2ui+json"
+      },
+      "text": "Which audience are these notes for?\nThe tone and the level of detail depend on it. Pick one, or type another.\nCustomers / Internal engineering / Both, two sections\nSomething else\nSend answer · Skip"
+    },
+    {
+      "data": [
+        {
+          "createSurface": {
+            "catalogId": "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json",
+            "sendDataModel": true,
+            "surfaceId": "ask-ch-7f3a"
+          },
+          "version": "v0.9.1"
+        },
+        {
+          "updateComponents": {
+            "components": [
+              {
+                "children": ["question", "detail", "audience", "other", "actions"],
+                "component": "Column",
+                "id": "root"
+              },
+              {
+                "component": "Text",
+                "id": "question",
+                "text": "Which audience are these notes for?",
+                "variant": "h3"
+              },
+              {
+                "component": "Text",
+                "id": "detail",
+                "text": "The tone and the level of detail depend on it. Pick one, or type another.",
+                "variant": "body"
+              },
+              {
+                "component": "ChoicePicker",
+                "id": "audience",
+                "options": [
+                  {
+                    "label": "Customers",
+                    "value": "customers"
+                  },
+                  {
+                    "label": "Internal engineering",
+                    "value": "internal"
+                  },
+                  {
+                    "label": "Both, two sections",
+                    "value": "both"
+                  }
+                ],
+                "value": {
+                  "path": "/audience"
+                },
+                "variant": "mutuallyExclusive"
+              },
+              {
+                "component": "TextField",
+                "id": "other",
+                "label": "Something else",
+                "value": {
+                  "path": "/other"
+                }
+              },
+              {
+                "children": ["send", "skip"],
+                "component": "Row",
+                "id": "actions"
+              },
+              {
+                "action": {
+                  "event": {
+                    "context": {
+                      "audience": {
+                        "path": "/audience"
+                      },
+                      "other": {
+                        "path": "/other"
+                      }
+                    },
+                    "name": "answer"
+                  }
+                },
+                "child": "send_label",
+                "component": "Button",
+                "id": "send",
+                "variant": "primary"
+              },
+              {
+                "component": "Text",
+                "id": "send_label",
+                "text": "Send answer"
+              },
+              {
+                "action": {
+                  "event": {
+                    "name": "skip"
+                  }
+                },
+                "child": "skip_label",
+                "component": "Button",
+                "id": "skip",
+                "variant": "borderless"
+              },
+              {
+                "component": "Text",
+                "id": "skip_label",
+                "text": "Skip"
+              }
+            ],
+            "surfaceId": "ask-ch-7f3a"
+          },
+          "version": "v0.9.1"
+        }
+      ],
+      "mediaType": "application/a2ui+json",
+      "metadata": {
+        "mimeType": "application/a2ui+json"
+      }
+    }
+  ],
+  "role": "ROLE_AGENT",
+  "taskId": "task_01HZX4V3K9N2"
+}

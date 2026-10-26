@@ -1,0 +1,928 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "description": "The whole configuration (design.md § Data models § Configuration).",
+  "type": "object",
+  "properties": {
+    "agent": {
+      "description": "The agent this harness serves.",
+      "$ref": "#/$defs/AgentConfig",
+      "default": {
+        "description": "An agent served by rusty-harness.",
+        "name": "rusty-harness",
+        "system_prompt": null
+      }
+    },
+    "agents": {
+      "description": "Sub-agents by name.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SubAgentConfig"
+      },
+      "default": {}
+    },
+    "context": {
+      "description": "The context window.",
+      "$ref": "#/$defs/ContextConfig",
+      "default": {
+        "compaction": {
+          "keep_recent_turns": 8,
+          "model": null,
+          "threshold": 0.75
+        },
+        "order": [
+          "system_prompt",
+          "system_extensions",
+          "participant_roles",
+          "skills_index",
+          "sub_agent_index",
+          "task",
+          "plan",
+          "state_excerpt",
+          "history",
+          "tool_results"
+        ]
+      }
+    },
+    "durable": {
+      "description": "Durable execution.",
+      "$ref": "#/$defs/DurableConfig",
+      "default": {
+        "mode": "none",
+        "retry": {
+          "coefficient": 2,
+          "initial": "1s",
+          "max_attempts": 5,
+          "max_interval": "100s"
+        },
+        "temporal": {
+          "address": null,
+          "api_key": null,
+          "from_env": false,
+          "namespace": null,
+          "task_queue": "rusty-harness"
+        }
+      }
+    },
+    "hooks": {
+      "description": "Hook ordering and policies.",
+      "$ref": "#/$defs/HooksConfig",
+      "default": {
+        "order": [],
+        "policies": {}
+      }
+    },
+    "locale": {
+      "description": "The locale for user-facing strings (R33.8); `LANG` then `en` when absent.",
+      "type": ["string", "null"],
+      "default": null
+    },
+    "loop": {
+      "description": "The core loop's limits.",
+      "$ref": "#/$defs/LoopConfig",
+      "default": {
+        "heartbeat_interval": "5s",
+        "idle_timeout": null,
+        "max_iterations": 50,
+        "max_tokens": null,
+        "on_limit": "input-required",
+        "signal_grace": "30s",
+        "stall_after": "15m",
+        "wall_clock": null
+      }
+    },
+    "models": {
+      "description": "Language models by alias; `default` is the one the loop starts with.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ModelConfig"
+      },
+      "default": {}
+    },
+    "o11y": {
+      "description": "Observability.",
+      "$ref": "#/$defs/O11yConfig",
+      "default": {
+        "langfuse": false,
+        "log_level": "info",
+        "otlp_endpoint": null
+      }
+    },
+    "persistence": {
+      "description": "The persistence store.",
+      "$ref": "#/$defs/PersistenceConfig",
+      "default": {
+        "path": null,
+        "store": "memory"
+      }
+    },
+    "plugins": {
+      "description": "Plugin discovery.",
+      "$ref": "#/$defs/PluginsConfig",
+      "default": {
+        "paths": []
+      }
+    },
+    "server": {
+      "description": "The A2A server.",
+      "$ref": "#/$defs/ServerConfig",
+      "default": {
+        "allow_origins": [],
+        "bind": "127.0.0.1:7474",
+        "bindings": ["jsonrpc", "rest"],
+        "limits": {
+          "requests_per_minute": 120,
+          "streams_per_caller": 8
+        },
+        "public_url": null,
+        "push": {
+          "allow_hosts": []
+        },
+        "security": null
+      }
+    },
+    "system_one": {
+      "description": "System One models by alias.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SystemOneConfig"
+      },
+      "default": {}
+    },
+    "tools": {
+      "description": "Tool execution.",
+      "$ref": "#/$defs/ToolsConfig",
+      "default": {
+        "max_result_bytes": 65536,
+        "oversize": "truncate"
+      }
+    },
+    "tui": {
+      "description": "The terminal UI.",
+      "$ref": "#/$defs/TuiConfig",
+      "default": {
+        "push_to_talk_key": "space"
+      }
+    },
+    "voice": {
+      "description": "Voice.",
+      "$ref": "#/$defs/VoiceConfig",
+      "default": {
+        "api_key": null,
+        "base_url": null,
+        "model": null,
+        "provider": null,
+        "speech_model": null,
+        "transcribe_model": null,
+        "voice": null
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "AgentConfig": {
+      "description": "`[agent]`.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "One sentence for the agent card.",
+          "type": "string",
+          "default": "An agent served by rusty-harness."
+        },
+        "name": {
+          "description": "The agent's name, as the agent card shows it.",
+          "type": "string",
+          "default": "rusty-harness"
+        },
+        "system_prompt": {
+          "description": "A prompt fragment reference (`file:` or a registered id) replacing the default\nsystem prompt (R7.2).",
+          "type": ["string", "null"],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "CompactionConfig": {
+      "description": "`[context.compaction]`.",
+      "type": "object",
+      "properties": {
+        "keep_recent_turns": {
+          "description": "Recent turns kept verbatim (R16.2).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 8,
+          "minimum": 0
+        },
+        "model": {
+          "description": "The model alias that summarises; the active model when absent.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "threshold": {
+          "description": "Compact when the estimate exceeds this fraction of the window (R16.1).",
+          "type": "number",
+          "format": "double",
+          "default": 0.75
+        }
+      },
+      "additionalProperties": false
+    },
+    "ContextConfig": {
+      "description": "`[context]`.",
+      "type": "object",
+      "properties": {
+        "compaction": {
+          "description": "Compaction (R16).",
+          "$ref": "#/$defs/CompactionConfig",
+          "default": {
+            "keep_recent_turns": 8,
+            "model": null,
+            "threshold": 0.75
+          }
+        },
+        "order": {
+          "description": "The positions in order (R15.1).",
+          "type": "array",
+          "default": [
+            "system_prompt",
+            "system_extensions",
+            "participant_roles",
+            "skills_index",
+            "sub_agent_index",
+            "task",
+            "plan",
+            "state_excerpt",
+            "history",
+            "tool_results"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DurableConfig": {
+      "description": "`[durable]`.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "description": "The mode.",
+          "$ref": "#/$defs/DurableMode",
+          "default": "none"
+        },
+        "retry": {
+          "description": "Activity retries (R22.3).",
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "coefficient": 2,
+            "initial": "1s",
+            "max_attempts": 5,
+            "max_interval": "100s"
+          }
+        },
+        "temporal": {
+          "description": "The Temporal connection for `remote` (and the task queue for both Temporal modes).",
+          "$ref": "#/$defs/TemporalConfig",
+          "default": {
+            "address": null,
+            "api_key": null,
+            "from_env": false,
+            "namespace": null,
+            "task_queue": "rusty-harness"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "DurableMode": {
+      "description": "`[durable] mode`.",
+      "oneOf": [
+        {
+          "description": "In process, no durability.",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "The Temporal SDK's ephemeral dev server (development only, Q3).",
+          "type": "string",
+          "const": "embedded"
+        },
+        {
+          "description": "A Temporal service, Temporal Cloud included.",
+          "type": "string",
+          "const": "remote"
+        }
+      ]
+    },
+    "Duration": {
+      "description": "A duration: a number followed by ms, s, m or h, e.g. 30s or 15m.",
+      "type": "string",
+      "pattern": "^[0-9]+(ms|s|m|h)$"
+    },
+    "HooksConfig": {
+      "description": "`[hooks]`.",
+      "type": "object",
+      "properties": {
+        "order": {
+          "description": "Hook ids in the order they run when priorities tie (R4.5).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "policies": {
+          "description": "Failure policy per point, `fail-closed` or `log-and-continue` (R4.6); the\nsecurity-relevant points cannot be lowered.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        }
+      },
+      "additionalProperties": false
+    },
+    "LimitsConfig": {
+      "description": "`[server.limits]`.",
+      "type": "object",
+      "properties": {
+        "requests_per_minute": {
+          "description": "Requests per minute per caller.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 120,
+          "minimum": 0
+        },
+        "streams_per_caller": {
+          "description": "Open streams per caller.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 8,
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "LoopConfig": {
+      "description": "`[loop]`.",
+      "type": "object",
+      "properties": {
+        "heartbeat_interval": {
+          "description": "How often the heartbeat ticks (R23.1).",
+          "$ref": "#/$defs/Duration",
+          "default": "5s"
+        },
+        "idle_timeout": {
+          "description": "How long a long-running task waits for the next turn before the idle outcome.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_iterations": {
+          "description": "Model calls per task before the limit outcome (R11.4).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 50,
+          "minimum": 0
+        },
+        "max_tokens": {
+          "description": "Total tokens per task, when set.",
+          "type": ["integer", "null"],
+          "format": "uint64",
+          "default": null,
+          "minimum": 0
+        },
+        "on_limit": {
+          "description": "`fail` or `input-required` when a limit is reached.",
+          "type": "string",
+          "default": "input-required"
+        },
+        "signal_grace": {
+          "description": "How long a signalled inbox event may wait before the heartbeat re-signals it.",
+          "$ref": "#/$defs/Duration",
+          "default": "30s"
+        },
+        "stall_after": {
+          "description": "A task that has not progressed for this long is stalled (R23.3).",
+          "$ref": "#/$defs/Duration",
+          "default": "15m"
+        },
+        "wall_clock": {
+          "description": "Wall clock per task, when set.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelConfig": {
+      "description": "`[models.<alias>]`.",
+      "type": "object",
+      "properties": {
+        "api": {
+          "description": "`openai` only: the wire. `responses` on `OpenAI`'s own endpoint and\n`chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAiApi"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "api_key": {
+          "description": "The credential, by reference.",
+          "$ref": "#/$defs/SecretRef"
+        },
+        "base_url": {
+          "description": "The API base URL for `OpenAI`-compatible providers; the provider's own when absent.",
+          "type": ["string", "null"],
+          "format": "uri",
+          "default": null
+        },
+        "effort": {
+          "description": "The default reasoning effort (`low`, `medium`, `high`).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "model": {
+          "description": "The model id the provider knows.",
+          "type": "string"
+        },
+        "provider": {
+          "description": "The provider.",
+          "$ref": "#/$defs/ModelProvider"
+        },
+        "retry": {
+          "description": "Retry policy for retryable provider errors (R9.6).",
+          "$ref": "#/$defs/RetryConfig",
+          "default": {
+            "coefficient": 2,
+            "initial": "1s",
+            "max_attempts": 5,
+            "max_interval": "100s"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": ["provider", "model", "api_key"]
+    },
+    "ModelProvider": {
+      "description": "A language model provider.",
+      "oneOf": [
+        {
+          "description": "`OpenAI`, or anything speaking its API through `base_url` (`OpenRouter`, Ollama).",
+          "type": "string",
+          "const": "openai"
+        },
+        {
+          "description": "Anthropic.",
+          "type": "string",
+          "const": "anthropic"
+        }
+      ]
+    },
+    "O11yConfig": {
+      "description": "`[o11y]`.",
+      "type": "object",
+      "properties": {
+        "langfuse": {
+          "description": "Add Langfuse's generation attributes to the spans (R24.3).",
+          "type": "boolean",
+          "default": false
+        },
+        "log_level": {
+          "description": "The log level.",
+          "type": "string",
+          "default": "info"
+        },
+        "otlp_endpoint": {
+          "description": "The OTLP endpoint; no export when absent (R24.2).",
+          "type": ["string", "null"],
+          "format": "uri",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "OpenAiApi": {
+      "description": "Which `OpenAI` API a model is reached through.",
+      "oneOf": [
+        {
+          "description": "`POST /responses`: function tools with reasoning on current models.",
+          "type": "string",
+          "const": "responses"
+        },
+        {
+          "description": "`POST /chat/completions`: what `OpenAI`-compatible servers implement.",
+          "type": "string",
+          "const": "chat-completions"
+        }
+      ]
+    },
+    "OversizePolicyConfig": {
+      "description": "`[tools] oversize`.",
+      "oneOf": [
+        {
+          "description": "Keep the head and the tail, mark the cut.",
+          "type": "string",
+          "const": "truncate"
+        },
+        {
+          "description": "Ask a model for a shorter version; truncate when that fails.",
+          "type": "string",
+          "const": "summarise"
+        }
+      ]
+    },
+    "PersistenceConfig": {
+      "description": "`[persistence]`.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "The data directory for the file store.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "store": {
+          "description": "`memory` or `file`.",
+          "type": "string",
+          "default": "memory"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PluginsConfig": {
+      "description": "`[plugins]`.",
+      "type": "object",
+      "properties": {
+        "paths": {
+          "description": "Directories scanned for Agent Plugins.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "PushConfig": {
+      "description": "`[server.push]`.",
+      "type": "object",
+      "properties": {
+        "allow_hosts": {
+          "description": "Hosts a push-notification webhook may name; empty refuses every push config.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "RetryConfig": {
+      "description": "A retry policy with exponential backoff (R9.6, R22.3).",
+      "type": "object",
+      "properties": {
+        "coefficient": {
+          "description": "Multiplier per attempt.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 2,
+          "minimum": 0
+        },
+        "initial": {
+          "description": "The first wait.",
+          "$ref": "#/$defs/Duration",
+          "default": "1s"
+        },
+        "max_attempts": {
+          "description": "Attempts in total; always finite.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 5,
+          "minimum": 0
+        },
+        "max_interval": {
+          "description": "The longest wait.",
+          "$ref": "#/$defs/Duration",
+          "default": "100s"
+        }
+      },
+      "additionalProperties": false
+    },
+    "SecretRef": {
+      "description": "A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.",
+      "type": "string",
+      "format": "secret-ref",
+      "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/=,]+/.+|keyring:[^=,]+=[^,]+(,[^=,]+=[^,]+)*|file:.+)$"
+    },
+    "SecuritySchemeConfig": {
+      "description": "`[server.security]`.",
+      "oneOf": [
+        {
+          "description": "A bearer token every caller must present.",
+          "type": "object",
+          "properties": {
+            "scheme": {
+              "type": "string",
+              "const": "bearer"
+            },
+            "token": {
+              "description": "The token, by reference.",
+              "$ref": "#/$defs/SecretRef"
+            }
+          },
+          "additionalProperties": false,
+          "required": ["scheme", "token"]
+        },
+        {
+          "description": "An API key in a header.",
+          "type": "object",
+          "properties": {
+            "header": {
+              "description": "The header name.",
+              "type": "string"
+            },
+            "key": {
+              "description": "The key, by reference.",
+              "$ref": "#/$defs/SecretRef"
+            },
+            "scheme": {
+              "type": "string",
+              "const": "api-key"
+            }
+          },
+          "additionalProperties": false,
+          "required": ["scheme", "header", "key"]
+        }
+      ]
+    },
+    "ServerConfig": {
+      "description": "`[server]`.",
+      "type": "object",
+      "properties": {
+        "allow_origins": {
+          "description": "Browser origins allowed to call the server (CORS, R25.1): a surface served from\nanother origin, such as the web renderer's dev server. Empty allows any origin\nwhile the server is loopback-only and none otherwise (fail-closed).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "bind": {
+          "description": "The socket to bind. Without a security scheme only a loopback address is accepted.",
+          "type": "string",
+          "default": "127.0.0.1:7474"
+        },
+        "bindings": {
+          "description": "The bindings to serve: `jsonrpc`, `rest` and, with the feature, `grpc`.",
+          "type": "array",
+          "default": ["jsonrpc", "rest"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "limits": {
+          "description": "Per-caller limits (abuse 8).",
+          "$ref": "#/$defs/LimitsConfig",
+          "default": {
+            "requests_per_minute": 120,
+            "streams_per_caller": 8
+          }
+        },
+        "public_url": {
+          "description": "The URL clients reach the server at, for the agent card.",
+          "type": ["string", "null"],
+          "format": "uri",
+          "default": null
+        },
+        "push": {
+          "description": "Push notifications (abuse 9).",
+          "$ref": "#/$defs/PushConfig",
+          "default": {
+            "allow_hosts": []
+          }
+        },
+        "security": {
+          "description": "Authentication (R19.4, Q10); absent means loopback only.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecuritySchemeConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "SubAgentConfig": {
+      "description": "`[agents.<name>]`.",
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "description": "The credential to present, by reference.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "card_url": {
+          "description": "Where the sub-agent's A2A agent card is served.",
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["card_url"]
+    },
+    "SystemOneConfig": {
+      "description": "`[system_one.<alias>]`.",
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "description": "The credential, by reference.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "provider": {
+          "description": "The provider; `http` is the generic typed classifier endpoint (Q4).",
+          "type": "string"
+        },
+        "url": {
+          "description": "The endpoint.",
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "additionalProperties": false,
+      "required": ["provider", "url"]
+    },
+    "TemporalConfig": {
+      "description": "`[durable.temporal]`.",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "The service address, by reference (it may embed an account id).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "api_key": {
+          "description": "The API key, by reference.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "from_env": {
+          "description": "Read `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` and `TEMPORAL_API_KEY` through the\nSDK's own environment loader instead of the references above.",
+          "type": "boolean",
+          "default": false
+        },
+        "namespace": {
+          "description": "The namespace, by reference.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "task_queue": {
+          "description": "The task queue.",
+          "type": "string",
+          "default": "rusty-harness"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ToolsConfig": {
+      "description": "`[tools]`.",
+      "type": "object",
+      "properties": {
+        "max_result_bytes": {
+          "description": "A tool result larger than this, in bytes, goes through the oversize policy (R8.6).",
+          "type": "integer",
+          "format": "uint",
+          "default": 65536,
+          "minimum": 0
+        },
+        "oversize": {
+          "description": "`truncate` (keep the head and the tail) or `summarise` (one call to the `default`\nmodel with `prompts/tool/summarise-result.md`).",
+          "$ref": "#/$defs/OversizePolicyConfig",
+          "default": "truncate"
+        }
+      },
+      "additionalProperties": false
+    },
+    "TuiConfig": {
+      "description": "`[tui]`.",
+      "type": "object",
+      "properties": {
+        "push_to_talk_key": {
+          "description": "The push-to-talk key (R27.5).",
+          "type": "string",
+          "default": "space"
+        }
+      },
+      "additionalProperties": false
+    },
+    "VoiceConfig": {
+      "description": "`[voice]`.",
+      "type": "object",
+      "properties": {
+        "api_key": {
+          "description": "The credential, by reference.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SecretRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "base_url": {
+          "description": "The API base (`https://api.openai.com/v1` when absent).",
+          "type": ["string", "null"],
+          "format": "uri",
+          "default": null
+        },
+        "model": {
+          "description": "The model.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "provider": {
+          "description": "`openai-realtime`, or absent for no voice.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "speech_model": {
+          "description": "The synthesis model (`gpt-4o-mini-tts` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "transcribe_model": {
+          "description": "The streaming transcription model (`gpt-live-transcribe` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "voice": {
+          "description": "The voice the model speaks with (`marin` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

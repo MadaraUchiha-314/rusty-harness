@@ -1,0 +1,100 @@
+# rusty-harness configuration. Written on first run with every default; edit what you need.
+# Precedence: code overrides > RH__SECTION__KEY environment variables > this file > defaults.
+# Credentials are references only (env:NAME, keyring:SERVICE/USER, file:PATH), never values.
+# Schema: https://madarauchiha-314.github.io/rusty-harness/rusty-harness.schema.json
+
+[agent]
+name = "rusty-harness"
+description = "An agent served by rusty-harness."
+# system_prompt = "file:prompts/mine.md"   # replaces the default system prompt
+
+# Models by alias; the loop starts with `default`.
+# [models.default]
+# provider = "openai"            # openai | anthropic
+# model = "gpt-6.1"
+# api_key = "env:OPENAI_API_KEY"
+# base_url = "http://127.0.0.1:11434/v1"   # any OpenAI-compatible endpoint
+# effort = "high"
+
+[server]
+bind = "127.0.0.1:7474" # without [server.security] only a loopback address is accepted
+bindings = ["jsonrpc", "rest"]
+# public_url = "https://agent.example.com"
+# [server.security]
+# scheme = "bearer"
+# token = "env:RH_BEARER"
+
+[server.limits]
+requests_per_minute = 120
+streams_per_caller = 8
+
+[server.push]
+allow_hosts = [] # hosts a push-notification webhook may name
+
+[durable]
+mode = "none" # none | embedded | remote
+
+[durable.temporal]
+from_env = false # true: TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE / TEMPORAL_API_KEY
+task_queue = "rusty-harness"
+# address = "env:TEMPORAL_ADDRESS"
+# namespace = "env:TEMPORAL_NAMESPACE"
+# api_key = "env:TEMPORAL_API_KEY"
+
+[durable.retry]
+initial = "1s"
+coefficient = 2
+max_interval = "100s"
+max_attempts = 5
+
+[persistence]
+store = "memory" # memory | file
+# path = "~/.rusty-harness/data"
+
+[plugins]
+paths = []
+
+[hooks]
+order = []
+[hooks.policies]
+
+[context]
+order = [
+  "system_prompt",
+  "system_extensions",
+  "participant_roles",
+  "skills_index",
+  "sub_agent_index",
+  "task",
+  "plan",
+  "state_excerpt",
+  "history",
+  "tool_results",
+]
+
+[context.compaction]
+threshold = 0.75
+keep_recent_turns = 8
+# model = "default"
+
+[loop]
+max_iterations = 50
+stall_after = "15m"
+on_limit = "input-required" # input-required | fail
+signal_grace = "30s"
+# max_tokens = 200000
+# wall_clock = "2h"
+# idle_timeout = "24h"
+
+[voice]
+# provider = "openai-realtime"
+# model = "gpt-realtime-2.1"
+# api_key = "env:OPENAI_API_KEY"
+
+[o11y]
+log_level = "info"
+langfuse = false
+# otlp_endpoint = "http://127.0.0.1:4317"
+
+[tui]
+push_to_talk_key = "space"

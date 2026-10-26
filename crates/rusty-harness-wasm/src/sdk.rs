@@ -215,11 +215,11 @@ where
     let iterator = Object::new();
     let _ = Reflect::set(&iterator, &"next".into(), &next.into_js_value());
     let _ = Reflect::set(&iterator, &"return".into(), &finish.into_js_value());
-    let _ = Reflect::set(
-        &iterator,
-        &js_sys::Symbol::async_iterator(),
-        &Function::new_no_args("return this"),
-    );
+    // `[Symbol.asyncIterator]()` returns the iterator itself: `Object.prototype.valueOf`
+    // is a built-in that returns its `this`, so no function is compiled from a string
+    // (a page whose CSP has no 'unsafe-eval' refuses that).
+    let same = Reflect::get(&Object::new(), &"valueOf".into()).unwrap_or(JsValue::UNDEFINED);
+    let _ = Reflect::set(&iterator, &js_sys::Symbol::async_iterator(), &same);
     iterator.into()
 }
 

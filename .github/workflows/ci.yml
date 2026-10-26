@@ -111,6 +111,13 @@ jobs:
       - name: wasm-bindgen-test (headless Chrome)
         run: wasm-pack test --headless --chrome
         working-directory: crates/rusty-harness-wasm
+      # A page with a strict CSP (no 'unsafe-eval') refuses functions compiled from
+      # strings; Node refuses them the same way under this flag.
+      - name: wasm-bindgen-test (Node, no code generation from strings)
+        run: wasm-pack test --node --test csp
+        working-directory: crates/rusty-harness-wasm
+        env:
+          NODE_OPTIONS: --disallow-code-generation-from-strings
       - run: bun run build
         working-directory: crates/rusty-harness-wasm
       - run: bun run test

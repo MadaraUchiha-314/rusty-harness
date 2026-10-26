@@ -88,9 +88,16 @@ pub(crate) fn from_options(options: &JsValue) -> Result<Host, JsError> {
             allow: allow_origins(&options)?,
         }));
     }
+    // The defaults below are Rust closures and bound built-ins, never functions compiled
+    // from strings: a page whose CSP has no 'unsafe-eval' refuses those.
     let socket = callback(&options, "webSocket").or_else(|| {
-        global(&["WebSocket"])
-            .map(|_| Function::new_with_args("url", "return new globalThis.WebSocket(url)"))
+        global(&["WebSocket"]).map(|_| {
+            Closure::<dyn Fn(String) -> Result<JsValue, JsValue>>::new(|url: String| {
+                web_sys::WebSocket::new(&url).map(JsValue::from)
+            })
+            .into_js_value()
+            .unchecked_into::<Function>()
+        })
     });
     if let Some(open) = socket {
         builder = builder.websocket(Arc::new(JsWebSockets { open: Local(open) }));
@@ -101,8 +108,12 @@ pub(crate) fn from_options(options: &JsValue) -> Result<Host, JsError> {
         builder = builder.clock(Arc::new(JsClock { now: Local(now) }));
     }
     let random = callback(&options, "randomBytes").or_else(|| {
-        global(&["crypto", "getRandomValues"])
-            .map(|_| Function::new_with_args("buf", "globalThis.crypto.getRandomValues(buf)"))
+        let crypto = global(&["crypto"])?;
+        let fill = Reflect::get(&crypto, &"getRandomValues".into())
+            .ok()?
+            .dyn_into::<Function>()
+            .ok()?;
+        Some(fill.bind0(&crypto))
     });
     if let Some(fill) = random {
         builder = builder.rng(Arc::new(JsRng { fill: Local(fill) }));
@@ -113,10 +124,22 @@ pub(crate) fn from_options(options: &JsValue) -> Result<Host, JsError> {
         }));
     }
     let log = callback(&options, "log").unwrap_or_else(|| {
-        Function::new_with_args(
-            "r",
-            "const f = r.level === 'error' ? console.error : r.level === 'warn' ? console.warn : console.log; f(`[${r.target}] ${r.message}`, r.fields)",
-        )
+        Closure::<dyn Fn(JsValue)>::new(|record: JsValue| {
+            let field = |k: &str| Reflect::get(&record, &k.into()).unwrap_or(JsValue::UNDEFINED);
+            let line = JsValue::from(format!(
+                "[{}] {}",
+                field("target").as_string().unwrap_or_default(),
+                field("message").as_string().unwrap_or_default()
+            ));
+            let fields = field("fields");
+            match field("level").as_string().as_deref() {
+                Some("error") => web_sys::console::error_2(&line, &fields),
+                Some("warn") => web_sys::console::warn_2(&line, &fields),
+                _ => web_sys::console::log_2(&line, &fields),
+            }
+        })
+        .into_js_value()
+        .unchecked_into::<Function>()
     });
     builder = builder.log_sink(Arc::new(JsLog { emit: Local(log) }));
     Ok(builder.build())

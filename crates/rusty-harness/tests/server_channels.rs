@@ -10,6 +10,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::StreamExt as _;
+
 use rusty_harness::app_service::a2a_server::protocol_gap::PARTICIPANT_HEADER;
 use rusty_harness::app_service::a2a_server::{AllowlistedPushStore, serve};
 use rusty_harness::config::Config;
@@ -533,7 +535,7 @@ fn shared_task(id: &str) -> TaskRecord {
 /// Scenario: Only a task's participants open it through the SDK, and a cancel keeps the
 /// channel's question for its members
 ///     Given two shared tasks, each waiting on a question asked of alice only
-///     When mallory, on neither task, reads, follows or cancels one through the SDK
+///     When mallory, on neither task, reads, follows, posts into or cancels one through the SDK
 ///     Then each call answers "task not found"
 ///     And when bob cancels one through the SDK and the other through the server
 ///     Then both cancelled tasks come back without the question (R18.5, abuse 2)
@@ -588,6 +590,24 @@ async fn only_participants_open_a_task_and_a_cancel_keeps_the_question_private()
     assert!(
         h.cancel_task("one", mallory()).await.is_err(),
         "mallory cancels nothing"
+    );
+    let mut note = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("ship it now")]);
+    note.task_id = Some("one".into());
+    let posted: Vec<_> = h
+        .send_message(
+            a2a::SendMessageRequest {
+                message: note,
+                configuration: None,
+                metadata: None,
+                tenant: None,
+            },
+            mallory(),
+        )
+        .collect()
+        .await;
+    assert!(
+        matches!(posted.as_slice(), [Err(_)]),
+        "mallory posts nothing into the task: {posted:?}"
     );
     assert_eq!(
         h.get_task("one", Some(Caller::human("alice", [Role::Admin])))

@@ -705,14 +705,28 @@ impl Harness {
             .unwrap_or_else(a2a::new_task_id);
         let extensions = request.message.extensions.clone().unwrap_or_default();
         let resolved = async move {
+            let caller = caller.unwrap_or_else(operator);
+            let stored = match self.store.get_task(&task_id).await {
+                Ok(stored) => stored,
+                Err(e) => {
+                    let failed = a2a::A2AError::internal(e.to_string());
+                    return boxed_stream(futures::stream::iter([Err(failed)]));
+                }
+            };
+            // As the server's guard: a task with participants takes messages from them
+            // only (abuse 2).
+            if let Some(record) = &stored
+                && !caller.may_open(record)
+            {
+                let refused = a2a::A2AError::task_not_found(&task_id);
+                return boxed_stream(futures::stream::iter([Err(refused)]));
+            }
             // A follow-up may name only its task (the task the client was handed): it
             // belongs to that task's context, not a fresh one (R21.5).
-            let context_id = match request.message.context_id.clone() {
-                Some(context) => context,
-                None => match self.store.get_task(&task_id).await {
-                    Ok(Some(record)) => record.context_id,
-                    _ => a2a::new_context_id(),
-                },
+            let context_id = match (request.message.context_id.clone(), stored) {
+                (Some(context), _) => context,
+                (None, Some(record)) => record.context_id,
+                (None, None) => a2a::new_context_id(),
             };
             let agent_request = AgentRequest {
                 message: request.message,
@@ -720,7 +734,7 @@ impl Harness {
                     task_id,
                     context_id,
                     stored_task: None,
-                    caller: caller.unwrap_or_else(operator),
+                    caller,
                     service_params: std::collections::BTreeMap::new(),
                 },
                 metadata: request.metadata,
@@ -728,9 +742,11 @@ impl Harness {
                 inbox_event_id: None,
                 traceparent: None,
             };
-            self.agent
-                .send_message(agent_request)
-                .map(|r| r.map_err(|e| e.to_a2a()))
+            boxed_stream(
+                self.agent
+                    .send_message(agent_request)
+                    .map(|r| r.map_err(|e| e.to_a2a())),
+            )
         };
         boxed_stream(futures::stream::once(resolved).flatten())
     }

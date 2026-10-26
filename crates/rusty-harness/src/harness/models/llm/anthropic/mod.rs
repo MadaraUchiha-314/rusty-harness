@@ -408,13 +408,21 @@ impl Decoder {
         }
     }
 
-    fn finish(&mut self) -> Vec<ModelEvent> {
-        vec![
+    /// The usage and the stop, once the stream has ended. Every complete message carries
+    /// a `stop_reason` in its `message_delta`; a stream cut before one is a retryable
+    /// failure, not a truncated answer.
+    fn finish(&mut self) -> Result<Vec<ModelEvent>, ModelError> {
+        let Some(reason) = self.stop.take() else {
+            return Err(ModelError::Retryable {
+                status: None,
+                message: "the stream ended before the model's stop reason".into(),
+                retry_after: None,
+            });
+        };
+        Ok(vec![
             ModelEvent::Usage { usage: self.usage },
-            ModelEvent::Stop {
-                reason: self.stop.take().unwrap_or(StopReason::EndTurn),
-            },
-        ]
+            ModelEvent::Stop { reason },
+        ])
     }
 }
 
@@ -428,7 +436,10 @@ pub fn decode(bytes: crate::host::ByteStream) -> EventStream<'static> {
             }
             Some(match sse.next().await {
                 None => (
-                    decoder.finish().into_iter().map(Ok).collect::<Vec<_>>(),
+                    decoder.finish().map_or_else(
+                        |e| vec![Err(e)],
+                        |events| events.into_iter().map(Ok).collect(),
+                    ),
                     (sse, decoder, true),
                 ),
                 Some(Err(err)) => (
@@ -606,5 +617,19 @@ mod tests {
             (12, 5, 9)
         );
         assert_eq!(seen.lock().unwrap().as_slice(), ["sk-ant-canary"]);
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_before_its_stop_reason_is_retryable() {
+        let events: Vec<_> = futures::StreamExt::collect(super::decode(
+            crate::harness::models::llm::sse::chunks(vec![
+                "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"The answer is\"}}\n\n",
+            ]),
+        ))
+        .await;
+        assert!(
+            matches!(events.last(), Some(Err(e)) if e.is_retryable()),
+            "{events:?}"
+        );
     }
 }

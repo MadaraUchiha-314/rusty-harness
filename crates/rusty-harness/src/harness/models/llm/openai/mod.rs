@@ -372,7 +372,17 @@ impl Decoder {
         }
     }
 
-    fn finish(&mut self) -> Vec<ModelEvent> {
+    /// The buffered calls and the stop, once the stream has ended. Every complete
+    /// response carries a `finish_reason`; a stream cut before one is a retryable
+    /// failure, not a truncated answer.
+    fn finish(&mut self) -> Result<Vec<ModelEvent>, ModelError> {
+        let Some(reason) = self.stop.take() else {
+            return Err(ModelError::Retryable {
+                status: None,
+                message: "the stream ended before the model's stop reason".into(),
+                retry_after: None,
+            });
+        };
         let mut out: Vec<ModelEvent> = self
             .calls
             .drain(..)
@@ -381,10 +391,8 @@ impl Decoder {
                 call: finish_call(c),
             })
             .collect();
-        out.push(ModelEvent::Stop {
-            reason: self.stop.take().unwrap_or(StopReason::EndTurn),
-        });
-        out
+        out.push(ModelEvent::Stop { reason });
+        Ok(out)
     }
 }
 
@@ -398,7 +406,10 @@ pub fn decode(bytes: crate::host::ByteStream) -> EventStream<'static> {
             }
             Some(match sse.next().await {
                 None => (
-                    decoder.finish().into_iter().map(Ok).collect::<Vec<_>>(),
+                    decoder.finish().map_or_else(
+                        |e| vec![Err(e)],
+                        |events| events.into_iter().map(Ok).collect(),
+                    ),
                     (sse, decoder, true),
                 ),
                 Some(Err(err)) => (
@@ -632,5 +643,17 @@ mod tests {
         let bad: Vec<_> =
             futures::StreamExt::collect::<Vec<_>>(decode(chunks(vec!["data: not json\n\n"]))).await;
         assert!(matches!(bad[0], Err(ModelError::Decode(_))));
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_before_its_finish_reason_is_retryable() {
+        let events: Vec<_> = futures::StreamExt::collect(decode(chunks(vec![
+            "data: {\"choices\":[{\"delta\":{\"content\":\"The answer is\"}}]}\n\n",
+        ])))
+        .await;
+        assert!(
+            matches!(events.last(), Some(Err(e)) if e.is_retryable()),
+            "{events:?}"
+        );
     }
 }

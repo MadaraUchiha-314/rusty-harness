@@ -255,14 +255,18 @@ impl Decoder {
         Ok(out)
     }
 
-    fn finish(&mut self) -> ModelEvent {
-        ModelEvent::Stop {
-            reason: self.stop.take().unwrap_or(if self.called {
-                StopReason::ToolUse
-            } else {
-                StopReason::EndTurn
-            }),
-        }
+    /// The stop, once the stream has ended: only `response.completed` or
+    /// `response.incomplete` ends a turn, so a stream cut before either (a dropped
+    /// connection, a proxy timeout) is a retryable failure, not a truncated answer.
+    fn finish(&mut self) -> Result<ModelEvent, ModelError> {
+        self.stop
+            .take()
+            .map(|reason| ModelEvent::Stop { reason })
+            .ok_or_else(|| ModelError::Retryable {
+                status: None,
+                message: "the response stream ended before response.completed".into(),
+                retry_after: None,
+            })
     }
 }
 
@@ -275,7 +279,7 @@ pub fn decode(bytes: crate::host::ByteStream) -> EventStream<'static> {
                 return None;
             }
             Some(match sse.next().await {
-                None => (vec![Ok(decoder.finish())], (sse, decoder, true)),
+                None => (vec![decoder.finish()], (sse, decoder, true)),
                 Some(Err(err)) => (
                     vec![Err(ModelError::Retryable {
                         status: None,
@@ -404,6 +408,24 @@ mod tests {
             !events
                 .iter()
                 .any(|e| matches!(e, Ok(ModelEvent::Stop { .. })))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stream_cut_before_the_response_completes_is_retryable() {
+        let events: Vec<_> = futures::StreamExt::collect(decode(chunks(vec![
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"The answer is\"}\n\n",
+        ])))
+        .await;
+        assert!(
+            matches!(events.last(), Some(Err(e)) if e.is_retryable()),
+            "a truncated answer is a retryable failure, not a finished turn: {events:?}"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, Ok(ModelEvent::Stop { .. }))),
+            "{events:?}"
         );
     }
 }

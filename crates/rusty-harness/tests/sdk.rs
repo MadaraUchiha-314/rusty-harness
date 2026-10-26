@@ -230,3 +230,42 @@ async fn a_persons_command_runs_instead_of_the_model() {
     }
     assert_eq!(llm.attempts(), 0, "no command reached the model");
 }
+
+/// Scenario: A watcher invoking /model is refused (abuse 10), through the agent
+///     Given a caller whose only role is watcher
+///     When it sends `/model default` to the harness
+///     Then the answer is the denied line with outcome `failed`, and nothing reaches the model
+#[tokio::test]
+async fn abuse_watcher_command_through_the_agent_is_refused() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let llm = Arc::new(RecordedLlm::new("default", vec![]));
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text("/model default")]);
+    message.task_id = Some("t-watch".into());
+    let request = a2a::SendMessageRequest {
+        message,
+        configuration: None,
+        metadata: None,
+        tenant: None,
+    };
+    let watcher = Caller::human("w1", [Role::Watcher]);
+    let events: Vec<_> = harness.send_message(request, Some(watcher)).collect().await;
+    let [Ok(a2a::StreamResponse::Message(reply))] = events.as_slice() else {
+        panic!("one reply: {events:?}");
+    };
+    let meta: CommandsMeta =
+        serde_json::from_value(reply.metadata.as_ref().unwrap()[COMMANDS_EXT].clone()).unwrap();
+    assert_eq!(meta.result.map(|r| r.outcome), Some("failed".to_owned()));
+    assert!(
+        reply
+            .text()
+            .is_some_and(|t| t.contains("Watchers may not run /model")),
+        "{reply:?}"
+    );
+    assert_eq!(llm.attempts(), 0);
+}

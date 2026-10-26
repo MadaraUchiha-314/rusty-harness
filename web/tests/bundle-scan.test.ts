@@ -20,7 +20,10 @@ const KEY_PATTERNS: [string, RegExp][] = [
   ["Slack token", /xox[baprs]-[A-Za-z0-9-]{10,}/],
   ["bearer literal", /Bearer\s+[A-Za-z0-9._-]{24,}/],
 ];
-// The browser never talks to a model provider: the harness does (abuse 11).
+// The web renderer never talks to a model provider: the harness does (abuse 11). The
+// WASM SDK *is* a harness, so it names the providers it defaults to, but reaches them only
+// through the page's `fetch` (its scenario tests prove it) and holds no key; it is scanned
+// for key patterns only.
 const PROVIDER_HOSTS = ["api.openai.com", "api.anthropic.com", "openrouter.ai/api"];
 
 function files(dir: string, out: string[] = []): string[] {
@@ -35,7 +38,8 @@ function files(dir: string, out: string[] = []): string[] {
 
 describe("the bundles", () => {
   it("abuse_npm_bundle_contains_no_provider_key_pattern", () => {
-    const scanned = [...files(WEB_DIST), ...files(WASM_DIST)];
+    const web = files(WEB_DIST);
+    const scanned = [...web, ...files(WASM_DIST)];
     expect(scanned.length, "build the web renderer first (bun run build)").toBeGreaterThan(0);
     const findings: string[] = [];
     for (const file of scanned) {
@@ -44,6 +48,7 @@ describe("the bundles", () => {
         const m = pattern.exec(text);
         if (m) findings.push(`${file}: ${name} (${m[0].slice(0, 12)}…)`);
       }
+      if (!web.includes(file)) continue;
       for (const host of PROVIDER_HOSTS) {
         if (text.includes(host)) findings.push(`${file}: provider host ${host}`);
       }

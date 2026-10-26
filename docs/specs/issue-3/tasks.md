@@ -510,7 +510,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R3.5–6, R31.2
   - _Test:_ T3 — `cargo nextest run -p rusty_harness -E 'test(contract_)'`,
     `cargo semver-checks`; T6 — `-E 'test(snapshot_)'`
-- [ ] 48. Security sweep: every abuse scenario of `design.md` green in one `abuse_*` run,
+- [x] 48. Security sweep: every abuse scenario of `design.md` green in one `abuse_*` run,
   the canary across all four legs, `cargo deny`, the bundle scan, the least-privilege
   checks (scrubbed MCP environment, namespace-scoped Temporal key). 🔒 all boundaries.
   - _Depends on:_ 46

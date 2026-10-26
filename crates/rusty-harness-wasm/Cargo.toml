@@ -33,6 +33,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 url = { workspace = true }
 web-sys = { workspace = true, features = [
+  "AbortController",
+  "AbortSignal",
   "BinaryType",
   "CloseEvent",
   "console",

@@ -171,8 +171,25 @@ struct JsHttp {
     allow: Option<Vec<String>>,
 }
 
+/// Aborts its request when dropped: a caller that stops waiting for a response, or stops
+/// reading a streamed body (a cancelled task mid-reply), ends the download instead of
+/// leaving the browser, and the provider, working until the server finishes. Aborting
+/// a request that already completed does nothing.
+struct Abort(Local<Option<web_sys::AbortController>>);
+
+impl Drop for Abort {
+    fn drop(&mut self) {
+        if let Some(controller) = &self.0.0 {
+            controller.abort();
+        }
+    }
+}
+
 impl JsHttp {
-    async fn response(&self, request: HttpRequest) -> Result<web_sys::Response, HostError> {
+    async fn response(
+        &self,
+        request: HttpRequest,
+    ) -> Result<(web_sys::Response, Abort), HostError> {
         if let Some(allow) = &self.allow {
             let origin = request.url.origin().ascii_serialization();
             if !allow.contains(&origin) {
@@ -196,6 +213,10 @@ impl JsHttp {
         };
         set("method", &request.method.as_str().into())?;
         set("headers", &headers)?;
+        let abort = Abort(Local(web_sys::AbortController::new().ok()));
+        if let Some(controller) = &abort.0.0 {
+            set("signal", &controller.signal())?;
+        }
         // Only the first URL is checked against allowOrigins: a redirect followed by
         // fetch would re-send the body and the key headers to an origin nobody allowed,
         // so with a list, a redirect fails the request instead (fail closed).
@@ -213,7 +234,7 @@ impl JsHttp {
         let response = JsFuture::from(js_sys::Promise::resolve(&promise))
             .await
             .map_err(|e| http_error(&e))?;
-        Ok(response.unchecked_into())
+        Ok((response.unchecked_into(), abort))
     }
 }
 
@@ -252,7 +273,7 @@ fn head(response: &web_sys::Response) -> Result<(http::StatusCode, http::HeaderM
 rusty_harness::harness_async_trait! {
     impl HttpClient for JsHttp {
         async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HostError> {
-            let response = self.response(request).await?;
+            let (response, _abort) = self.response(request).await?;
             let (status, headers) = head(&response)?;
             let buffer = JsFuture::from(response.array_buffer().map_err(|e| http_error(&e))?)
                 .await
@@ -261,25 +282,26 @@ rusty_harness::harness_async_trait! {
         }
 
         async fn send_streaming(&self, request: HttpRequest) -> Result<HttpStreamingResponse, HostError> {
-            let response = self.response(request).await?;
+            let (response, abort) = self.response(request).await?;
             let (status, headers) = head(&response)?;
             let Some(body) = response.body() else {
                 return Ok(HttpStreamingResponse { status, headers, body: boxed_stream(futures::stream::empty()) });
             };
             let reader: web_sys::ReadableStreamDefaultReader = body.get_reader().unchecked_into();
             let reader = Local(reader);
-            let chunks = futures::stream::unfold(Some(reader), |reader| async move {
+            // The abort guard lives as long as the body stream: dropped with it.
+            let chunks = futures::stream::unfold((Some(reader), abort), |(reader, abort)| async move {
                 let reader = reader?;
                 let read = match JsFuture::from(reader.0.read()).await {
                     Ok(read) => read,
-                    Err(e) => return Some((Err(http_error(&e)), None)),
+                    Err(e) => return Some((Err(http_error(&e)), (None, abort))),
                 };
                 let done = Reflect::get(&read, &"done".into()).ok().and_then(|d| d.as_bool()).unwrap_or(true);
                 if done {
                     return None;
                 }
                 let value = Reflect::get(&read, &"value".into()).unwrap_or(JsValue::UNDEFINED);
-                Some((Ok(Bytes::from(Uint8Array::new(&value).to_vec())), Some(reader)))
+                Some((Ok(Bytes::from(Uint8Array::new(&value).to_vec())), (Some(reader), abort)))
             });
             Ok(HttpStreamingResponse { status, headers, body: boxed_stream(chunks) })
         }
@@ -295,6 +317,13 @@ struct JsSocket {
     frames: mpsc::UnboundedReceiver<Result<WsMessage, HostError>>,
     // Kept alive for as long as the socket is: the handlers the browser calls.
     _handlers: Local<Vec<JsValue>>,
+}
+
+impl Drop for JsSocket {
+    /// A socket nobody holds is closed, not left open (and billed) until the page goes.
+    fn drop(&mut self) {
+        let _ = self.socket.0.close();
+    }
 }
 
 rusty_harness::harness_async_trait! {
@@ -363,8 +392,10 @@ rusty_harness::harness_async_trait! {
                 on_close.into_js_value(),
                 on_error.into_js_value(),
             ];
+            // Built before the handshake so that a connect dropped mid-way closes it too.
+            let socket = JsSocket { socket: Local(socket), frames, _handlers: Local(handlers) };
             opened.await.map_err(|_| HostError::Io("the WebSocket went away".into()))??;
-            Ok(Box::new(JsSocket { socket: Local(socket), frames, _handlers: Local(handlers) }))
+            Ok(Box::new(socket))
         }
     }
 }
@@ -480,5 +511,56 @@ impl LogSink for JsLog {
         );
         let _ = Reflect::set(&r, &"fields".into(), &fields(&span.attributes));
         let _ = self.emit.0.call1(&JsValue::NULL, &r);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{JsHttp, Local};
+    use futures::StreamExt as _;
+    use js_sys::{Function, Reflect};
+    use rusty_harness::host::{HttpClient as _, HttpRequest};
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    /// A streamed body the caller stops reading (a cancelled task mid-reply) aborts the
+    /// request: without it the browser keeps downloading, and the provider keeps
+    /// generating, until the server finishes on its own.
+    #[wasm_bindgen_test(async)]
+    async fn dropping_a_streamed_body_aborts_the_request() {
+        // A page fetch whose body sends one chunk and never ends; it keeps the signal.
+        let seen = js_sys::Object::new();
+        let fetch = Function::new_with_args(
+            "seen",
+            "return async (url, init) => { seen.signal = init.signal; \
+             const body = new ReadableStream({ start(c) { c.enqueue(new Uint8Array([104, 105])); } }); \
+             return new Response(body, { status: 200 }); }",
+        )
+        .call1(&JsValue::NULL, &seen)
+        .expect("the fixture evaluates")
+        .into();
+        let http = JsHttp {
+            fetch: Local(fetch),
+            allow: None,
+        };
+        let request = HttpRequest::new(
+            http::Method::POST,
+            "https://api.example/v1/responses".parse().unwrap(),
+        );
+        let mut response = http.send_streaming(request).await.expect("a response");
+        let first = response.body.next().await.expect("a chunk").expect("bytes");
+        assert_eq!(first.as_ref(), b"hi");
+        let signal = Reflect::get(&seen, &"signal".into()).expect("the signal");
+        assert_eq!(
+            Reflect::get(&signal, &"aborted".into()).unwrap().as_bool(),
+            Some(false),
+            "still running while it is read"
+        );
+        drop(response);
+        assert_eq!(
+            Reflect::get(&signal, &"aborted".into()).unwrap().as_bool(),
+            Some(true),
+            "dropping the body aborts the request"
+        );
     }
 }

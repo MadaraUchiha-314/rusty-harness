@@ -113,6 +113,19 @@ async fn the_model_plans_records_a_step_and_everyone_sees_the_plan() {
         plans[0].parts[0].media_type.as_deref(),
         Some(PLAN_MEDIA_TYPE)
     );
+    // Read back, the task carries the plan artifact too (a reconnecting renderer sees it).
+    let task = harness.get_task("t1", None).await.expect("the task");
+    let kept: Vec<_> = task
+        .artifacts
+        .iter()
+        .flatten()
+        .filter(|a| a.artifact_id == plan_id("t1"))
+        .collect();
+    assert_eq!(
+        kept.len(),
+        1,
+        "one plan artifact on the task, the last version: {kept:?}"
+    );
 
     let stored = harness
         .store()

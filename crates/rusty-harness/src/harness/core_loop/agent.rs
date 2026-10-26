@@ -662,6 +662,19 @@ fn media_turns(message: &a2a::Message) -> Vec<Turn> {
 }
 
 /// A tool's artifact as a stored event (R28.2).
+/// Keeps `artifact` on the record too, so a task read back (`GetTask`, a subscriber's
+/// first snapshot, a renderer reconnecting) carries it, not only the live stream.
+fn fold_artifact(record: &mut TaskRecord, artifact: &a2a::Artifact) {
+    record.apply_artifact(&a2a::TaskArtifactUpdateEvent {
+        task_id: record.id.clone(),
+        context_id: record.context_id.clone(),
+        artifact: artifact.clone(),
+        append: None,
+        last_chunk: Some(true),
+        metadata: None,
+    });
+}
+
 fn artifact_event(
     task: &TaskRecord,
     attempt: Attempt,
@@ -1727,10 +1740,13 @@ impl LocalAgent {
                 )
                 .await?;
             record.status_message = Some(delivery.message.clone());
-            let record = self.change(record, Transition::Delivered).await?;
+            let mut record = self.change(record, Transition::Delivered).await?;
             // A spoken turn is answered in speech too (R28.4): the reply's text,
             // synthesised, as an audio artifact next to the message.
             let spoken = self.speak(&record, attempt, &delivery.message).await;
+            if let Some(artifact) = &spoken {
+                fold_artifact(&mut record, artifact);
+            }
             let mut commit = TaskCommit::of(record.clone()).with_events([
                 message_event(&record, attempt, 0, delivery.message, now(&self.host)),
                 status_event(&record, attempt, 1),
@@ -1780,6 +1796,9 @@ impl LocalAgent {
         let fresh = self.record(task).await?;
         record.version = fresh.version;
         record.sub_tasks = fresh.sub_tasks;
+        for artifact in &artifacts {
+            fold_artifact(&mut record, artifact);
+        }
         let mut commit_events = vec![message_event(&record, attempt, 0, reply, now(&self.host))];
         commit_events.extend(artifacts.into_iter().enumerate().map(|(i, a)| {
             artifact_event(&record, attempt, u32::try_from(i).unwrap_or(u32::MAX), a)

@@ -119,5 +119,10 @@ harness_async_trait! {
             let params = serde_json::to_value(&request).map_err(|e| a2a::A2AError::internal(e.to_string()))?;
             self.call("CancelTask", params, &[]).await
         }
+
+        async fn list_tasks(&self, request: a2a::ListTasksRequest) -> Result<a2a::ListTasksResponse, a2a::A2AError> {
+            let params = serde_json::to_value(&request).map_err(|e| a2a::A2AError::internal(e.to_string()))?;
+            self.call("ListTasks", params, &[]).await
+        }
     }
 }

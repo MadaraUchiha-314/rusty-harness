@@ -1,0 +1,26 @@
+{
+  "name": "@rusty-harness/cli",
+  "version": "0.1.0",
+  "description": "The rusty-harness binary: the TUI, the A2A server and first-run setup.",
+  "homepage": "https://madarauchiha-314.github.io/rusty-harness/",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MadaraUchiha-314/rusty-harness.git",
+    "directory": "packaging/npm"
+  },
+  "bin": {
+    "rusty-harness": "bin/rusty-harness.js"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "type": "module",
+  "scripts": {
+    "test": "bun test test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

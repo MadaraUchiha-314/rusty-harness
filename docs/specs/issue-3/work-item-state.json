@@ -104,7 +104,7 @@
       "outcome": "",
       "enteredAt": "2026-10-24T18:46:17+00:00",
       "exitedAt": "",
-      "lastBlock": "`validate-artifacts` did not pass:\n- 29 task(s) still unticked (docs/specs/issue-3/tasks.md)",
+      "lastBlock": "`validate-artifacts` did not pass:\n- 16 task(s) still unticked (docs/specs/issue-3/tasks.md)",
       "forced": false
     }
   },
@@ -434,6 +434,36 @@
       "stateDir": "pr-loops/MadaraUchiha-314__rusty-harness/pr-9",
       "state": "open",
       "linkedAt": "2026-10-25T00:02:16+00:00",
+      "linkedBy": "session"
+    },
+    {
+      "ref": "github:MadaraUchiha-314/rusty-harness#10",
+      "repository": "MadaraUchiha-314/rusty-harness",
+      "number": 10,
+      "url": "https://github.com/MadaraUchiha-314/rusty-harness/issues/10",
+      "stateDir": "pr-loops/MadaraUchiha-314__rusty-harness/pr-10",
+      "state": "open",
+      "linkedAt": "2026-10-25T03:02:53+00:00",
+      "linkedBy": "session"
+    },
+    {
+      "ref": "github:MadaraUchiha-314/rusty-harness#11",
+      "repository": "MadaraUchiha-314/rusty-harness",
+      "number": 11,
+      "url": "https://github.com/MadaraUchiha-314/rusty-harness/issues/11",
+      "stateDir": "pr-loops/MadaraUchiha-314__rusty-harness/pr-11",
+      "state": "open",
+      "linkedAt": "2026-10-25T07:22:41+00:00",
+      "linkedBy": "session"
+    },
+    {
+      "ref": "github:MadaraUchiha-314/rusty-harness#12",
+      "repository": "MadaraUchiha-314/rusty-harness",
+      "number": 12,
+      "url": "https://github.com/MadaraUchiha-314/rusty-harness/issues/12",
+      "stateDir": "pr-loops/MadaraUchiha-314__rusty-harness/pr-12",
+      "state": "open",
+      "linkedAt": "2026-10-25T16:45:45+00:00",
       "linkedBy": "session"
     }
   ],

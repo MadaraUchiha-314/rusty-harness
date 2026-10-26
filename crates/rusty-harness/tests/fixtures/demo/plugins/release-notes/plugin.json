@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "release-notes",
+  "version": "1.0.0",
+  "description": "The definition-of-done demo's plugin (R32): a system prompt that asks for the audience through an A2UI form, and a skill for the notes' shape.",
+  "license": "Apache-2.0",
+  "extensions": {
+    "dev.rusty-harness": {
+      "note": "the system prompt lives in the dev.rusty-harness/ directory"
+    }
+  }
+}

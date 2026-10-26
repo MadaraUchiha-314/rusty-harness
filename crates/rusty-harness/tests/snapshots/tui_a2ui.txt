@@ -1,0 +1,30 @@
+┌ demo-agent · task_01HZX4V3K9N2 · ctx_9a1f ──────────────── ◐ input-required awaiting participant ┐
+│                                                                                                  │
+│ demo-agent 12:33 · asked you on channel ch-7f3a                                                  │
+│   ╭─ a2ui · basic catalog ──────────────────────────────────────────────────────────────╮        │
+│   │  Which audience are these notes for?                                                         │
+│   │                                                                                              │
+│   │  The tone and the level of detail depend on it. Pick one, or type another.                   │
+│   │                                                                                              │
+│   │  (●) Customers   ( ) Internal engineering   ( ) Both, two sections                           │
+│   │                                                                                              │
+│   │  Something else                                                                              │
+│   │  ┌───────────────────────────────────────────────────────────────────────────────            │
+│   │  │                                                                                           │
+│   │  └───────────────────────────────────────────────────────────────────────────────            │
+│   │                                                                                              │
+│   │    Send answer     [ Skip ]                                                                  │
+│   ╰─────────────────────────────────────────────────────────────────────────────────────╯        │
+│                                                                                                  │
+│ sub-task classify-25-prs                                                                         │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│ plan ■ collect ■ group ▣ draft □ review ─────────────────────────────────────────────────────────│
+│ › answer above, or type a message (the task stays open)                                          │
+│                                                                                                  │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│  tab  next field  ←→  choose  enter  submit  esc  back to chat           gpt-6.1 · high · remote │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

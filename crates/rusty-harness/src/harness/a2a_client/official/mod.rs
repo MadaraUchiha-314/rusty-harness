@@ -139,5 +139,9 @@ harness_async_trait! {
         async fn cancel_task(&self, request: a2a::CancelTaskRequest) -> Result<a2a::Task, a2a::A2AError> {
             self.client.cancel_task(&request).await
         }
+
+        async fn list_tasks(&self, request: a2a::ListTasksRequest) -> Result<a2a::ListTasksResponse, a2a::A2AError> {
+            self.client.list_tasks(&request).await
+        }
     }
 }

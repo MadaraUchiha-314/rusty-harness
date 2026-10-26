@@ -43,10 +43,24 @@ flowchart LR
 - WHEN a push-notification config names a host outside `[server.push] allow_hosts`, an
   IP literal, or anything when the list is empty THEN it SHALL be refused (abuse 9).
 - WHEN the card is built THEN it SHALL come from the configuration minus every credential
-  reference, advertise the six `rusty-harness` extensions and A2UI, and name the bound
-  address (snapshotted in `tests/snapshots/agent_card.json`).
+  reference, advertise the six `rusty-harness` extensions and A2UI, list `text/plain` and
+  `application/a2ui+json` as input and output modes (the SDK refuses a part whose media
+  type the card does not list), and name the bound address (snapshotted in
+  `tests/snapshots/agent_card.json`).
+- WHEN a request's message metadata declares `a2uiClientCapabilities` THEN the stream it
+  opens SHALL carry A2UI data parts for the declared catalogs; otherwise each A2UI part
+  SHALL arrive as its text alternative ([surfaces and renderers](surfaces.md), R25.2).
+- WHEN a browser on another origin calls the server THEN the preflight SHALL be answered
+  and the allow headers set for an origin in `[server] allow_origins`, or for any origin
+  while the server is loopback-only; with a security scheme and no list no origin is
+  allowed, and the policy overrides whatever a route underneath set (R25.1).
+- WHEN a channel opens during the turn a request streams THEN each later event SHALL be
+  projected with the caller's membership at that moment, so the member an ask addresses
+  sees the question in the same stream (R18.5).
 - The official TypeScript SDK's conformance suite (`web/tests/`) SHALL pass against the
   binary in CI (T3).
+- WHEN a participant outside a channel cancels a task waiting on that channel's question
+  THEN the cancel's answer SHALL carry the state change without the question (R18.5).
 
 ## Design
 
@@ -62,5 +76,8 @@ flowchart LR
 |-----------|--------------|-------|
 | issue-3 (M3, tasks 20–21, 23, 25) | Server on the official SDK, the protocol gap, channels on the server, the `cli` binary | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #9 |
 | issue-3 (M3, task 27) | The `/inbox` route, the conformance suite in CI | PR #9 |
+| issue-3 (M5, task 33) | The card advertises the basic A2UI catalog; each stream is negotiated for the surface that opened it | PR #11, [surfaces](surfaces.md) |
+| issue-3 (M5, task 37) | `[server] allow_origins` (CORS for browser surfaces); the card lists commands, model aliases and `application/a2ui+json` among its modes; a stream starts after the last event its viewer can see and projects each event with the caller's current memberships | PR #11 |
+| issue-3 (M7, SR2-1, CR1-1, CR1-2) | Commands run with the sender's roles from the task's participant record; one participation rule (`Caller::may_open`) shared with the SDK; a cancel's answer is redacted for the caller like GetTask | PR #13 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

@@ -45,6 +45,8 @@ impl PromptFragment {
             path: path.to_owned(),
             reason: reason.to_owned(),
         };
+        // A checkout with CRLF line endings (Windows) embeds the shipped prompts that way.
+        let text = text.replace("\r\n", "\n");
         let rest = text
             .strip_prefix("---\n")
             .ok_or_else(|| err("missing front matter"))?;
@@ -427,6 +429,16 @@ mod tests {
                 .contains("placeholders")
         );
         assert!(PromptFragment::parse("system/greet.md", "no front matter").is_err());
+    }
+
+    #[test]
+    fn a_fragment_with_crlf_line_endings_parses_the_same() {
+        let lf = PromptFragment::parse("system/greet.md", FILE).expect("parses");
+        let crlf = PromptFragment::parse("system/greet.md", &FILE.replace('\n', "\r\n"))
+            .expect("a CRLF checkout parses");
+        assert_eq!(crlf.entity_id(), lf.entity_id());
+        assert_eq!(crlf.placeholders(), lf.placeholders());
+        assert_eq!(crlf.body(), lf.body());
     }
 
     #[test]

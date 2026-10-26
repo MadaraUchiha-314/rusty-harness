@@ -186,8 +186,13 @@ describe("A2A 1.0 conformance over JSON-RPC", () => {
 
     const canceled = await client.cancelTask(CancelTaskRequest.fromJSON({ id: task.id }));
     expect(canceled.status?.state).toBe(TaskState.TASK_STATE_CANCELED);
+    // The 1.3 typings leave `getExtendedAgentCard` off `Client`; the client has it.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- SDK typing gap
+    const extended = client as unknown as {
+      getExtendedAgentCard(params: unknown): Promise<unknown>;
+    };
     await expect(async () =>
-      client.getExtendedAgentCard(GetExtendedAgentCardRequest.fromJSON({})),
+      extended.getExtendedAgentCard(GetExtendedAgentCardRequest.fromJSON({})),
     ).rejects.toBeTruthy();
   }, 120_000);
 

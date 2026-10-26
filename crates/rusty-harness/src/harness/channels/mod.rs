@@ -25,15 +25,16 @@ use crate::harness::core_loop::task::{
 use crate::harness::hooks::{HookPoint, Operation};
 use crate::harness::tools::{Idempotency, Tool, ToolCx, ToolDescriptor, ToolError, ToolOutput};
 use crate::harness_async_trait;
+use crate::interaction::renderer::a2ui;
 use crate::registry::{Entity, EntityId, EntityKind};
 
 /// The `channels/v1` extension URI.
 pub const CHANNELS_EXT: &str =
     "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/channels/v1";
 /// The A2UI extension URI, for a question carried as an A2UI payload.
-pub const A2UI_EXT: &str = "https://a2ui.org/a2a-extension/a2ui/v0.9.1";
+pub use crate::interaction::renderer::a2ui::EXTENSION_URI as A2UI_EXT;
 /// The media type of an A2UI data part.
-pub const A2UI_MEDIA_TYPE: &str = "application/a2ui+json";
+pub use crate::interaction::renderer::a2ui::MEDIA_TYPE as A2UI_MEDIA_TYPE;
 
 /// A channel: the harness owns its membership (R18.5).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -195,7 +196,7 @@ impl ChannelsMeta {
     #[must_use]
     pub fn of(message: &a2a::Message) -> Option<Self> {
         let value = message.metadata.as_ref()?.get(CHANNELS_EXT)?;
-        serde_json::from_value(value.clone()).ok()
+        crate::harness::core_loop::task::decode_extension(value).ok()
     }
 }
 
@@ -208,10 +209,14 @@ pub struct Ask {
     pub call_id: String,
     /// Whom to ask.
     pub to: Vec<ParticipantId>,
-    /// The question: text, or an A2UI payload.
+    /// The question: text, or an A2UI payload (a list of A2UI messages).
     pub question: Value,
     /// Text or A2UI.
     pub kind: QuestionKind,
+    /// The text alternative of an A2UI question, for surfaces without A2UI (R25.2);
+    /// derived from the payload when the model gave none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     /// A soft deadline, in seconds; a late answer still resumes the call (R18.2).
     #[serde(default)]
     pub timeout_s: Option<u64>,
@@ -270,11 +275,31 @@ pub fn question_message(task: &TaskRecord, channel: &Channel, ask: &Ask) -> a2a:
                 .as_str()
                 .map_or_else(|| ask.question.to_string(), str::to_owned),
         ),
+        QuestionKind::A2ui => a2ui_part(&ask.question),
+    };
+    let parts = match ask.kind {
+        QuestionKind::Text => vec![part],
+        // The text alternative first, marked as standing in for the A2UI part, so a
+        // surface without A2UI keeps it and one with A2UI can hide it (R25.2).
         QuestionKind::A2ui => {
-            a2a::Part::data(ask.question.clone()).with_media_type(A2UI_MEDIA_TYPE)
+            let text = ask
+                .text
+                .clone()
+                .filter(|t| !t.trim().is_empty())
+                .unwrap_or_else(|| {
+                    a2ui::parse_list(&ask.question)
+                        .map(|m| a2ui::text_alternative(&m))
+                        .unwrap_or_default()
+                });
+            let mut alt = a2a::Part::text(text);
+            alt.metadata = Some(HashMap::from([(
+                a2ui::ALTERNATIVE_FOR_KEY.to_owned(),
+                Value::String(A2UI_MEDIA_TYPE.to_owned()),
+            )]));
+            vec![alt, part]
         }
     };
-    let mut message = a2a::Message::new(a2a::Role::Agent, vec![part]);
+    let mut message = a2a::Message::new(a2a::Role::Agent, parts);
     message.task_id = Some(task.id.clone());
     message.context_id = Some(task.context_id.clone());
     let meta = ChannelsMeta {
@@ -294,6 +319,20 @@ pub fn question_message(task: &TaskRecord, channel: &Channel, ask: &Ask) -> a2a:
     }
     message.metadata = Some(metadata);
     message
+}
+
+/// The A2UI data part of a stored question payload (typed when it parses, which every
+/// payload the ask tool accepted does; the raw list otherwise).
+fn a2ui_part(question: &Value) -> a2a::Part {
+    if let Ok(messages) = a2ui::parse_list(question) {
+        return a2ui::part(&messages);
+    }
+    let mut part = a2a::Part::data(question.clone()).with_media_type(A2UI_MEDIA_TYPE);
+    part.metadata = Some(HashMap::from([(
+        a2ui::MIME_TYPE_KEY.to_owned(),
+        Value::String(A2UI_MEDIA_TYPE.to_owned()),
+    )]));
+    part
 }
 
 /// The question's status update for subscribers outside the channel: the state change
@@ -351,8 +390,9 @@ impl ParticipantAskTool {
                     "additionalProperties": false,
                     "properties": {
                         "to": { "type": "array", "minItems": 1, "items": { "type": "string" } },
-                        "question": {},
+                        "question": { "description": "The question as text, or for kind a2ui the list of A2UI 0.9.1 messages (basic catalog) that build the form." },
                         "kind": { "type": "string", "enum": ["text", "a2ui"] },
+                        "text": { "type": "string", "description": "For kind a2ui: the question as plain text, for surfaces that cannot show the form. Derived from the form when omitted." },
                         "timeout_s": { "type": "integer", "minimum": 0 }
                     }
                 }),
@@ -392,12 +432,21 @@ harness_async_trait! {
                 }
             }
             let kind = if input["kind"] == "a2ui" { QuestionKind::A2ui } else { QuestionKind::Text };
+            if kind == QuestionKind::A2ui {
+                // The payload must be well-formed A2UI from the basic catalog (R25.4):
+                // a renderer gets nothing it cannot validate.
+                let messages = a2ui::parse_list(&input["question"]).map_err(|e| ToolError::InvalidInput { tool: ASK_TOOL.into(), path: "/question".into(), reason: e.to_string() })?;
+                if let Some(other) = a2ui::catalogs(&messages).into_iter().find(|c| *c != a2ui::BASIC_CATALOG) {
+                    return Err(ToolError::InvalidInput { tool: ASK_TOOL.into(), path: "/question".into(), reason: format!("catalog {other} is not supported; the harness emits the basic catalog only ({})", a2ui::BASIC_CATALOG) });
+                }
+            }
             let ask = Ask {
                 task: cx.task.clone(),
                 call_id: cx.call_id.clone(),
                 to: to.clone(),
                 question: input["question"].clone(),
                 kind,
+                text: input["text"].as_str().map(str::to_owned),
                 timeout_s: input["timeout_s"].as_u64(),
             };
             let channel = Channel {

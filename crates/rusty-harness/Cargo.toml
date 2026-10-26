@@ -23,6 +23,7 @@ rt-tokio = [
   "tokio/process",
   "tokio/io-util",
   "dep:reqwest",
+  "dep:tokio-tungstenite",
   "dep:a2a-client-lf",
   "dep:getrandom",
   "dep:tracing-opentelemetry",
@@ -47,24 +48,56 @@ server = [
 # Tools over the official MCP Rust SDK (native only; the browser uses a host transport).
 mcp = ["rt-tokio", "dep:rmcp"]
 # Durable execution on the official Temporal Rust SDK (native only).
-durable-temporal = ["rt-tokio"]
+durable-temporal = [
+  "rt-tokio",
+  "dep:temporalio-sdk",
+  "dep:temporalio-client",
+  "dep:temporalio-common",
+  "dep:temporalio-macros",
+  "dep:temporalio-workflow",
+  "dep:temporalio-protos",
+  "tokio/rt-multi-thread",
+]
 # `embedded` durable mode: the SDK's ephemeral dev server (development only).
-durable-embedded = ["durable-temporal"]
+durable-embedded = ["durable-temporal", "temporalio-sdk/testing"]
 # The gRPC binding of the A2A server.
 a2a-grpc = ["server"]
 # The terminal renderer.
-tui = ["rt-tokio"]
+tui = [
+  "rt-tokio",
+  "dep:ratatui",
+  "dep:crossterm",
+  "dep:tui-markdown",
+  "dep:ratatui-image",
+  "dep:image",
+  "tokio/rt-multi-thread",
+  "tokio/signal",
+]
 # Microphone and speaker host capabilities.
-audio = ["rt-tokio"]
+audio = ["rt-tokio", "dep:cpal"]
 # The `rusty-harness` binary: everything a user installs.
 cli = ["server", "mcp", "durable-temporal", "durable-embedded", "tui", "audio", "dep:clap"]
+# Test-only binaries (the stdio MCP fixture), kept out of what `cli` ships (Q8).
+test-fixtures = ["mcp"]
 
 [dependencies]
 a2a-lf = { workspace = true } # its lib name is `a2a`
 a2a-client-lf = { workspace = true, optional = true } # its lib name is `a2a_client`
+cpal = { workspace = true, optional = true }
+crossterm = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+ratatui = { workspace = true, optional = true }
+ratatui-image = { workspace = true, optional = true }
+tui-markdown = { workspace = true, optional = true }
 a2a-server-lf = { workspace = true, optional = true } # its lib name is `a2a_server`
 axum = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
+temporalio-sdk = { workspace = true, optional = true }
+temporalio-client = { workspace = true, optional = true }
+temporalio-common = { workspace = true, optional = true }
+temporalio-macros = { workspace = true, optional = true }
+temporalio-workflow = { workspace = true, optional = true }
+temporalio-protos = { workspace = true, optional = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
@@ -73,6 +106,7 @@ futures = { workspace = true }
 getrandom = { workspace = true, optional = true }
 http = { workspace = true }
 reqwest = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
 rmcp = { workspace = true, optional = true, features = [
   "client",
   "transport-child-process",
@@ -96,6 +130,8 @@ opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 url = { workspace = true }
 uuid = { workspace = true }
+# `Instant` that works on wasm32 (`performance.now`); std's own natively.
+web-time = { workspace = true }
 zeroize = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -104,14 +140,26 @@ wasm-bindgen-futures = { workspace = true, optional = true }
 # Feature unification: `uuid/js` makes the official `a2a` types crate build for the browser
 # (design.md T2, D5) — uuid needs a JS randomness source there.
 uuid = { workspace = true, features = ["js"] }
+# `Utc::now()` reads `Date.now()` instead of panicking on wasm32-unknown-unknown.
+chrono = { workspace = true, features = ["wasmbind"] }
 
 # Native-only: tests and doctests run under tokio behind `rt-tokio`.
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+criterion = { workspace = true }
+jsonschema = { workspace = true }
 opentelemetry-proto = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "test-util", "time"] }
 
 # The `rusty-harness` binary (R27.1, R30.1): everything a user installs, behind `cli`.
+[[example]]
+name = "cache_hit_rate"
+required-features = ["rt-tokio"]
+
+[[bench]]
+name = "loop_overhead"
+harness = false
+
 [[bin]]
 name = "rusty-harness"
 path = "src/bin/rusty-harness.rs"
@@ -121,7 +169,7 @@ required-features = ["cli"]
 [[bin]]
 name = "echo-mcp"
 path = "tests/fixtures/plugins/demo/bin/echo-mcp.rs"
-required-features = ["mcp"]
+required-features = ["test-fixtures"]
 test = false
 doc = false
 bench = false
@@ -139,4 +187,6 @@ workspace = true
 [package.metadata.cargo-machete]
 # `a2a-lf`'s library is named `a2a`, which machete cannot map back to the package; the
 # wasm32-only `uuid` exists for feature unification (decision-003), not for direct use.
-ignored = ["a2a-lf", "a2a-client-lf", "a2a-server-lf"]
+# `temporalio-workflow` is reached only through the paths the Temporal macros expand to;
+# `temporalio-protos` is listed to turn on its `vendored-protox` feature (no system protoc).
+ignored = ["a2a-lf", "a2a-client-lf", "a2a-server-lf", "temporalio-workflow", "temporalio-protos"]

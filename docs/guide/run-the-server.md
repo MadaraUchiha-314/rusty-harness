@@ -1,8 +1,9 @@
 # Run the server
 
 The `rusty-harness` binary is the harness as a user runs it: it starts the agent, serves
-it over A2A 1.0 and, from milestone 5, opens the terminal UI. It is the same
-`HarnessBuilder` the [SDK guide](./embed-the-sdk) assembles, from the same configuration.
+it over A2A 1.0 and opens the [terminal UI](./run-the-tui) (`--no-tui` keeps it a
+server). It is the same `HarnessBuilder` the [SDK guide](./embed-the-sdk) assembles, from
+the same configuration.
 
 ## Install and first run
 
@@ -28,7 +29,7 @@ Give it a model before the first conversation. Credentials are references, never
 [models.default]
 provider = "openai"            # openai | anthropic
 model = "gpt-6.1"
-api_key = "env:OPENAI_API_KEY" # env:NAME, keyring:SERVICE/USER or file:PATH
+api_key = "env:OPENAI_API_KEY" # env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH
 ```
 
 Every reference is resolved at startup; one that does not resolve stops the process with

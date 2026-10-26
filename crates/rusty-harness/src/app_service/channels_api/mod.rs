@@ -12,6 +12,8 @@ use std::sync::Arc;
 use crate::harness::channels::{A2UI_EXT, CHANNELS_EXT, Channel, ChannelsMeta};
 use crate::harness::core_loop::persistence::{PersistenceStore, StoreError};
 use crate::harness::core_loop::task::Caller;
+use crate::runtime::{HarnessStream, boxed_stream};
+use futures::StreamExt as _;
 
 /// The caller as a viewer of `task`: the channels it is a member of attached (R18.5).
 ///
@@ -107,5 +109,79 @@ impl ChannelView {
     /// The store.
     pub async fn redact(&self, task: &mut a2a::Task, viewer: &Caller) -> Result<bool, StoreError> {
         redact_for_viewer(self.store.as_ref(), task, viewer).await
+    }
+}
+
+/// The task's log as a stream for `viewer`: the Task snapshot first (redacted for a
+/// non-member of a channel), then the stored events from `from` without the raw
+/// `Message` entries, following live commits until the turn ends (R19.7, R19.8).
+pub async fn log_stream(
+    store: Arc<dyn PersistenceStore>,
+    task: String,
+    from: u64,
+    viewer: Caller,
+) -> HarnessStream<'static, Result<a2a::StreamResponse, a2a::A2AError>> {
+    let first: Vec<Result<a2a::StreamResponse, a2a::A2AError>> =
+        match store.a2a_task(&task, &viewer).await {
+            Ok(Some(mut t)) => {
+                let _ = redact_for_viewer(store.as_ref(), &mut t, &viewer).await;
+                vec![Ok(a2a::StreamResponse::Task(t))]
+            }
+            Ok(None) => vec![Err(a2a::A2AError::task_not_found(&task))],
+            Err(e) => vec![Err(a2a::A2AError::internal(e.to_string()))],
+        };
+    let is_message = |e: &crate::harness::core_loop::persistence::StoredEvent| {
+        matches!(e.response, a2a::StreamResponse::Message(_))
+    };
+    let live = store.get_task(&task).await.ok().flatten().is_some_and(|r| {
+        r.state == a2a::TaskState::Working || r.state == a2a::TaskState::Submitted
+    });
+    if !live {
+        let events = store
+            .events(&task, from, usize::MAX, &viewer)
+            .await
+            .unwrap_or_default();
+        return boxed_stream(futures::stream::iter(
+            first
+                .into_iter()
+                .chain(
+                    events
+                        .into_iter()
+                        .filter(|e| !is_message(e))
+                        .map(|e| Ok(e.response)),
+                )
+                .collect::<Vec<_>>(),
+        ));
+    }
+    let tail = store
+        .tail_events(&task, from, &viewer)
+        .filter(move |r| futures::future::ready(!matches!(r, Ok(e) if is_message(e))))
+        .map(|r| {
+            r.map(|e| e.response)
+                .map_err(|e| a2a::A2AError::internal(e.to_string()))
+        });
+    boxed_stream(futures::stream::iter(first).chain(futures::stream::unfold(
+        (tail, false),
+        |(mut tail, done)| async move {
+            if done {
+                return None;
+            }
+            let item = tail.next().await?;
+            let stop = matches!(&item, Ok(e) if turn_ends(e));
+            Some((item, (tail, stop)))
+        },
+    )))
+}
+
+/// Ends a tail after the event that leaves the task waiting or terminal: one turn per
+/// request on the wire (R21.3).
+#[must_use]
+pub fn turn_ends(event: &a2a::StreamResponse) -> bool {
+    match event {
+        a2a::StreamResponse::StatusUpdate(u) => {
+            u.status.state.is_terminal() || u.status.state == a2a::TaskState::InputRequired
+        }
+        a2a::StreamResponse::Task(t) => t.status.state.is_terminal(),
+        _ => false,
     }
 }

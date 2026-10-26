@@ -71,6 +71,134 @@ harness_async_trait! {
     }
 }
 
+/// One activity attempt, as the `durable.*` hook points name it (R22.3).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityRef {
+    /// The task.
+    pub task: TaskId,
+    /// The iteration.
+    pub iteration: u32,
+    /// The attempt within the iteration.
+    pub attempt: u32,
+    /// Which activity: `build_context`, `call_model`, `execute_tool`, `finish_iteration`.
+    pub activity: String,
+}
+
+/// Why an attempt failed, as `durable.activity_failure` sees it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityFailure {
+    /// The attempt.
+    pub activity: ActivityRef,
+    /// The error, rendered.
+    pub error: String,
+    /// Whether a timeout (a crashed or stalled worker) rather than the activity's own
+    /// failure caused it.
+    pub timeout: bool,
+}
+
+/// What happens next, decided under the schedule and open to `durable.activity_retry`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "decision")]
+pub enum RetryDecision {
+    /// Try again after the wait, as the next attempt.
+    Retry {
+        /// The wait, in milliseconds (a deterministic workflow timer).
+        after_ms: u64,
+    },
+    /// Give up: the task fails with the reason.
+    Stop {
+        /// Why.
+        reason: String,
+    },
+}
+
+/// The input of `durable.activity_retry`: the failure and the schedule's own answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetryProposal {
+    /// The failure.
+    pub failure: ActivityFailure,
+    /// What the schedule proposes.
+    pub proposed: RetryDecision,
+}
+
+/// The `durable.activity_run` operation: wraps one attempt; the output is the activity's
+/// result as JSON, so an `in` hook can observe or replace it.
+#[derive(Debug)]
+pub struct ActivityRun;
+
+impl crate::harness::hooks::Operation for ActivityRun {
+    const POINT: crate::harness::hooks::HookPoint =
+        crate::harness::hooks::HookPoint::DurableActivityRun;
+    type Input = ActivityRef;
+    type Output = serde_json::Value;
+    fn identity(input: &ActivityRef) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            input.task, input.iteration, input.attempt, input.activity
+        )
+    }
+}
+
+/// The `durable.activity_failure` operation: a failed attempt, for the record.
+#[derive(Debug)]
+pub struct ActivityFailed;
+
+impl crate::harness::hooks::Operation for ActivityFailed {
+    const POINT: crate::harness::hooks::HookPoint =
+        crate::harness::hooks::HookPoint::DurableActivityFailure;
+    type Input = ActivityFailure;
+    type Output = ();
+    fn identity(input: &ActivityFailure) -> String {
+        ActivityRun::identity(&input.activity)
+    }
+    fn attributes(input: &ActivityFailure, (): &()) -> Vec<(&'static str, String)> {
+        vec![("timeout", input.timeout.to_string())]
+    }
+}
+
+/// The `durable.activity_retry` operation: the schedule's proposal in, the decision out.
+#[derive(Debug)]
+pub struct ActivityRetry;
+
+impl crate::harness::hooks::Operation for ActivityRetry {
+    const POINT: crate::harness::hooks::HookPoint =
+        crate::harness::hooks::HookPoint::DurableActivityRetry;
+    type Input = RetryProposal;
+    type Output = RetryDecision;
+    fn identity(input: &RetryProposal) -> String {
+        ActivityRun::identity(&input.failure.activity)
+    }
+}
+
+/// Per-activity timeouts (R22.5): start-to-close, and the heartbeat bound that detects a
+/// crashed worker (R23.4). Milliseconds, so the workflow's input stays deterministic.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityTimeouts {
+    /// `build_context`, `finish_iteration`, `set_state`, `retry_decision`.
+    pub short_ms: u64,
+    /// `call_model` start-to-close.
+    pub model_ms: u64,
+    /// `call_model` heartbeat.
+    pub model_heartbeat_ms: u64,
+    /// `execute_tool` start-to-close.
+    pub tool_ms: u64,
+    /// `execute_tool` heartbeat.
+    pub tool_heartbeat_ms: u64,
+}
+
+impl Default for ActivityTimeouts {
+    /// The design's values: 30 s, 10 min / 30 s, 5 min / 15 s.
+    fn default() -> Self {
+        Self {
+            short_ms: 30_000,
+            model_ms: 600_000,
+            model_heartbeat_ms: 30_000,
+            tool_ms: 300_000,
+            tool_heartbeat_ms: 15_000,
+        }
+    }
+}
+
 /// The retry schedule (R22.3): exponential backoff from `initial` by `coefficient`,
 /// capped at `max_interval`, at most `max_attempts` attempts in total.
 #[derive(Clone, Debug, PartialEq)]

@@ -74,6 +74,9 @@ async fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), S
 }
 
 /// The entries of `dir`, sorted, skipping temp files; empty when the dir is missing.
+///
+/// Never deletes: a `.tmp` here may be a write in flight, in this process or in another
+/// one on the same directory (R22.5), whose rename would then fail and lose the commit.
 async fn entries(dir: &Path) -> Result<Vec<PathBuf>, StoreError> {
     let mut out = Vec::new();
     let mut rd = match tokio::fs::read_dir(dir).await {
@@ -84,13 +87,43 @@ async fn entries(dir: &Path) -> Result<Vec<PathBuf>, StoreError> {
     while let Some(entry) = rd.next_entry().await.map_err(|e| io(dir, &e))? {
         let path = entry.path();
         if path.extension().is_some_and(|x| x == "tmp") {
-            let _ = tokio::fs::remove_file(&path).await; // a write the crash interrupted
             continue;
         }
         out.push(path);
     }
     out.sort();
     Ok(out)
+}
+
+/// How old a temp file must be before the replay treats it as a crash's leftover.
+const STALE_TMP: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// Removes the temp files under `dir` (one level) older than [`STALE_TMP`]: writes a
+/// crash interrupted, which no live writer can still be renaming.
+async fn sweep_stale_tmp(dir: &Path) {
+    let Ok(mut rd) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let path = entry.path();
+        if path.is_dir() {
+            Box::pin(sweep_stale_tmp(&path)).await;
+            continue;
+        }
+        if path.extension().is_none_or(|x| x != "tmp") {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .await
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age >= STALE_TMP);
+        if stale {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+    }
 }
 
 fn safe_key(key: &str) -> Result<PathBuf, StoreError> {
@@ -154,6 +187,7 @@ impl FileStore {
     }
 
     async fn replay(&self) -> Result<(), StoreError> {
+        sweep_stale_tmp(&self.root).await;
         // Inbox first, so a commit's `inbox_applied` finds its events.
         for path in entries(&self.root.join("inbox")).await? {
             if let Some(event) = read_json::<InboxEvent>(&path).await? {
@@ -524,6 +558,35 @@ mod tests {
     use crate::harness::core_loop::persistence::tests::{at, exercise, message, task};
     use crate::harness::core_loop::persistence::{PersistenceStore, TaskCommit};
     use crate::harness::core_loop::task::{Attempt, Caller, Role, Transition};
+
+    /// A write in flight (`<seq>.json.tmp` before its rename) survives a concurrent
+    /// listing; only a temp file older than `STALE_TMP` is swept, and only by the replay.
+    #[tokio::test]
+    async fn a_listing_never_deletes_a_write_in_flight() {
+        let dir = fresh("in-flight").join("commits").join("t1");
+        std::fs::create_dir_all(&dir).unwrap();
+        let in_flight = dir.join("00000004.json.tmp");
+        std::fs::write(&in_flight, b"{}").unwrap();
+        let listed = super::entries(&dir).await.unwrap();
+        assert!(listed.is_empty(), "temp files are not entries: {listed:?}");
+        assert!(in_flight.exists(), "the writer's rename can still land");
+
+        super::sweep_stale_tmp(dir.parent().unwrap()).await;
+        assert!(in_flight.exists(), "a fresh temp file is not swept");
+        let old =
+            std::time::SystemTime::now() - super::STALE_TMP - std::time::Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&in_flight)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        super::sweep_stale_tmp(dir.parent().unwrap()).await;
+        assert!(
+            !in_flight.exists(),
+            "a crash's leftover is swept by the replay"
+        );
+    }
 
     fn fresh(name: &str) -> std::path::PathBuf {
         let dir =

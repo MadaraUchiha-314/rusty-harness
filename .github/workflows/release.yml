@@ -139,6 +139,8 @@ jobs:
           (cd dist/archive && sha256sum -- * > SHA256SUMS)
           gh release upload "$TAG" dist/archive/* --clobber --repo "$GITHUB_REPOSITORY"
 
+  # Before the first release each package needs a trusted publisher, which npm only
+  # allows on a package that exists: docs/development/ci-and-releases.md § One-time setup.
   npm-cli:
     name: Publish the CLI to npm
     needs: [release, binaries]

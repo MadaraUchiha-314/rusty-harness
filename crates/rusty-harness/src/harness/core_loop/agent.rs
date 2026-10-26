@@ -1341,10 +1341,12 @@ impl LocalAgent {
             .map(|s| s.index_line())
             .collect::<Vec<_>>()
             .join("\n");
-        let plan = match &record.plan {
-            Some(id) => self.store.get_plan(id).await?,
-            None => None,
-        };
+        // A plan the task names, else the one `plan.update` keeps for it (R13.4).
+        let plan_id = record
+            .plan
+            .clone()
+            .unwrap_or_else(|| crate::harness::core_loop::plan::tools::plan_id(&record.id));
+        let plan = self.store.get_plan(&plan_id).await?;
         let state = self.store.get_state(&record.id).await?.unwrap_or_default();
         Ok(ContextInputs {
             system_prompt,

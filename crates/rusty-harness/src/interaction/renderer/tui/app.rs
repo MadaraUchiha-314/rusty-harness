@@ -576,6 +576,16 @@ impl App {
     }
 
     fn artifact(&mut self, artifact: &a2a::Artifact) {
+        // The plan travels as an artifact under plan/v1 (R13.4): it feeds the plan strip,
+        // it is not an output to show in the chat.
+        if artifact
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key(PLAN_EXT))
+        {
+            self.plan_from(artifact.metadata.as_ref());
+            return;
+        }
         let name = artifact
             .name
             .clone()

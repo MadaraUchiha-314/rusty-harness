@@ -545,6 +545,19 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ S3, Q6
   - _Test:_ T16 — the CI jobs on the final head
 
+- [x] 53. Plan tools (found by the task 47 sweep: no task carried R13.3–4's runtime): the
+  `plan.update` and `plan.step_done` built-in tools of design.md § Plan and Step, behind
+  `plan.persist` and a new `step.execute` operation, one plan per task (`plan-<task>`) in
+  the context's `Plan` position, and the plan to surfaces as an
+  `application/vnd.rusty-harness.plan+json` artifact under `plan/v1` that the TUI's plan
+  strip and the web's task panel read.
+  - _Depends on:_ 47
+  - _Requirements:_ R13.1–4
+  - _Test:_ T2 — `Scenario: The model plans, records a step, and everyone sees the plan`,
+    `Scenario: A plan with a cycle is refused` (`tests/plan.rs`); T1 —
+    `a_plan_artifact_feeds_the_plan_strip_not_the_chat`, the web store's
+    `takes a plan/v1 artifact as the task's plan, not as an output`
+
 ## Dependency graph (DAG)
 
 ```mermaid

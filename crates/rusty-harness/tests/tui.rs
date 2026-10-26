@@ -492,6 +492,45 @@ fn tui_snapshot_chat() {
     assert!(text.contains("gpt-6.1 · high · remote"), "{text}");
 }
 
+/// R13.4: the plan arrives as a `plan/v1` artifact; the TUI draws it in the plan strip and
+/// adds nothing to the chat.
+#[test]
+fn a_plan_artifact_feeds_the_plan_strip_not_the_chat() {
+    let mut app = App::new(options());
+    app.apply(working_task(), at(12, 30));
+    let before = render(&mut app, Theme::color()).0;
+    let plan = plan(3, 0);
+    app.apply(
+        a2a::StreamResponse::ArtifactUpdate(a2a::TaskArtifactUpdateEvent {
+            task_id: TASK.into(),
+            context_id: CONTEXT.into(),
+            artifact: a2a::Artifact {
+                artifact_id: "plan-task".into(),
+                name: Some("plan".into()),
+                description: None,
+                parts: vec![a2a::Part::data(plan.clone())],
+                metadata: Some([(PLAN_EXT.to_owned(), plan)].into()),
+                extensions: Some(vec![PLAN_EXT.to_owned()]),
+            },
+            append: Some(false),
+            last_chunk: Some(true),
+            metadata: None,
+        }),
+        at(12, 31),
+    );
+    let (text, _) = render(&mut app, Theme::color());
+    assert!(
+        text.contains("■ collect ■ group ■ draft □ review"),
+        "{text}"
+    );
+    assert!(!text.contains("artifact plan"), "{text}");
+    assert_eq!(
+        before.lines().filter(|l| l.contains("demo-agent")).count(),
+        text.lines().filter(|l| l.contains("demo-agent")).count(),
+        "no chat entry for the plan"
+    );
+}
+
 #[test]
 fn tui_snapshot_a2ui() {
     let text = snapshot("a2ui", a2ui_app());

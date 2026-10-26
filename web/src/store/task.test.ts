@@ -173,6 +173,39 @@ describe("the task store", () => {
     expect(view?.artifacts[0]?.parts).toHaveLength(2);
   });
 
+  it("takes a plan/v1 artifact as the task's plan, not as an output", () => {
+    const plan = {
+      id: "plan-task",
+      task: TASK,
+      steps: [{ id: "draft", name: "Draft the notes", description: "", status: "done" }],
+      edges: [],
+      version: 2,
+    };
+    const update: StreamResponse = {
+      payload: {
+        $case: "artifactUpdate",
+        value: {
+          taskId: TASK,
+          contextId: CTX,
+          artifact: {
+            artifactId: "plan-task",
+            name: "plan",
+            description: "",
+            parts: [],
+            metadata: { [PLAN_EXT]: plan },
+            extensions: [PLAN_EXT],
+          },
+          append: false,
+          lastChunk: true,
+          metadata: undefined,
+        },
+      },
+    };
+    const view = reduce(reduce(undefined, task(2)), update);
+    expect(view?.plan?.steps[0]?.name).toBe("Draft the notes");
+    expect(view?.artifacts).toHaveLength(0);
+  });
+
   it("finds registered commands at the start of a line only", () => {
     const commands = ["model", "effort", "exit"];
     expect(commandTokens("/model gpt", commands)).toEqual([{ start: 0, end: 6, name: "model" }]);

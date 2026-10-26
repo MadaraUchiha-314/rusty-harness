@@ -332,6 +332,16 @@ impl HarnessBuilder {
                 Arc::clone(&dispatcher),
                 router.selection(),
             )),
+            Arc::new(crate::harness::core_loop::plan::tools::PlanUpdateTool::new(
+                Arc::clone(&store),
+                Arc::clone(&dispatcher),
+            )),
+            Arc::new(
+                crate::harness::core_loop::plan::tools::PlanStepDoneTool::new(
+                    Arc::clone(&store),
+                    Arc::clone(&dispatcher),
+                ),
+            ),
         ];
         for tool in built_ins.into_iter().chain(tools) {
             registry.register(tool).map_err(reg)?;

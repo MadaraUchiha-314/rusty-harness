@@ -45,6 +45,18 @@ cargo deny check
 cargo machete
 ```
 
+## Build resources
+
+The full workspace (every feature, three targets) is heavy for a small machine:
+
+- Under about 16 GB of RAM, build with `CARGO_BUILD_JOBS=2`. Otherwise the linkers
+  swap.
+- A linker or rustc dying with `signal 7 (SIGBUS)` usually means the disk is full.
+  Deleting `target/debug/incremental`, which can grow past 100 GB, frees it at the cost
+  of one slower rebuild.
+- A nextest `-E` filter still builds every test binary; narrow the build with `-p` and
+  `--test`.
+
 ## Python bindings
 
 From `crates/rusty-harness-py/`:

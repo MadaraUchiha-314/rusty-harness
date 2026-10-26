@@ -524,7 +524,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Depends on:_ 46
   - _Requirements:_ NFR documentation
   - _Test:_ T16 — `bun run lint:md`, `bun run --cwd docs build`
-- [ ] 50. Decisions and learnings: `decision-002`…`decision-00n` from the design's
+- [x] 50. Decisions and learnings: `decision-002`…`decision-00n` from the design's
   trade-off table that landed in M1–M7 are indexed in `docs/decisions/decisions.md`;
   learnings worth keeping (the critic-run flags, the quiz Location format, the commit
   subject rule) under `docs/learnings/`.

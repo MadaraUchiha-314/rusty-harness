@@ -39,6 +39,39 @@ pub const PARTICIPANTS_EXT: &str =
 /// The `plan/v1` extension URI: the metadata key of a task's plan.
 pub const PLAN_EXT: &str = "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/plan/v1";
 
+/// Decodes an extension payload from A2A metadata. Metadata that crossed the A2A SDK is a
+/// protobuf `Struct`, whose numbers are all doubles (`1` arrives as `1.0`), so whole-number
+/// floats are read as integers first; every typed read of a `*/v1` payload goes through
+/// here.
+///
+/// # Errors
+///
+/// The payload does not have `T`'s shape.
+pub fn decode_extension<T: serde::de::DeserializeOwned>(
+    value: &serde_json::Value,
+) -> Result<T, serde_json::Error> {
+    serde_json::from_value(integral(value.clone()))
+}
+
+/// `value` with every whole-number float made an integer.
+fn integral(value: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match value {
+        Value::Number(n) => match n.as_f64() {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(f) if n.is_f64() && f.fract() == 0.0 && (0.0..9.0e15).contains(&f) => {
+                Value::from(f as u64)
+            }
+            _ => Value::Number(n),
+        },
+        Value::Array(items) => Value::Array(items.into_iter().map(integral).collect()),
+        Value::Object(map) => {
+            Value::Object(map.into_iter().map(|(k, v)| (k, integral(v))).collect())
+        }
+        other => other,
+    }
+}
+
 /// A participant's role on a task (R12.1).
 #[derive(
     Clone,
@@ -814,6 +847,23 @@ pub async fn transition_with_hooks(
 
 #[cfg(test)]
 pub(crate) mod tests {
+
+    /// A payload whose numbers crossed the wire as doubles decodes as integers; a
+    /// fractional number is still refused where an integer is wanted.
+    #[test]
+    fn an_extension_payload_with_double_numbers_decodes() {
+        #[derive(serde::Deserialize)]
+        struct Versioned {
+            version: u64,
+        }
+        let plan = serde_json::json!({ "version": 3.0 });
+        let decoded: Versioned = super::decode_extension(&plan).expect("decodes");
+        assert_eq!(decoded.version, 3);
+        assert!(
+            super::decode_extension::<Versioned>(&serde_json::json!({ "version": 3.5 })).is_err()
+        );
+    }
+
     use super::{
         Caller, Participant, Role, StateChange, SubState, TASK_EXT, TaskDraft, TaskMode,
         TaskRecord, Transition, transition_with_hooks,

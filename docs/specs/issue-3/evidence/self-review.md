@@ -23,6 +23,7 @@ Policy (`the-loop critic policy`): `selfReviewCount: 2`, `criticReviewCount: 1`,
 | Round | Reviewer | Outcome | Findings → disposition | Link |
 |-------|----------|---------|------------------------|------|
 | 1 | `[claude/opus-5.5]`, four parallel passes over the M7 diff (`loop/issue-3-m6-voice..83f5e11`): adapters, core loop, models/host/durable, release and packaging; every finding checked against the code before posting | new findings | 25: 4 high, 7 medium, 14 low. 24 fixed (one commit each, with a test where one can fail), 1 won't-fix (SR1-19) | [round 1](https://github.com/MadaraUchiha-314/rusty-harness/pull/13#issuecomment-6409258555), [SR1-25](https://github.com/MadaraUchiha-314/rusty-harness/pull/13#issuecomment-6409488238) |
+| 2 | `[claude/opus-5.5]`, one pass over round 1's fixes (`83f5e11..aa082dc`), told round 1's findings so it adds rather than repeats | new findings | 2, both introduced by round-1 fixes: 1 high, 1 low. Both fixed. No round-1 finding came back, so nothing escalated on repetition | [round 2](https://github.com/MadaraUchiha-314/rusty-harness/pull/13#issuecomment-6410425910) |
 
 ### Round 1 findings
 
@@ -53,6 +54,17 @@ Policy (`the-loop critic policy`): `selfReviewCount: 2`, `criticReviewCount: 1`,
 | SR1-22 | low | `plan.step_done` reported a veto as a failure | fixed [`15771e1`](https://github.com/MadaraUchiha-314/rusty-harness/commit/15771e1) |
 | SR1-23 | low | plan hooks got an empty registry | fixed [`4f8f977`](https://github.com/MadaraUchiha-314/rusty-harness/commit/4f8f977) |
 | SR1-24 | low | dropping a Python `Server` stops it, undocumented | fixed (docs) [`ab9e584`](https://github.com/MadaraUchiha-314/rusty-harness/commit/ab9e584) |
+
+### Round 2 findings
+
+| Id | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| SR2-1 | high | server-path commands ran as a forged human Admin (introduced by SR1-1): a watcher or a peer agent could switch the process-wide model | fixed [`6bb5670`](https://github.com/MadaraUchiha-314/rusty-harness/commit/6bb5670) |
+| SR2-2 | low | `PlanLocks` left table entries when a call was cancelled (introduced by SR1-2) | fixed [`06e7b48`](https://github.com/MadaraUchiha-314/rusty-harness/commit/06e7b48) |
+
+The policy's two rounds are used. Round 2 was not a zero-finding round, so this record
+says plainly that the rounds ran out rather than converged. Round 2's fixes are new code
+that no self-review round has read; the critic round reads the whole diff, them included.
 
 Observations outside the round's scope, not changed:
 

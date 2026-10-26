@@ -13,7 +13,7 @@ pull requests are added as milestones ship.
 | [#10](https://github.com/MadaraUchiha-314/rusty-harness/pull/10) | MadaraUchiha-314/rusty-harness | `loop/issue-3-m4-durable` (base `loop/issue-3-m3-service`) | M4 durable execution: tasks 28–32 (stack position 4 of 7) | 2026-10-25 | open (ready at C4) |
 | [#11](https://github.com/MadaraUchiha-314/rusty-harness/pull/11) | MadaraUchiha-314/rusty-harness | `loop/issue-3-m5-renderers` (base `loop/issue-3-m4-durable`) | M5 surfaces: tasks 33–37 (stack position 5 of 7) | 2026-10-25 | open (ready at C5) |
 | [#12](https://github.com/MadaraUchiha-314/rusty-harness/pull/12) | MadaraUchiha-314/rusty-harness | `loop/issue-3-m6-voice` (base `loop/issue-3-m5-renderers`) | M6 multi-modal and voice: tasks 38–41 (stack position 6 of 7) | 2026-10-25 | open (ready at C6) |
-| [#13](https://github.com/MadaraUchiha-314/rusty-harness/pull/13) | MadaraUchiha-314/rusty-harness | `loop/issue-3-m7-ship` (base `loop/issue-3-m6-voice`) | M7 packaging, parity, docs and the demo: tasks 42–52 (stack position 7 of 7) | 2026-10-25 | open (draft until verification and review) |
+| [#13](https://github.com/MadaraUchiha-314/rusty-harness/pull/13) | MadaraUchiha-314/rusty-harness | `loop/issue-3-m7-ship` (base `loop/issue-3-m6-voice`) | M7 packaging, parity, docs and the demo: tasks 42–52 (stack position 7 of 7) | 2026-10-25 | open, ready for review since 2026-10-25 (the [reviewer briefing](https://github.com/MadaraUchiha-314/rusty-harness/pull/13#issuecomment-6409174862) posted) |
 
 Spec chain artifact (rendering of the files above, not a source of truth):
 <https://claude.ai/artifact/5mQ1GX58ddgNNrvmzXYWxw>

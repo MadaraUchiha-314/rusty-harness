@@ -537,12 +537,15 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Depends on:_ 47, 48, 49
   - _Requirements:_ R31, R32.6
   - _Test:_ every row of the matrix; the `verification` node re-gates `testing-plan.md`
-- [ ] 52. M7 pull request and the stack: the reviewer briefing from
+- [x] 52. M7 pull request and the stack: the reviewer briefing from
   `templates/pr-briefing.md` with the mermaid diagrams and the locked prototypes'
   stills, `evidence/pull-requests.md` complete for the seven PRs, the stack merged
   bottom-up on approval per `routing.mergeOnApproval`.
   - _Depends on:_ 50, 51
   - _Requirements:_ S3, Q6
+  - _Merge:_ carried out by the graph's `human-approval` node on the reviewer's approval
+    (per `routing.mergeOnApproval`); this task delivers the briefing, the record and a
+    stack ready to merge.
   - _Test:_ T16 — the CI jobs on the final head
 
 - [x] 53. Plan tools (found by the task 47 sweep: no task carried R13.3–4's runtime): the

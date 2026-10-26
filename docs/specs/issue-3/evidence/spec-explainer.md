@@ -39,3 +39,7 @@ the merge. The page was rebuilt from the current files and republished to the sa
 (version 16, 2026-10-26). Its "Spec explainer" and "Spec quiz" tabs were re-checked
 against those changes: neither refers to the parts that changed, so both stand as
 written, and the five questions and their answers are unchanged.
+
+Rebuilt again on 2026-10-26 (version 17) after the security review added three rows to
+`design.md`'s dependency table (SEC-1). The explainer and quiz tabs don't mention the
+dependency table, so both stand as written.

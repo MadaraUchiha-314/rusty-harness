@@ -1,0 +1,30 @@
+┌ demo-agent · task_01HZX4V3K9N2 · ctx_9a1f ────────────────── ◐ input-required awaiting next turn ┐
+│                                                                                                  │
+│ demo-agent 12:35                                                                                 │
+│   Done: the draft is attached as release-notes-q4.md. Tell me what to change, or complete.       │
+│                                                                                                  │
+│ sub-task classify-25-prs                                                                         │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│ plan ■ collect ■ group ■ draft ▣ review ─────────────────────────────────────────────────────────│
+│ ● listening 0:04 · release space to send · esc to drop                                           │
+│                                                                                                  │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│  space  held (kitty keyboard protocol)  esc  back to chat                gpt-6.1 · high · remote │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

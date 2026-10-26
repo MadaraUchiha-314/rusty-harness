@@ -175,6 +175,11 @@ wheels = [
 name = "rusty-harness"
 source = { virtual = "." }
 
+[package.optional-dependencies]
+cli = [
+    { name = "rusty-harness-cli" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "maturin" },
@@ -185,6 +190,8 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "rusty-harness-cli", marker = "extra == 'cli'", directory = "../../packaging/pypi-cli" }]
+provides-extras = ["cli"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -194,6 +201,10 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1" },
     { name = "ruff", specifier = ">=0.8" },
 ]
+
+[[package]]
+name = "rusty-harness-cli"
+source = { directory = "../../packaging/pypi-cli" }
 
 [[package]]
 name = "tomli"

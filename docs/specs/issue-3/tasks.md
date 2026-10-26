@@ -149,7 +149,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M2 — Harness core, in-process (PR 2: `loop/issue-3-m2-harness`)
 
-- [ ] 11. Models: `Llm`, `SystemOne`, `ModelRequest`/`ModelEvent`, the `openai` thin
+- [x] 11. Models: `Llm`, `SystemOne`, `ModelRequest`/`ModelEvent`, the `openai` thin
   client (streaming, tool calls, images, `base_url` for OpenRouter and Ollama, automatic
   prefix caching) and the `anthropic` thin client (`cache_control` breakpoints), retry
   under `RetryConfig`, usage and latency on the span, the `http` System One provider, a
@@ -159,7 +159,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `models::tests` against a mock `HttpClient` (request shape per
     provider, retry classes); T6 — `snapshot_openai_request_body`,
     `snapshot_anthropic_request_body`
-- [ ] 12. Plugins and skills: `PluginLoader::{discover, validate, install}` (closed
+- [x] 12. Plugins and skills: `PluginLoader::{discover, validate, install}` (closed
   schema, paths under root, MCP transport allowlist, `dev.rusty-harness` extensions,
   `PLUGIN_ROOT`/`PLUGIN_DATA`, all-or-nothing install, version onto every entity),
   `SkillParser`/`Skill` with the three disclosure levels and the `name == dir` rule, the
@@ -171,7 +171,7 @@ abuse cases are tests like any other (`reference/security.md`).
     registered default is replaced by a plugin without a code change` (fixture plugin
     `tests/fixtures/plugins/demo/`); T8 — `abuse_plugin_manifest_escaping_its_directory_
     is_refused_whole`
-- [ ] 13. System prompt and commands: the default fragments under `prompts/system/`,
+- [x] 13. System prompt and commands: the default fragments under `prompts/system/`,
   `PromptPlan` assembly with `prompt.assemble` hooks, replacement and extension
   positions; `Command`, `CommandParser` (human participants only), `/exit`, `/model`,
   `/effort`, the `command.invoke` events and the role check in the guard stage. 🔒
@@ -182,7 +182,7 @@ abuse cases are tests like any other (`reference/security.md`).
     T2 — `Scenario: Switching /model applies to the next call without a restart`; T8 —
     `abuse_watcher_invoking_model_command_is_refused`, `abuse_command_in_tool_result_is_
     not_parsed`
-- [ ] 14. Task, plan, state and the store: `TaskRecord` with the full field set,
+- [x] 14. Task, plan, state and the store: `TaskRecord` with the full field set,
   `Participant`/`Role`/`SubState`, `TaskRecord::transition` and the state machine
   (`complete` from `working` included), `Plan`/`Step` with inline Kahn ordering and
   cycle rejection, `AgentState` with schema-checked keys, `PersistenceStore` with the
@@ -195,7 +195,7 @@ abuse cases are tests like any other (`reference/security.md`).
     commit, stale version); T13 — `chaos_crash_between_store_writes_leaves_a_consistent_
     store_on_reopen` (the test kills a child process mid-journal); T2 — `Scenario:
     GetTask after a restart returns the full A2A task` (completed in task 23)
-- [ ] 15. Tools and MCP: `Tool`, `ToolDescriptor` with `Idempotency`, `ToolCx`,
+- [x] 15. Tools and MCP: `Tool`, `ToolDescriptor` with `Idempotency`, `ToolCx`,
   `ToolOutput::{Value, Suspend}`, `ToolExecutor` (schema validation, parallel calls,
   issue order, unknown tool → typed error, `tool.result.size` policy), the `memory` and
   `sandbox` seams, `tools::mcp` on `rmcp` (stdio and streamable HTTP natively, host
@@ -208,7 +208,7 @@ abuse cases are tests like any other (`reference/security.md`).
     policy`, `Scenario: A pre hook veto stops tool execution and the model is told`
     (fixture stdio MCP server, a tiny Rust test binary); T8 — `abuse_denied_tool_call_is_
     not_executed_and_model_receives_a_tool_error`
-- [ ] 16. Context window manager and compaction: `Position`, `ContextTemplate` with the
+- [x] 16. Context window manager and compaction: `Position`, `ContextTemplate` with the
   default order and stable prefix, `ContextBuilder` (every `DataRole` into the untrusted
   positions, `prompts/system/untrusted-content.md` framing), `TokenEstimate` from usage +
   learned ratio, `context.build` hooks; `Compactor` with the 0.75 threshold, the
@@ -220,7 +220,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `compaction::tests` (threshold, pinned); T2 — `Scenario: Compaction keeps the pinned
     positions verbatim`; T8 — `abuse_injected_instructions_in_tool_result_change_no_
     policy_config_or_role`
-- [ ] 17. The agent and the core loop: `Agent` trait (sherma mapping), `AgentRequest`,
+- [x] 17. The agent and the core loop: `Agent` trait (sherma mapping), `AgentRequest`,
   `CallContext`, `LocalAgent::run_iteration` with the four hookable steps, `LoopLimits`
   and `LoopOutcome`, inbox drain at the loop boundary (in-memory mailbox for now),
   suspending tools handled through `PendingCall`, one-shot vs long-running close policy,
@@ -234,7 +234,7 @@ abuse cases are tests like any other (`reference/security.md`).
     policy`, `Scenario: An inbox event for a running task is applied at the next loop
     boundary`; T13 — `chaos_restart_in_none_mode_resumes_from_the_last_persisted_
     iteration`; T3 — `contract_agent_trait_matches_sherma_shape` (doc-table check)
-- [ ] 18. Sub-agents, loopback, participants and channels: `RemoteAgent` over
+- [x] 18. Sub-agents, loopback, participants and channels: `RemoteAgent` over
   `a2a-client-lf` (card fetch and validation at startup), `LoopbackAgent` with the
   in-memory `Transport`, the `agent.call` tool, `Channel` and the `participant.ask` /
   `participant.delegate` suspending tools, `prompts/sub-agent/brief.md`, the
@@ -248,7 +248,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `Scenario: A sub-agent whose card fails validation is never shown to the model`; T3 —
     `contract_a2a_extension_schemas` (snapshot of the six schemas); T8 — `abuse_agent_
     call_to_an_unregistered_agent_is_refused`
-- [ ] 19. M2 pull request: SDK usable from Rust in-process (`HarnessBuilder`), capability
+- [x] 19. M2 pull request: SDK usable from Rust in-process (`HarnessBuilder`), capability
   docs for models, plugins, skills, prompts, tools, loop, task, channels; `docs/guide/`
   "Embed the SDK" and "Write a plugin" pages; `evidence/pull-requests.md` row.
   - _Depends on:_ 18
@@ -257,7 +257,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M3 — App service layer (PR 3: `loop/issue-3-m3-service`)
 
-- [ ] 20. A2A server adapter: `HarnessExecutor: AgentExecutor` over the SDK's
+- [x] 20. A2A server adapter: `HarnessExecutor: AgentExecutor` over the SDK's
   `DefaultRequestHandler`, `AgentCardBuilder`, JSON-RPC and REST routers, the agent
   card route, the event-log tail as the response stream, `PersistenceStore` as the SDK
   `TaskStore`, the `a2a-grpc` feature wiring (off by default).
@@ -267,7 +267,7 @@ abuse cases are tests like any other (`reference/security.md`).
     test:contract`): `Scenario: The official TypeScript SDK drives every A2A 1.0
     operation against the server`, `Scenario: A request with A2A-Version 0.3 is
     rejected`; T6 — `snapshot_agent_card`
-- [ ] 21. `protocol_gap` and authentication: `ExtensionNegotiator` (parse, intersect,
+- [x] 21. `protocol_gap` and authentication: `ExtensionNegotiator` (parse, intersect,
   echo, expose the active set), the `Caller` from `RequestAuthorizer` (bearer and API
   key, constant time), the participant guard on every task-scoped operation, `ListTasks`
   filtered by membership, per-caller token bucket and `streams_per_caller`, loopback-only
@@ -278,7 +278,7 @@ abuse cases are tests like any other (`reference/security.md`).
     created`, `abuse_non_participant_gets_task_not_found_and_empty_list_tasks`,
     `abuse_ninth_stream_of_one_caller_is_rejected_and_the_other_task_keeps_streaming`;
     T3 — `Scenario: An extension not advertised in the card is not activated`
-- [ ] 22. Inbox and events: `InboxEvent` with the tri-state status, `Inbox::accept`
+- [x] 22. Inbox and events: `InboxEvent` with the tri-state status, `Inbox::accept`
   (validation per R20.6, hooks, store, signal, status), `/inbox` route, delivery policy
   (interrupt vs queue), the applied-set dedupe, the `events/` webhook adapters. 🔒
   boundary 2.
@@ -287,7 +287,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A duplicate inbox signal applies the event once`,
     `Scenario: A follow-up to a completed task starts a new task with referenceTaskIds`;
     T8 — `abuse_inbox_event_for_a_terminal_task_is_rejected_without_creating_one`
-- [ ] 23. Channels API, per-subscriber projection and push notifications: the
+- [x] 23. Channels API, per-subscriber projection and push notifications: the
   `channels/v1` handling on the server, `visibility: members` redaction in
   `tail_events`, push configs through the SDK's `HttpPushSender` with the operator
   allowlist. 🔒 boundary 2, abuse 9.
@@ -296,14 +296,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A task watcher outside a channel sees the state change but
     not the question`, `Scenario: GetTask after a restart returns the full A2A task`;
     T8 — `abuse_push_config_naming_a_link_local_address_is_rejected`
-- [ ] 24. Heartbeat: interval loop on the runtime seam, re-signalling of `Received` and
+- [x] 24. Heartbeat: interval loop on the runtime seam, re-signalling of `Received` and
   stale `Signalled` events, liveness record and gauge, `task.stalled` hook with the
   default warning.
   - _Depends on:_ 22
   - _Requirements:_ R23.1–3
   - _Test:_ T2 — `Scenario: The heartbeat forwards an event whose signal failed`; T1 —
     `heartbeat::tests` (stall detection with a paused clock)
-- [ ] 25. The server binary: `src/bin/rusty-harness.rs` with `clap`, `--config`,
+- [x] 25. The server binary: `src/bin/rusty-harness.rs` with `clap`, `--config`,
   `--no-tui`, `--url`, `--locale`, first-run config write, startup checks (secret
   references resolve, `remote` reachable or exit 2), strings from the catalog, the
   `demo` fixture config.
@@ -312,14 +312,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `bin::tests` (argument precedence); T6 — `snapshot_first_run_output`
     (`NO_COLOR`); T8 — `abuse_remote_durable_unreachable_refuses_to_start` (completed in
     task 30)
-- [ ] 26. Observability end to end: one trace per task across request, inbox and loop,
+- [x] 26. Observability end to end: one trace per task across request, inbox and loop,
   Langfuse configuration of the hook set, canary extended to A2A responses, the card and
   the store.
   - _Depends on:_ 23
   - _Requirements:_ R24.1, R24.3, abuse 7
   - _Test:_ T2 — `Scenario: Every operation of a task appears in one trace` (OTLP
     collector stub in the test); T8 — the canary scenario, second leg
-- [ ] 27. M3 pull request: capability docs for the server, inbox, channels, heartbeat;
+- [x] 27. M3 pull request: capability docs for the server, inbox, channels, heartbeat;
   `docs/guide/` "Run the server" page; the A2A extension pages on the docs site (Q12);
   `evidence/pull-requests.md` row.
   - _Depends on:_ 25, 26
@@ -328,7 +328,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M4 — Durable execution (PR 4: `loop/issue-3-m4-durable`)
 
-- [ ] 28. Temporal client and worker: `durable::temporal` on `temporalio-sdk` 1.1 behind
+- [x] 28. Temporal client and worker: `durable::temporal` on `temporalio-sdk` 1.1 behind
   `durable-temporal`, connection from config (`remote`, API key resolved inside the
   constructor, `load_from_config` when `from_env`), the worker in the same process,
   `embedded` through `WorkflowEnvironment::start_local` behind `durable-embedded`, data
@@ -338,7 +338,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: The embedded dev server starts and a trivial workflow
     completes` (ephemeral dev server); T8 — `abuse_temporal_payloads_carry_no_secret`
     (canary in the workflow history)
-- [ ] 29. `TaskWorkflow` and the activities: the deterministic loop body with
+- [x] 29. `TaskWorkflow` and the activities: the deterministic loop body with
   `build_context`, `call_model`, `execute_tool`, `send_a2a`, `set_state`, signals
   `inbox_event`/`cancel`/`complete`, the progress query, store-keyed payloads, the
   attempt protocol (incremental commits, `Retract` on retry), `DurableExecution::
@@ -349,7 +349,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A retried model call retracts the partial output of the
     failed attempt`, the three-turn scenario re-run under `durable-embedded`; T1 —
     `durable::temporal::tests` with `WorkflowReplayer` on a recorded history
-- [ ] 30. Retry orchestration, timeouts and crash recovery: engine `maximum_attempts =
+- [x] 30. Retry orchestration, timeouts and crash recovery: engine `maximum_attempts =
   1`, the `retry_decision` activity running `durable.activity_failure` and
   `durable.activity_retry`, backoff timers, per-activity start-to-close and heartbeat
   timeouts, activity heartbeats from the long activities, `remote` unreachable → exit.
@@ -359,7 +359,7 @@ abuse cases are tests like any other (`reference/security.md`).
     `chaos_killing_the_workflow_worker_replays_without_a_repeated_tool_side_effect`,
     `chaos_crashed_activitys_failure_and_retry_hooks_run_on_the_surviving_worker`; T8 —
     `abuse_remote_durable_unreachable_refuses_to_start`
-- [ ] 31. Outbound reconciliation and durable asks: the intent record before
+- [x] 31. Outbound reconciliation and durable asks: the intent record before
   `send_a2a`, `ListTasks`-by-`contextId` reconciliation on retry, the peer task id
   committed on the first `Task` event, suspending tools under the workflow's signal
   wait, sub-task cancellation policy on terminal parents.
@@ -368,7 +368,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T13 — `chaos_killing_the_worker_after_the_peer_accepted_and_before_the_id_
     was_recorded_creates_no_duplicate_remote_task`; T2 — `Scenario: Spans across a signal
     and a retry link into one trace`
-- [ ] 32. M4 pull request: capability doc for durable execution, `docs/guide/`
+- [x] 32. M4 pull request: capability doc for durable execution, `docs/guide/`
   "Run durably" page (modes, Temporal Cloud by reference, the dev-server caveat),
   `decision-004` (workflow started by the inbox, store-keyed activities),
   `evidence/pull-requests.md` row.
@@ -378,7 +378,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M5 — Renderers (PR 5: `loop/issue-3-m5-renderers`)
 
-- [ ] 33. Surfaces, renderers and the A2UI model: `SurfaceCapabilities`, modality
+- [x] 33. Surfaces, renderers and the A2UI model: `SurfaceCapabilities`, modality
   negotiation (text alternative for what a surface cannot render), the `Renderer`
   trait with the MCP Apps flag, the A2UI 0.9.1 types for the basic catalog, emission as
   `DataPart` with `application/a2ui+json` under the A2UI extension, the
@@ -387,7 +387,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R25.1–6
   - _Test:_ T1 — `renderer::a2ui::tests` (serde round trip of every basic component);
     T6 — `snapshot_a2ui_ask_payload`
-- [ ] 34. TUI: ratatui layout per the prototype (header, conversation with
+- [x] 34. TUI: ratatui layout per the prototype (header, conversation with
   `tui-markdown`, plan strip, composer, hints), the `a2a-client-lf` client against the
   loopback or `--url`, task controls with the complete confirmation, `/model` picker,
   command highlighting from `commands/v1`, the A2UI basic catalog rendered natively
@@ -399,7 +399,7 @@ abuse cases are tests like any other (`reference/security.md`).
     a2ui, model, done, first), `Scenario: An image artifact renders in a graphics-capable
     terminal and degrades to alt text`; T9 — the `NO_COLOR=1` leg; T8 — the canary
     scenario, third leg (TUI output)
-- [ ] 35. Web renderer package: `web/` on Vite + React 19 + Tailwind 4 + shadcn with the
+- [x] 35. Web renderer package: `web/` on Vite + React 19 + Tailwind 4 + shadcn with the
   AI Elements copied in (Chat, Prompt Input, Tool, Reasoning, Plan, Task, Subagent,
   Model Selector, Suggestion, Confirmation), `@a2a-js/sdk` 1.3 as the only transport
   (the browser spike of D1 first), the per-task store reducing the event stream with
@@ -410,7 +410,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R26.1–3, R26.5–6, R10.5, R21.7, R25.4, R33.7
   - _Test:_ T1 — `bun run --cwd web test` (component tests per AI Element composition);
     T3 — the contract suite moves into `web/` (`test:contract`); T14 — `test:strings`
-- [ ] 36. Web visual contract and accessibility: Playwright screenshots of every
+- [x] 36. Web visual contract and accessibility: Playwright screenshots of every
   prototype state compared with `design/screenshots/`, the multi-turn GIF, axe at WCAG
   2.1 AA in light and dark, keyboard flow (`Enter`, `Shift+Enter`, `/`, `Esc`), the
   bundle scan for key patterns. 🔒 boundary 7.
@@ -418,7 +418,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R26.7, NFR accessibility, abuse 11
   - _Test:_ T5 — `test:visual`; T9 — `test:a11y`; T8 — `test:bundle-scan`
     (`abuse_npm_bundle_contains_no_provider_key_pattern`)
-- [ ] 37. M5 pull request: the TUI and web both on one harness (R32.1 rehearsal), the
+- [x] 37. M5 pull request: the TUI and web both on one harness (R32.1 rehearsal), the
   A2UI ask rendered in both, `docs/guide/` "Run the TUI" page, capability docs for
   surfaces, TUI and web; `evidence/pull-requests.md` row.
   - _Depends on:_ 34, 36
@@ -428,14 +428,14 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M6 — Multi-modal and voice (PR 6: `loop/issue-3-m6-voice`)
 
-- [ ] 38. Multi-modal parts: image and audio parts into `ModelRequest`, modality checks
+- [x] 38. Multi-modal parts: image and audio parts into `ModelRequest`, modality checks
   against `ModelCapabilities`, image artifacts out, both renderers displaying images
   (web `<img>` from artifact parts; TUI from task 34).
   - _Depends on:_ 37
   - _Requirements:_ R28.1–2
   - _Test:_ T1 — `models::tests::unsupported_modality_is_a_typed_error`; T2 —
     `Scenario: An image sent to a text-only model is rejected naming the modality`
-- [ ] 39. Speech interfaces and the OpenAI implementations: `SpeechToText`
+- [x] 39. Speech interfaces and the OpenAI implementations: `SpeechToText`
   (`gpt-transcribe`, `gpt-live-transcribe` over the WebSocket transcription session),
   `TextToSpeech` (`/v1/audio/speech`, streamed), `Voice` (`gpt-realtime-2.1` over
   WebSocket with tool calling), `voice/v1` audio parts with `seq`/`attempt`/`format`,
@@ -445,7 +445,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `models::speech::tests` against a mock `WebSocketClient` (event
     framing, chunk sequencing); T6 — `snapshot_realtime_session_config`; T8 — the canary
     scenario, fourth leg (voice session)
-- [ ] 40. Voice on the surfaces: web microphone capture (`MediaRecorder`) and playback
+- [x] 40. Voice on the surfaces: web microphone capture (`MediaRecorder`) and playback
   (`AudioContext`) through the voice button; TUI push-to-talk with the kitty keyboard
   protocol hold and the toggle fallback, `Host::microphone`/`speaker` on `cpal` behind
   `audio`, streamed playback.
@@ -453,7 +453,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R28.6, R27.5, R26.4, Q7
   - _Test:_ T11 — the manual procedures in `evidence/manual.md` (hold, toggle, web
     capture and playback); T5 — `tui_snapshot_voice`, the web `voice` state screenshot
-- [ ] 41. M6 pull request: capability doc for multi-modal and voice, the voice section of
+- [x] 41. M6 pull request: capability doc for multi-modal and voice, the voice section of
   the TUI and web guides, `decision-005` (voice through the harness, T6 in `design.md`),
   `evidence/pull-requests.md` row.
   - _Depends on:_ 40
@@ -462,7 +462,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M7 — Packaging, parity, docs and the demo (PR 7: `loop/issue-3-m7-ship`)
 
-- [ ] 42. WASM SDK: the npm package exposing `Harness.create(config, host)`,
+- [x] 42. WASM SDK: the npm package exposing `Harness.create(config, host)`,
   `sendMessage`, `cancelTask`, `subscribe` with generated types, the `Host` built from
   JS callbacks (`fetch`, WebSocket, `crypto`, `Date`, console sink), the `wasm_transport`
   JSON-RPC client over the official types, the unavailable-feature list documented.
@@ -471,7 +471,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T12 — `Scenario: The wasm build runs a task against a mocked host`
     (`wasm-pack test --node`, `--headless --chrome`), `bun run test` in the wasm crate;
     T3 — `contract_typescript_declarations` (snapshot of the generated `.d.ts`)
-- [ ] 43. Python bindings: `Harness`, `Config.from_toml`/`from_dict`, awaitable and
+- [x] 43. Python bindings: `Harness`, `Config.from_toml`/`from_dict`, awaitable and
   `*_sync` twins for every exported API, `TypedDict`s generated from the JSON schema,
   the regenerated stub, maturin `bin` bindings shipping the `rusty-harness` binary in
   the wheel (Q8).
@@ -479,7 +479,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R30.2, R3.3, R27.1, Q8
   - _Test:_ T15 — `uv run pytest` (parity table generated from the stub, one test per
     name), `uv run pyright`; T3 — the stub diff check
-- [ ] 44. CLI distribution on npm: `@rusty-harness/cli` with per-platform optional
+- [x] 44. CLI distribution on npm: `@rusty-harness/cli` with per-platform optional
   dependencies built by the release workflow, the `rusty-harness` bin shim, the release
   pipeline changes (`release.yml`, `wheels.yml`) with the binaries attached to the tag.
   - _Depends on:_ 43
@@ -487,14 +487,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T16 — a dry run of the release workflow on a tag of the PR branch (artifact
     names and sizes); T7 — `scripts/measure.sh` binary size (< 25 MB) and wasm bundle
     (< 3 MB gzipped)
-- [ ] 45. Prompt caching and performance: cache breakpoints verified against both
+- [x] 45. Prompt caching and performance: cache breakpoints verified against both
   providers' usage fields, the demo flow's hit rate measured, the `loop_overhead`
   criterion benchmark (p50 < 5 ms with `RecordedLlm`), TUI cold start measured.
   - _Depends on:_ 42
   - _Requirements:_ R15.2, NFR performance, Q13
   - _Test:_ T7 — `cargo bench -p rusty_harness --bench loop_overhead`,
     `scripts/measure.sh`; results into `evidence/performance.md`
-- [ ] 46. The definition-of-done demo: `tests/fixtures/demo/config.toml` (GPT 6.1, Temporal
+- [x] 46. The definition-of-done demo: `tests/fixtures/demo/config.toml` (GPT 6.1, Temporal
   Cloud by reference, `remote` and `none` variants), the `e2e_none_*` and
   `e2e_remote_*` tests gated on credentials, the browser leg in Playwright, the
   recording and trace capture scripts.
@@ -502,7 +502,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R32.1–6, R31.4
   - _Test:_ T4 — `Scenario: The demo runs end to end in none mode`, `Scenario: The demo
     runs end to end in remote mode`, `bun run --cwd web test:e2e`
-- [ ] 47. Contract and snapshot sweep: every public interface of `design.md` §Components
+- [x] 47. Contract and snapshot sweep: every public interface of `design.md` §Components
   & interfaces has its `contract_*` test (Rust trait shapes via `cargo semver-checks`
   baseline, Python stub, TypeScript declarations, the six extension schemas, the config
   schema, the agent card), every serialized artifact its `snapshot_*`.
@@ -510,40 +510,67 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Requirements:_ R3.5–6, R31.2
   - _Test:_ T3 — `cargo nextest run -p rusty_harness -E 'test(contract_)'`,
     `cargo semver-checks`; T6 — `-E 'test(snapshot_)'`
-- [ ] 48. Security sweep: every abuse scenario of `design.md` green in one `abuse_*` run,
+- [x] 48. Security sweep: every abuse scenario of `design.md` green in one `abuse_*` run,
   the canary across all four legs, `cargo deny`, the bundle scan, the least-privilege
   checks (scrubbed MCP environment, namespace-scoped Temporal key). 🔒 all boundaries.
   - _Depends on:_ 46
   - _Requirements:_ Security considerations, abuse 1–11
   - _Test:_ T8 — `cargo nextest run --workspace --all-features -E 'test(abuse_)'`,
     `bun run --cwd web test:bundle-scan`, `cargo deny check`
-- [ ] 49. Documentation and capability docs: `docs/capabilities/capabilities.md` indexed
+- [x] 49. Documentation and capability docs: `docs/capabilities/capabilities.md` indexed
   per module of the diagram, `docs/architecture/architecture.md` one section per layer,
   the VitePress nav and guide pages complete, `README.md` front page updated,
   `evidence/documentation.md` filled (`## Documentation` and `## Capability docs`).
   - _Depends on:_ 46
   - _Requirements:_ NFR documentation
   - _Test:_ T16 — `bun run lint:md`, `bun run --cwd docs build`
-- [ ] 50. Decisions and learnings: `decision-002`…`decision-00n` from the design's
+- [x] 50. Decisions and learnings: `decision-002`…`decision-00n` from the design's
   trade-off table that landed in M1–M7 are indexed in `docs/decisions/decisions.md`;
   learnings worth keeping (the critic-run flags, the quiz Location format, the commit
   subject rule) under `docs/learnings/`.
   - _Depends on:_ 49
   - _Requirements:_ the-loop's knowledge trees (CLAUDE.md)
   - _Test:_ T16 — `bun run lint:md`
-- [ ] 51. Verification evidence: the testing plan's activities executed and ticked, every
+- [x] 51. Verification evidence: the testing plan's activities executed and ticked, every
   evidence file under `evidence/` per the evidence plan (redacted), `Verification
   results` filled, `evidence/final-validation.md` summarised from it.
   - _Depends on:_ 47, 48, 49
   - _Requirements:_ R31, R32.6
   - _Test:_ every row of the matrix; the `verification` node re-gates `testing-plan.md`
-- [ ] 52. M7 pull request and the stack: the reviewer briefing from
+- [x] 52. M7 pull request and the stack: the reviewer briefing from
   `templates/pr-briefing.md` with the mermaid diagrams and the locked prototypes'
   stills, `evidence/pull-requests.md` complete for the seven PRs, the stack merged
   bottom-up on approval per `routing.mergeOnApproval`.
   - _Depends on:_ 50, 51
   - _Requirements:_ S3, Q6
+  - _Merge:_ carried out by the graph's `human-approval` node on the reviewer's approval
+    (per `routing.mergeOnApproval`); this task delivers the briefing, the record and a
+    stack ready to merge.
   - _Test:_ T16 — the CI jobs on the final head
+
+- [x] 53. Plan tools (found by the task 47 sweep: no task carried R13.3–4's runtime): the
+  `plan.update` and `plan.step_done` built-in tools of design.md § Plan and Step, behind
+  `plan.persist` and a new `step.execute` operation, one plan per task (`plan-<task>`) in
+  the context's `Plan` position, and the plan to surfaces as an
+  `application/vnd.rusty-harness.plan+json` artifact under `plan/v1` that the TUI's plan
+  strip and the web's task panel read.
+  - _Depends on:_ 47
+  - _Requirements:_ R13.1–4
+  - _Test:_ T2 — `Scenario: The model plans, records a step, and everyone sees the plan`,
+    `Scenario: A plan with a cycle is refused` (`tests/plan.rs`); T1 —
+    `a_plan_artifact_feeds_the_plan_strip_not_the_chat`, the web store's
+    `takes a plan/v1 artifact as the task's plan, not as an output`
+
+- [x] 54. Commands at runtime (found by the task 47 sweep: `CommandParser` and
+  `commands::invoke` had no caller outside their unit tests, so a person's `/model` went
+  to the model): `LocalAgent::send_message` runs a human participant's `/<name>`
+  through `command.invoke` instead of the loop and answers with the line and the
+  `commands/v1` token and outcome, a role veto as the denied line, an unknown name with
+  its suggestion (R10.1, R10.6), on every path (SDK, server, TUI, web).
+  - _Depends on:_ 47
+  - _Requirements:_ R10.1, R10.4, R10.6
+  - _Test:_ T2 — `a_persons_command_runs_instead_of_the_model` (`tests/sdk.rs`); T3 —
+    `contract_extension_payloads_match_their_schemas` (the `commands/v1` message form)
 
 ## Dependency graph (DAG)
 

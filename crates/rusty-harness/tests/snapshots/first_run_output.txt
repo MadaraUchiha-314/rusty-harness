@@ -1,0 +1,6 @@
+wrote <home>/.rusty-harness/config.toml with commented defaults
+models.default.api_key found in environment (referenced, never stored)
+durable mode none: no Temporal configured; tasks will not survive a restart
+loopback only: no security scheme configured
+agent card: http://127.0.0.1:<port>/.well-known/agent-card.json
+harness listening on http://127.0.0.1:<port>/

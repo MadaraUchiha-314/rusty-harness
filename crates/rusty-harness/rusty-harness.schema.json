@@ -81,6 +81,7 @@
       "description": "The core loop's limits.",
       "$ref": "#/$defs/LoopConfig",
       "default": {
+        "heartbeat_interval": "5s",
         "idle_timeout": null,
         "max_iterations": 50,
         "max_tokens": null,
@@ -126,6 +127,7 @@
       "description": "The A2A server.",
       "$ref": "#/$defs/ServerConfig",
       "default": {
+        "allow_origins": [],
         "bind": "127.0.0.1:7474",
         "bindings": ["jsonrpc", "rest"],
         "limits": {
@@ -147,6 +149,14 @@
       },
       "default": {}
     },
+    "tools": {
+      "description": "Tool execution.",
+      "$ref": "#/$defs/ToolsConfig",
+      "default": {
+        "max_result_bytes": 65536,
+        "oversize": "truncate"
+      }
+    },
     "tui": {
       "description": "The terminal UI.",
       "$ref": "#/$defs/TuiConfig",
@@ -159,8 +169,12 @@
       "$ref": "#/$defs/VoiceConfig",
       "default": {
         "api_key": null,
+        "base_url": null,
         "model": null,
-        "provider": null
+        "provider": null,
+        "speech_model": null,
+        "transcribe_model": null,
+        "voice": null
       }
     }
   },
@@ -354,6 +368,11 @@
       "description": "`[loop]`.",
       "type": "object",
       "properties": {
+        "heartbeat_interval": {
+          "description": "How often the heartbeat ticks (R23.1).",
+          "$ref": "#/$defs/Duration",
+          "default": "5s"
+        },
         "idle_timeout": {
           "description": "How long a long-running task waits for the next turn before the idle outcome.",
           "anyOf": [
@@ -414,6 +433,18 @@
       "description": "`[models.<alias>]`.",
       "type": "object",
       "properties": {
+        "api": {
+          "description": "`openai` only: the wire. `responses` on `OpenAI`'s own endpoint and\n`chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OpenAiApi"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "api_key": {
           "description": "The credential, by reference.",
           "$ref": "#/$defs/SecretRef"
@@ -488,6 +519,36 @@
         }
       },
       "additionalProperties": false
+    },
+    "OpenAiApi": {
+      "description": "Which `OpenAI` API a model is reached through.",
+      "oneOf": [
+        {
+          "description": "`POST /responses`: function tools with reasoning on current models.",
+          "type": "string",
+          "const": "responses"
+        },
+        {
+          "description": "`POST /chat/completions`: what `OpenAI`-compatible servers implement.",
+          "type": "string",
+          "const": "chat-completions"
+        }
+      ]
+    },
+    "OversizePolicyConfig": {
+      "description": "`[tools] oversize`.",
+      "oneOf": [
+        {
+          "description": "Keep the head and the tail, mark the cut.",
+          "type": "string",
+          "const": "truncate"
+        },
+        {
+          "description": "Ask a model for a shorter version; truncate when that fails.",
+          "type": "string",
+          "const": "summarise"
+        }
+      ]
     },
     "PersistenceConfig": {
       "description": "`[persistence]`.",
@@ -568,10 +629,10 @@
       "additionalProperties": false
     },
     "SecretRef": {
-      "description": "A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value.",
+      "description": "A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value.",
       "type": "string",
       "format": "secret-ref",
-      "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/]+/.+|file:.+)$"
+      "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/=,]+/.+|keyring:[^=,]+=[^,]+(,[^=,]+=[^,]+)*|file:.+)$"
     },
     "SecuritySchemeConfig": {
       "description": "`[server.security]`.",
@@ -618,6 +679,14 @@
       "description": "`[server]`.",
       "type": "object",
       "properties": {
+        "allow_origins": {
+          "description": "Browser origins allowed to call the server (CORS, R25.1): a surface served from\nanother origin, such as the web renderer's dev server. Empty allows any origin\nwhile the server is loopback-only and none otherwise (fail-closed).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
         "bind": {
           "description": "The socket to bind. Without a security scheme only a loopback address is accepted.",
           "type": "string",
@@ -774,6 +843,25 @@
       },
       "additionalProperties": false
     },
+    "ToolsConfig": {
+      "description": "`[tools]`.",
+      "type": "object",
+      "properties": {
+        "max_result_bytes": {
+          "description": "A tool result larger than this, in bytes, goes through the oversize policy (R8.6).",
+          "type": "integer",
+          "format": "uint",
+          "default": 65536,
+          "minimum": 0
+        },
+        "oversize": {
+          "description": "`truncate` (keep the head and the tail) or `summarise` (one call to the `default`\nmodel with `prompts/tool/summarise-result.md`).",
+          "$ref": "#/$defs/OversizePolicyConfig",
+          "default": "truncate"
+        }
+      },
+      "additionalProperties": false
+    },
     "TuiConfig": {
       "description": "`[tui]`.",
       "type": "object",
@@ -802,6 +890,12 @@
           ],
           "default": null
         },
+        "base_url": {
+          "description": "The API base (`https://api.openai.com/v1` when absent).",
+          "type": ["string", "null"],
+          "format": "uri",
+          "default": null
+        },
         "model": {
           "description": "The model.",
           "type": ["string", "null"],
@@ -809,6 +903,21 @@
         },
         "provider": {
           "description": "`openai-realtime`, or absent for no voice.",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "speech_model": {
+          "description": "The synthesis model (`gpt-4o-mini-tts` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "transcribe_model": {
+          "description": "The streaming transcription model (`gpt-live-transcribe` when absent).",
+          "type": ["string", "null"],
+          "default": null
+        },
+        "voice": {
+          "description": "The voice the model speaks with (`marin` when absent).",
           "type": ["string", "null"],
           "default": null
         }

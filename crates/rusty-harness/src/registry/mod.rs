@@ -22,11 +22,15 @@ use crate::runtime::{MaybeSend, MaybeSync};
 /// `version` is `None` for the kinds the design declares unversioned (surfaces,
 /// renderers, channels, built-in hooks and commands) and for a registration that did not
 /// state one.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, schemars::JsonSchema,
+)]
 pub struct EntityId {
     /// The name the entity is registered under, unique within its kind.
+    #[schemars(with = "String")]
     pub id: Arc<str>,
     /// The version, when the kind is versioned.
+    #[schemars(with = "Option<String>")]
     pub version: Option<semver::Version>,
 }
 
@@ -262,6 +266,31 @@ impl Registry {
             },
         );
         Ok(())
+    }
+
+    /// Checks that `entry` is free for type `E`, naming the holder when it is not (what
+    /// an all-or-nothing installer asks before registering anything).
+    ///
+    /// # Errors
+    ///
+    /// [`RegistryError::Conflict`] when the identity is taken.
+    pub fn ensure_free<E: Entity + ?Sized>(
+        &self,
+        entry: &EntityId,
+        kind: EntityKind,
+    ) -> Result<(), RegistryError> {
+        let maps = self
+            .slots
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match maps.get(&TypeId::of::<E>()).and_then(|map| map.get(entry)) {
+            Some(slot) => Err(RegistryError::Conflict {
+                kind,
+                entry: entry.clone(),
+                holder: slot.provenance.clone(),
+            }),
+            None => Ok(()),
+        }
     }
 
     /// Replaces whatever holds `entity`'s identity, returning the previous instance

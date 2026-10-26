@@ -1,0 +1,30 @@
+┌ demo-agent · task_01HZX4V3K9N2 · ctx_9a1f ────────────────── ◐ input-required awaiting next turn ┐
+│                                                                                                  │
+│ demo-agent 12:35                                                                                 │
+│   Done: the draft is attached as release-notes-q4.md. Tell me what to change, or complete.       │
+│                                                                                                  │
+│ sub-task classify-25-prs                                                                         │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                 ┌ complete task? ──────────────────────────────────────────────┐                 │
+│                 │ Complete the task? Sends the task extension's complete       │                 │
+│                 │ message; 1 running sub-task will be canceled.                │                 │
+│                 │                                                              │                 │
+│                 │  y  complete    n  keep open    x  cancel instead            │                 │
+│                 │                                                              │                 │
+│                 │                                                              │                 │
+│                 └──────────────────────────────────────────────────────────────┘                 │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│ plan ■ collect ■ group ■ draft ▣ review ─────────────────────────────────────────────────────────│
+│ ›                                                                                                │
+│                                                                                                  │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│  y  complete  n  keep open  x  cancel instead                            gpt-6.1 · high · remote │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

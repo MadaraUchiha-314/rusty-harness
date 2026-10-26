@@ -1,6 +1,6 @@
 //! The native defaults behind `rt-tokio`: reqwest for HTTP, the system clock, the OS
 //! random source, environment/keyring/file secret resolution, tokio's file system and
-//! process spawning. WebSocket, MCP transport, microphone and speaker arrive with the
+//! process spawning. `WebSocket`, MCP transport, microphone and speaker arrive with the
 //! milestones that need them; until then a native host reports them unsupported.
 
 use std::collections::BTreeMap;
@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use super::{
     ChildIo, Clock, Command, FileSystem, Host, HostError, HttpClient, HttpRequest, HttpResponse,
     HttpStreamingResponse, ProcessSpawner, Rng, Secret, SecretError, SecretRef, SecretResolver,
+    WebSocket, WebSocketClient, WsMessage,
 };
 use crate::harness_async_trait;
 
@@ -111,30 +112,78 @@ harness_async_trait! {
                     Ok(_) => Err(unresolvable(reference, "the variable is empty")),
                     Err(_) => Err(unresolvable(reference, "the variable is not set")),
                 },
-                SecretRef::File(path) => tokio::fs::read_to_string(path)
-                    .await
-                    .map(|s| Secret::new(s.trim_end().to_owned()))
-                    .map_err(|e| unresolvable(reference, e.kind().to_string())),
-                SecretRef::Keyring { service, user } => {
-                    let output = tokio::process::Command::new("secret-tool")
-                        .args(["lookup", "service", service, "username", user])
-                        .env_clear()
-                        .env("PATH", std::env::var("PATH").unwrap_or_default())
-                        .envs(std::env::var("DBUS_SESSION_BUS_ADDRESS").map(|v| ("DBUS_SESSION_BUS_ADDRESS", v)))
-                        .envs(std::env::var("XDG_RUNTIME_DIR").map(|v| ("XDG_RUNTIME_DIR", v)))
-                        .output()
+                SecretRef::File(path) => {
+                    let path = home_relative(path).map_err(|e| unresolvable(reference, e))?;
+                    tokio::fs::read_to_string(path)
                         .await
-                        .map_err(|e| unresolvable(reference, format!("secret-tool could not run: {}", e.kind())))?;
-                    if !output.status.success() || output.stdout.is_empty() {
-                        return Err(unresolvable(reference, "no such keyring entry"));
-                    }
-                    let value = String::from_utf8(output.stdout)
-                        .map_err(|_| unresolvable(reference, "the entry is not UTF-8"))?;
-                    Ok(Secret::new(value.trim_end().to_owned()))
+                        .map(|s| Secret::new(s.trim_end().to_owned()))
+                        .map_err(|e| unresolvable(reference, e.kind().to_string()))
+                }
+                SecretRef::Keyring { service, user } => {
+                    keyring(reference, &[("service", service.as_str()), ("username", user.as_str())]).await
+                }
+                SecretRef::KeyringAttributes(attributes) => {
+                    let pairs: Vec<(&str, &str)> = attributes.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+                    keyring(reference, &pairs).await
                 }
             }
         }
     }
+}
+
+/// `~/…` under `$HOME`; any other path as written.
+///
+/// # Errors
+///
+/// A path under `~` while `HOME` is not set: read as written it would be a `~` directory
+/// in the working directory, whatever happens to be there.
+pub(crate) fn home_relative(path: &Path) -> Result<std::path::PathBuf, String> {
+    expand_home(path, std::env::var_os("HOME"))
+}
+
+fn expand_home(
+    path: &Path,
+    home: Option<std::ffi::OsString>,
+) -> Result<std::path::PathBuf, String> {
+    match (path.strip_prefix("~"), home) {
+        (Ok(rest), Some(home)) => Ok(std::path::PathBuf::from(home).join(rest)),
+        (Ok(_), None) => Err(format!(
+            "{} is under ~, and HOME is not set",
+            path.display()
+        )),
+        (Err(_), _) => Ok(path.to_path_buf()),
+    }
+}
+
+/// `secret-tool lookup <attr> <value> …`, with a scrubbed environment.
+async fn keyring(
+    reference: &SecretRef,
+    attributes: &[(&str, &str)],
+) -> Result<Secret<String>, SecretError> {
+    let mut command = tokio::process::Command::new("secret-tool");
+    command.arg("lookup");
+    for (k, v) in attributes {
+        command.args([k, v]);
+    }
+    let output = command
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .envs(std::env::var("DBUS_SESSION_BUS_ADDRESS").map(|v| ("DBUS_SESSION_BUS_ADDRESS", v)))
+        .envs(std::env::var("XDG_RUNTIME_DIR").map(|v| ("XDG_RUNTIME_DIR", v)))
+        .output()
+        .await
+        .map_err(|e| {
+            unresolvable(
+                reference,
+                format!("secret-tool could not run: {}", e.kind()),
+            )
+        })?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return Err(unresolvable(reference, "no such keyring entry"));
+    }
+    let value = String::from_utf8(output.stdout)
+        .map_err(|_| unresolvable(reference, "the entry is not UTF-8"))?;
+    Ok(Secret::new(value.trim_end().to_owned()))
 }
 
 /// tokio's file system.
@@ -232,18 +281,96 @@ impl Host {
     /// The native defaults: reqwest, the system clock, the OS random source, the
     /// environment/keyring/file resolver, tokio's file system and process spawning.
     ///
-    /// WebSocket, MCP transport, microphone and speaker are supplied by later milestones
+    /// `WebSocket`s come from `tokio-tungstenite` (voice and transcription sessions,
+    /// R28.3). MCP transport, microphone and speaker are supplied by later milestones
     /// and report [`crate::HarnessError::Unsupported`] until then.
     #[must_use]
     pub fn native() -> Host {
-        Host::builder()
+        let builder = Host::builder()
             .http(Arc::new(ReqwestHttp::default()))
+            .websocket(Arc::new(TungsteniteClient))
             .clock(Arc::new(SystemClock))
             .rng(Arc::new(OsRng))
             .secrets(Arc::new(NativeSecrets))
             .fs(Arc::new(TokioFs))
-            .process(Arc::new(TokioProcess))
-            .build()
+            .process(Arc::new(TokioProcess));
+        #[cfg(feature = "audio")]
+        let builder = builder
+            .microphone(Arc::new(super::audio::CpalMicrophone))
+            .speaker(Arc::new(super::audio::CpalSpeaker));
+        builder.build()
+    }
+}
+
+/// `WebSocket`s over `tokio-tungstenite`, TLS through rustls with the OS roots.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TungsteniteClient;
+
+type Tungstenite =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// One open connection.
+struct TungsteniteSocket(Tungstenite);
+
+fn ws_error(e: &tokio_tungstenite::tungstenite::Error) -> HostError {
+    use tokio_tungstenite::tungstenite::Error as E;
+    match e {
+        E::Http(response) => HostError::Http {
+            status: Some(response.status().as_u16()),
+            message: "websocket handshake refused".into(),
+        },
+        // The message never echoes a request header (the bearer token rides on one).
+        other => HostError::Io(format!("websocket: {other}")),
+    }
+}
+
+harness_async_trait! {
+    impl WebSocketClient for TungsteniteClient {
+        async fn connect(&self, url: url::Url, headers: http::HeaderMap) -> Result<Box<dyn WebSocket>, HostError> {
+            use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+            let mut request = url
+                .as_str()
+                .into_client_request()
+                .map_err(|e| ws_error(&e))?;
+            request.headers_mut().extend(headers);
+            let (stream, _) = tokio_tungstenite::connect_async(request)
+                .await
+                .map_err(|e| ws_error(&e))?;
+            Ok(Box::new(TungsteniteSocket(stream)))
+        }
+    }
+}
+
+harness_async_trait! {
+    impl WebSocket for TungsteniteSocket {
+        async fn send(&mut self, message: WsMessage) -> Result<(), HostError> {
+            use futures::SinkExt as _;
+            use tokio_tungstenite::tungstenite::Message as M;
+            let frame = match message {
+                WsMessage::Text(t) => M::Text(t.into()),
+                WsMessage::Binary(b) => M::Binary(b),
+                WsMessage::Close => M::Close(None),
+            };
+            self.0.send(frame).await.map_err(|e| ws_error(&e))
+        }
+
+        async fn next(&mut self) -> Option<Result<WsMessage, HostError>> {
+            use tokio_tungstenite::tungstenite::Message as M;
+            loop {
+                return match self.0.next().await? {
+                    Ok(M::Text(t)) => Some(Ok(WsMessage::Text(t.to_string()))),
+                    Ok(M::Binary(b)) => Some(Ok(WsMessage::Binary(b))),
+                    Ok(M::Close(_)) => Some(Ok(WsMessage::Close)),
+                    // Pings are answered by tungstenite itself.
+                    Ok(M::Ping(_) | M::Pong(_) | M::Frame(_)) => continue,
+                    Err(e) => Some(Err(ws_error(&e))),
+                };
+            }
+        }
+
+        async fn close(&mut self) -> Result<(), HostError> {
+            self.0.close(None).await.map_err(|e| ws_error(&e))
+        }
     }
 }
 
@@ -260,10 +387,36 @@ pub fn scrubbed_env(extra: impl IntoIterator<Item = (String, String)>) -> BTreeM
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeSecrets, TokioFs, TokioProcess, scrubbed_env};
+    use super::{NativeSecrets, TokioFs, TokioProcess, expand_home, home_relative, scrubbed_env};
+    #[cfg(not(feature = "audio"))]
     use crate::error::Capability;
     use crate::host::{Command, FileSystem, Host, ProcessSpawner, SecretRef, SecretResolver};
     use bytes::Bytes;
+
+    #[test]
+    fn a_file_reference_under_tilde_is_under_home() {
+        let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+        assert_eq!(
+            home_relative(std::path::Path::new("~/.config/rusty-harness/key")),
+            Ok(home.join(".config/rusty-harness/key"))
+        );
+        assert_eq!(
+            home_relative(std::path::Path::new("/run/secrets/key")),
+            Ok(std::path::PathBuf::from("/run/secrets/key"))
+        );
+    }
+
+    /// Without HOME (a bare systemd unit, a container) a path under `~` is an error, not a
+    /// `~` directory in the working directory that anything could have planted.
+    #[test]
+    fn a_path_under_tilde_without_home_is_refused() {
+        let refused = expand_home(std::path::Path::new("~/.config/rusty-harness/key"), None);
+        assert!(refused.is_err_and(|e| e.contains("HOME is not set")));
+        assert_eq!(
+            expand_home(std::path::Path::new("/run/secrets/key"), None),
+            Ok(std::path::PathBuf::from("/run/secrets/key"))
+        );
+    }
 
     #[tokio::test]
     async fn env_and_file_references_resolve_and_missing_ones_fail_by_name() {
@@ -347,9 +500,13 @@ mod tests {
         let host = Host::native();
         assert!(host.http().is_ok() && host.clock().is_ok() && host.rng().is_ok());
         assert!(host.secrets().is_ok() && host.fs().is_ok() && host.process().is_ok());
+        assert!(host.websocket().is_ok(), "M6 supplies WebSockets");
+        #[cfg(not(feature = "audio"))]
         assert!(matches!(
-            host.websocket(),
-            Err(crate::HarnessError::Unsupported(Capability::WebSocket))
+            host.microphone(),
+            Err(crate::HarnessError::Unsupported(Capability::Microphone))
         ));
+        #[cfg(feature = "audio")]
+        assert!(host.microphone().is_ok() && host.speaker().is_ok());
     }
 }

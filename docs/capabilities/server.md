@@ -1,0 +1,83 @@
+# Capability: the A2A server
+
+> One binary serves the agent over A2A 1.0 on the official SDK, behind a gate that
+> authenticates, limits and negotiates extensions, and refuses to be reachable without
+> credentials.
+
+## What it is
+
+`rusty-harness` serves the agent card, JSON-RPC and REST bindings from the official
+`a2a-server-lf` routers. The harness's executor turns every `SendMessage` into an inbox
+event and streams the task's own event log back (the `Task` snapshot first, replies on
+status updates, the stream ending when the turn ends). A `GuardedHandler` wraps the SDK's
+handler with the participant guard, the membership filter on `ListTasks`, the stream
+budget and the per-viewer channel redaction. An axum layer in front, the *protocol gap*,
+does what the SDK does not: authentication, the participant header, rate limiting and
+the `A2A-Extensions` negotiation and echo. Push-notification webhooks go only to
+allowlisted hosts.
+
+```mermaid
+flowchart LR
+  C[client] --> G["gate: auth · participant · rate · extensions"] --> R["SDK routers: / (JSON-RPC) · /v1 (REST) · /inbox"]
+  R --> H["GuardedHandler → executor → inbox → loop"]
+  H --> L["event log → stream"] --> C
+```
+
+## Current behaviour
+
+- WHEN `[server.security]` is absent THEN the server SHALL bind a loopback address only
+  and refuse any other `bind` at startup (fail-closed list).
+- WHEN a bearer token or API key is configured THEN every request except the agent card
+  SHALL present it (constant-time compared) or be answered `401` before any task exists.
+- WHEN a request names a task the caller does not participate in THEN the answer SHALL
+  be `TaskNotFound`, and `ListTasks` SHALL list only the caller's tasks (abuse 2).
+- WHEN a request carries `x-rusty-harness-participant` THEN that participant SHALL be the
+  caller; otherwise the authenticated principal, or `operator` on loopback.
+- WHEN a caller exceeds `[server.limits] requests_per_minute` or holds
+  `streams_per_caller` streams THEN the next request or stream SHALL be refused while
+  other callers' streams continue (abuse 8).
+- WHEN a request names `A2A-Extensions` THEN the server SHALL activate the ones it
+  advertises, echo them in the response, and ignore the rest (R19.3); the reserved
+  internal headers SHALL never be trusted from a client.
+- WHEN a request names A2A-Version below 1.0 THEN it SHALL be rejected (R19.9).
+- WHEN a push-notification config names a host outside `[server.push] allow_hosts`, an
+  IP literal, or anything when the list is empty THEN it SHALL be refused (abuse 9).
+- WHEN the card is built THEN it SHALL come from the configuration minus every credential
+  reference, advertise the six `rusty-harness` extensions and A2UI, list `text/plain` and
+  `application/a2ui+json` as input and output modes (the SDK refuses a part whose media
+  type the card does not list), and name the bound address (snapshotted in
+  `tests/snapshots/agent_card.json`).
+- WHEN a request's message metadata declares `a2uiClientCapabilities` THEN the stream it
+  opens SHALL carry A2UI data parts for the declared catalogs; otherwise each A2UI part
+  SHALL arrive as its text alternative ([surfaces and renderers](surfaces.md), R25.2).
+- WHEN a browser on another origin calls the server THEN the preflight SHALL be answered
+  and the allow headers set for an origin in `[server] allow_origins`, or for any origin
+  while the server is loopback-only; with a security scheme and no list no origin is
+  allowed, and the policy overrides whatever a route underneath set (R25.1).
+- WHEN a channel opens during the turn a request streams THEN each later event SHALL be
+  projected with the caller's membership at that moment, so the member an ask addresses
+  sees the question in the same stream (R18.5).
+- The official TypeScript SDK's conformance suite (`web/tests/`) SHALL pass against the
+  binary in CI (T3).
+- WHEN a participant outside a channel cancels a task waiting on that channel's question
+  THEN the cancel's answer SHALL carry the state change without the question (R18.5).
+
+## Design
+
+- [`design.md` § A2A API server, § Security design][design] (R19, boundaries 1–2,
+  abuse 2, 8, 9).
+- Code: `crates/rusty-harness/src/app_service/a2a_server/` (`protocol_gap`,
+  `channels_api`), `crates/rusty-harness/src/bin/rusty-harness.rs`.
+- Guide: [Run the server](../guide/run-the-server.md).
+
+## History
+
+| Work item | What changed | Links |
+|-----------|--------------|-------|
+| issue-3 (M3, tasks 20–21, 23, 25) | Server on the official SDK, the protocol gap, channels on the server, the `cli` binary | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #9 |
+| issue-3 (M3, task 27) | The `/inbox` route, the conformance suite in CI | PR #9 |
+| issue-3 (M5, task 33) | The card advertises the basic A2UI catalog; each stream is negotiated for the surface that opened it | PR #11, [surfaces](surfaces.md) |
+| issue-3 (M5, task 37) | `[server] allow_origins` (CORS for browser surfaces); the card lists commands, model aliases and `application/a2ui+json` among its modes; a stream starts after the last event its viewer can see and projects each event with the caller's current memberships | PR #11 |
+| issue-3 (M7, SR2-1, CR1-1, CR1-2) | Commands run with the sender's roles from the task's participant record; one participation rule (`Caller::may_open`) shared with the SDK; a cancel's answer is redacted for the caller like GetTask | PR #13 |
+
+[design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

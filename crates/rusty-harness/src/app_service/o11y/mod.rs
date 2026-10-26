@@ -22,8 +22,12 @@ use crate::harness_async_trait;
 use crate::host::{Host, LogSink};
 use crate::registry::EntityId;
 
+pub mod langfuse;
 pub mod redact;
 mod sink;
+pub mod trace;
+
+pub use langfuse::LangfuseHooks;
 
 pub use sink::{HostSinkLayer, RecordingLayer};
 
@@ -59,16 +63,24 @@ harness_async_trait! {
         O::Output: Sync,
     {
         async fn run<'a>(&self, cx: &'a HookCx, input: O::Input, next: Next<'a, O>) -> Result<O::Output, HarnessError> {
+            // A span outside the task's trace joins it (R24.1); one already inside
+            // (a nested operation) inherits it, keeping the hierarchy.
+            let outside = cx.traceparent.as_deref().and_then(trace::trace_id)
+                != trace::current().as_deref().and_then(trace::trace_id);
             let span = tracing::info_span!(
                 "hook",
                 point = O::POINT.name(),
                 task = cx.task.as_deref().unwrap_or(""),
                 context_id = cx.context_id.as_deref().unwrap_or(""),
                 traceparent = cx.traceparent.as_deref().unwrap_or(""),
+                trace_id = cx.traceparent.as_deref().and_then(trace::trace_id).unwrap_or_default(),
                 target = %O::identity(&input),
                 outcome = tracing::field::Empty,
                 error = tracing::field::Empty,
             );
+            if outside && let Some(parent) = cx.traceparent.as_deref() {
+                trace::adopt(&span, parent);
+            }
             let result = next(input.clone()).instrument(span.clone()).await;
             match &result {
                 Ok(output) => {
@@ -91,7 +103,18 @@ harness_async_trait! {
 pub struct Guard {
     _default: Option<tracing::subscriber::DefaultGuard>,
     #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
-    _provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>,
+    provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>,
+}
+
+impl Guard {
+    /// Exports every finished span now (the batch exporter otherwise waits for its
+    /// interval); a no-op without an OTLP endpoint.
+    pub fn flush(&self) {
+        #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+        if let Some(provider) = &self.provider {
+            let _ = provider.force_flush();
+        }
+    }
 }
 
 impl core::fmt::Debug for Guard {
@@ -158,6 +181,11 @@ pub fn init(config: &O11yConfig, host: &Host, scope: Scope) -> Result<Guard, O11
         Some(endpoint) => {
             use opentelemetry::trace::TracerProvider as _;
             use opentelemetry_otlp::WithExportConfig as _;
+            // The traces path is appended when the endpoint names only the collector.
+            let mut endpoint = endpoint.clone();
+            if endpoint.path() == "/" || endpoint.path().is_empty() {
+                endpoint.set_path("/v1/traces");
+            }
             let exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_http()
                 .with_endpoint(endpoint.as_str())
@@ -188,7 +216,7 @@ pub fn init(config: &O11yConfig, host: &Host, scope: Scope) -> Result<Guard, O11
     Ok(Guard {
         _default: guard,
         #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
-        _provider: provider,
+        provider,
     })
 }
 

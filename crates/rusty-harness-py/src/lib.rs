@@ -213,7 +213,8 @@ impl EventStream {
     }
 }
 
-/// A running A2A server for a harness.
+/// A running A2A server for a harness. Keep a reference to it: when the object is
+/// dropped (garbage-collected), the server stops, as if `stop()` had been called.
 #[gen_stub_pyclass]
 #[pyclass(module = "rusty_harness")]
 struct Server {
@@ -427,7 +428,8 @@ impl Harness {
     }
 
     /// Serves the harness over A2A on `bind` (default `[server] bind`) and returns once
-    /// it listens; without `[server.security]` only a loopback address is accepted.
+    /// it listens; without `[server.security]` only a loopback address is accepted. The
+    /// server runs while the returned `Server` is referenced: keep it and call `stop()`.
     #[pyo3(signature = (bind = None))]
     #[gen_stub(override_return_type(type_repr = "typing.Awaitable[Server]", imports = ("typing")))]
     fn serve<'py>(&self, py: Python<'py>, bind: Option<String>) -> PyResult<Bound<'py, PyAny>> {
@@ -435,7 +437,8 @@ impl Harness {
         pyo3_async_runtimes::tokio::future_into_py(py, start(inner, bind))
     }
 
-    /// Serves the harness over A2A, blocking until it listens.
+    /// Serves the harness over A2A, blocking until it listens. The server runs while the
+    /// returned `Server` is referenced: keep it and call `stop()`.
     #[pyo3(signature = (bind = None))]
     fn serve_sync(&self, py: Python<'_>, bind: Option<String>) -> PyResult<Server> {
         let inner = Arc::clone(&self.inner);

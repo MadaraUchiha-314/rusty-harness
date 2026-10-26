@@ -120,11 +120,13 @@ class Harness:
     def serve(self, bind: typing.Optional[builtins.str] = None) -> typing.Awaitable[Server]:
         r"""
         Serves the harness over A2A on `bind` (default `[server] bind`) and returns once
-        it listens; without `[server.security]` only a loopback address is accepted.
+        it listens; without `[server.security]` only a loopback address is accepted. The
+        server runs while the returned `Server` is referenced: keep it and call `stop()`.
         """
     def serve_sync(self, bind: typing.Optional[builtins.str] = None) -> Server:
         r"""
-        Serves the harness over A2A, blocking until it listens.
+        Serves the harness over A2A, blocking until it listens. The server runs while the
+        returned `Server` is referenced: keep it and call `stop()`.
         """
 
 @typing.final
@@ -142,7 +144,8 @@ class Host:
 @typing.final
 class Server:
     r"""
-    A running A2A server for a harness.
+    A running A2A server for a harness. Keep a reference to it: when the object is
+    dropped (garbage-collected), the server stops, as if `stop()` had been called.
     """
     @property
     def address(self) -> builtins.str:

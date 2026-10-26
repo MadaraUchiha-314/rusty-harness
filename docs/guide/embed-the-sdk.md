@@ -89,7 +89,7 @@ async for event in harness.send_message(
 ):
     print(event)
 
-server = await harness.serve("127.0.0.1:7474")  # the A2A server, until server.stop()
+server = await harness.serve("127.0.0.1:7474")  # runs while `server` is referenced, until server.stop()
 ```
 
 `pip install "rusty_harness[cli]"` adds the `rusty-harness` binary, shipped as a native

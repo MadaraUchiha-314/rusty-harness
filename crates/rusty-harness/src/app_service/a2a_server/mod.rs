@@ -145,6 +145,19 @@ impl AgentExecutor for HarnessExecutor {
         let task = ctx.task_id;
         Box::pin(
             futures::stream::once(async move {
+                // A person's command runs instead of the model (R10.1), before the message
+                // becomes an inbox event: the answer is one message, and no task is opened
+                // or changed.
+                match agent.command(&request).await {
+                    Ok(Some(reply)) => {
+                        return futures::stream::iter(vec![Ok(a2a::StreamResponse::Message(
+                            reply,
+                        ))])
+                        .boxed();
+                    }
+                    Ok(None) => {}
+                    Err(e) => return futures::stream::iter(vec![Err(e.to_a2a())]).boxed(),
+                }
                 let store = Arc::clone(agent.store());
                 // The viewer, with the caller's memberships, decides what the log shows;
                 // the tail starts after the last event it can see (a sequence, not a

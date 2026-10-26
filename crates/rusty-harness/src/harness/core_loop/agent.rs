@@ -828,7 +828,10 @@ impl LocalAgent {
     /// its line and a `commands/v1` payload (the token, the outcome). `None` when the
     /// message is not a command from a human participant; tool output and agents never
     /// reach here as commands (boundary 4).
-    async fn command(&self, request: &AgentRequest) -> Result<Option<a2a::Message>, AgentError> {
+    pub(crate) async fn command(
+        &self,
+        request: &AgentRequest,
+    ) -> Result<Option<a2a::Message>, AgentError> {
         use crate::harness::commands::{
             COMMANDS_EXT, CommandCall, CommandOutcome, CommandParser, CommandToken, CommandsMeta,
         };

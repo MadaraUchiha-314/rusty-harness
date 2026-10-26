@@ -163,6 +163,14 @@ jobs:
           registry-url: https://registry.npmjs.org
       # npm >= 11.5 exchanges the OIDC token for a publish token (trusted publishing).
       - run: npm install -g npm@latest
+      # upload-artifact drops file modes: restore the executable bit pack.ts set, and
+      # refuse to publish a platform package whose binary would not run.
+      - name: Restore the binaries' executable bit
+        run: |
+          chmod 755 dist/npm/cli-linux-*/bin/rusty-harness dist/npm/cli-darwin-*/bin/rusty-harness
+          for f in dist/npm/cli-linux-*/bin/rusty-harness dist/npm/cli-darwin-*/bin/rusty-harness; do
+            [[ -x "$f" ]] || { echo "::error::$f is not executable"; exit 1; }
+          done
       - name: The platform packages, then the package that depends on them
         run: |
           for dir in dist/npm/cli-*; do

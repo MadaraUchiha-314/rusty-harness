@@ -5,7 +5,7 @@ use std::rc::Rc;
 use futures::StreamExt as _;
 use futures::channel::mpsc;
 use futures::lock::Mutex;
-use js_sys::{Function, Object, Promise, Reflect};
+use js_sys::{Object, Promise, Reflect};
 use rusty_harness::config::Config;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;

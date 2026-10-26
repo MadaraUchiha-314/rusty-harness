@@ -198,10 +198,20 @@ impl Decoder {
                 if let Some(item) = event.item.filter(|i| i.kind == "function_call") {
                     self.called = true;
                     let arguments = item.arguments.unwrap_or_default();
+                    // The next request answers the call by its id: without an id or a name
+                    // there is nothing it could send that the provider would accept.
+                    let (Some(id), Some(name)) = (
+                        item.call_id.filter(|i| !i.is_empty()),
+                        item.name.filter(|n| !n.is_empty()),
+                    ) else {
+                        return Err(ModelError::Decode(
+                            "a function_call item without its call_id or name".into(),
+                        ));
+                    };
                     out.push(ModelEvent::ToolCall {
                         call: ToolCall {
-                            id: item.call_id.unwrap_or_default(),
-                            name: item.name.unwrap_or_default(),
+                            id,
+                            name,
                             arguments: serde_json::from_str(&arguments)
                                 .unwrap_or(Value::Object(serde_json::Map::new())),
                         },
@@ -426,6 +436,21 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, Ok(ModelEvent::Stop { .. }))),
             "{events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_function_call_without_its_id_or_name_is_a_decode_error() {
+        let events: Vec<_> = futures::StreamExt::collect(decode(chunks(vec![
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"name\":\"math_add\",\"arguments\":\"{}\"}}\n\n",
+        ])))
+        .await;
+        assert!(
+            matches!(
+                events.first(),
+                Some(Err(crate::harness::models::llm::ModelError::Decode(_)))
+            ),
+            "a call the next request could not answer is refused: {events:?}"
         );
     }
 }

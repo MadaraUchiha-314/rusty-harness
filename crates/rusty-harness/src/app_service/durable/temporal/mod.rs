@@ -13,7 +13,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use temporalio_client::{Client, ClientOptions, Connection, ConnectionOptions};
+use temporalio_client::{Client, ClientOptions, Connection, ConnectionOptions, TlsOptions};
 use temporalio_sdk::{Runtime, Worker, WorkerOptions};
 
 use super::DurableError;
@@ -114,8 +114,12 @@ pub async fn remote_options(
     if let Some(key) = &api_key {
         guard.protect(key);
     }
+    // An `https` target (Temporal Cloud) is TLS against the OS trust roots; without
+    // `tls_options` the SDK dials plain HTTP/2 and the handshake is refused.
+    let tls = (target.scheme() == "https").then(|| TlsOptions::builder().build());
     let connection = ConnectionOptions::new(target)
         .identity(IDENTITY.to_owned())
+        .maybe_tls_options(tls)
         .maybe_api_key(api_key.as_ref().map(|k| k.expose().clone()))
         .connect_timeout(Duration::from_secs(10))
         .build();
@@ -439,6 +443,7 @@ mod tests {
             "https://my-ns.a1b2c.tmprl.cloud:7233/"
         );
         assert_eq!(connection.api_key.as_deref(), Some("tmprl-canary-key"));
+        assert!(connection.tls_options.is_some(), "Temporal Cloud is TLS");
         assert_eq!(client.namespace, "my-ns.a1b2c");
         assert!(
             guard.contains_secret(b"...tmprl-canary-key..."),

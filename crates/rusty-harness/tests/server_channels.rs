@@ -414,3 +414,91 @@ async fn abuse_push_config_naming_a_link_local_address_is_rejected() {
     let _: HashMap<String, String> = HashMap::new();
     running.stop();
 }
+
+/// Scenario: A command on the server runs with the sender's roles on the task
+///     Given a shared task where alice is an admin and bob a watcher
+///     When each sends `/model default` into the task
+///     Then the role guard denies bob and lets alice
+///     And bob's `/model default` outside any task is an ordinary message, not a command
+///     (R10.4, boundary 4)
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_command_on_the_server_runs_with_the_senders_roles_on_the_task() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let h = harness(vec![text("an ordinary answer")], |_| {}).await;
+    let record = TaskRecord::new(
+        TaskDraft {
+            id: "shared".into(),
+            context_id: "ctx".into(),
+            name: "shared".into(),
+            r#type: None,
+            goal: "ship".into(),
+            description: String::new(),
+            acceptance_criteria: vec![],
+            mode: TaskMode::LongRunning,
+            participants: vec![
+                Participant::human("alice", "Alice", [Role::Reporter, Role::Admin]),
+                Participant::human("bob", "Bob", [Role::Watcher]),
+            ],
+            parent_tasks: vec![],
+            reference_task_ids: vec![],
+            model: ModelSelection {
+                model: "default".into(),
+                effort: None,
+            },
+        },
+        chrono::Utc::now(),
+    );
+    h.store().commit(TaskCommit::of(record)).await.unwrap();
+    let mut running = start(&h).await;
+    let base = running.base.clone();
+    let outcome = |reply: &Value| -> Option<String> {
+        let meta: CommandsMeta = rusty_harness::harness::core_loop::task::decode_extension(
+            &reply["result"]["message"]["metadata"][COMMANDS_EXT],
+        )
+        .ok()?;
+        meta.result.map(|r| r.outcome)
+    };
+
+    let said = |reply: &Value| {
+        reply["result"]["message"]["parts"][0]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let send = |who: &'static str, text: &'static str, task: Option<&'static str>| {
+        let base = base.clone();
+        async move {
+            rpc(
+                &base,
+                who,
+                "SendMessage",
+                json!({ "message": message(text, task) }),
+            )
+            .await
+        }
+    };
+
+    // The role guard answers before the command runs: the denial, not "no such model".
+    let bob = send("bob", "/model default", Some("shared")).await;
+    assert_eq!(outcome(&bob).as_deref(), Some("failed"), "{bob}");
+    assert!(
+        said(&bob).contains("Watchers may not run"),
+        "a watcher may not switch models: {bob}"
+    );
+
+    let alice = send("alice", "/model default", Some("shared")).await;
+    assert_eq!(
+        outcome(&alice).as_deref(),
+        Some("done"),
+        "an admin of the task may: {alice}"
+    );
+
+    // Outside any task an authenticated sender is not the server's operator: the text
+    // goes to the agent as a message and opens a task.
+    let outside = send("bob", "/model default", None).await;
+    assert!(
+        outside["result"]["task"].is_object(),
+        "an authenticated sender's /text outside a task is a message to the agent: {outside}"
+    );
+    running.stop();
+}

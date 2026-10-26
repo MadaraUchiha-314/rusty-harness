@@ -86,6 +86,42 @@ impl HarnessExecutor {
         })
     }
 
+    /// Who a `/command` runs as (R10.4, boundary 4). Inside a task: the sender as that
+    /// task's participant record says, its roles there, and a person only if it is a human
+    /// participant; anyone else's `/text` is not a command. Outside a task (or on the SDK's
+    /// empty shell for a new conversation): the server's
+    /// owner (its credential's principal, or the loopback operator) as itself; a named
+    /// participant's `/text` there is an ordinary message. Fails closed: a store error makes
+    /// nobody a commander.
+    async fn command_caller(
+        store: &dyn crate::harness::core_loop::persistence::PersistenceStore,
+        task: &str,
+        caller: &Caller,
+        owner: bool,
+    ) -> Caller {
+        let not_a_commander = Caller::system(caller.id.clone());
+        match store.get_task(&task.to_owned()).await {
+            // The SDK's shell for a new conversation has nobody on it yet: as no task.
+            Ok(Some(record)) if record.participants.is_empty() && owner => caller.clone(),
+            Ok(Some(record)) if record.participants.is_empty() => not_a_commander,
+            Ok(Some(record)) => record
+                .participants
+                .iter()
+                .find(|p| p.id == caller.id)
+                .filter(|p| {
+                    matches!(
+                        p.kind,
+                        crate::harness::core_loop::task::ParticipantKind::Human
+                    )
+                })
+                .map_or(not_a_commander, |p| {
+                    Caller::human(p.id.clone(), p.roles.iter().copied())
+                }),
+            Ok(None) if owner => caller.clone(),
+            _ => not_a_commander,
+        }
+    }
+
     /// The caller of a request: the authenticated principal when the service layer set
     /// one (task 21), else the SDK's user, else the loopback operator.
     fn caller(ctx: &ExecutorContext) -> Caller {
@@ -109,6 +145,9 @@ impl AgentExecutor for HarnessExecutor {
         let agent = Arc::clone(&self.agent);
         let inbox = Arc::clone(&self.inbox);
         let caller = Self::caller(&ctx);
+        // The server's owner: the holder of its credential (or the loopback operator when
+        // none is configured), speaking without naming a participant.
+        let owner = caller.id == protocol_gap::DEFAULT_PRINCIPAL;
         let Some(message) = ctx.message else {
             return Box::pin(futures::stream::iter(vec![Err(
                 a2a::A2AError::invalid_params("execute without a message"),
@@ -148,7 +187,11 @@ impl AgentExecutor for HarnessExecutor {
                 // A person's command runs instead of the model (R10.1), before the message
                 // becomes an inbox event: the answer is one message, and no task is opened
                 // or changed.
-                match agent.command(&request).await {
+                let as_participant =
+                    Self::command_caller(agent.store().as_ref(), &task, &caller, owner).await;
+                let mut command = request.clone();
+                command.call.caller = as_participant;
+                match agent.command(&command).await {
                     Ok(Some(reply)) => {
                         return futures::stream::iter(vec![Ok(a2a::StreamResponse::Message(
                             reply,

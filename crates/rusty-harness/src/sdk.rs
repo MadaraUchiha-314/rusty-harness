@@ -489,7 +489,7 @@ async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkErr
         "memory" => Ok(Arc::new(MemoryStore::new())),
         #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
         "file" => {
-            let path = config.persistence.path.clone().ok_or_else(|| {
+            let path = store_path(config).ok_or_else(|| {
                 SdkError::Store("[persistence] path is required for the file store".into())
             })?;
             Ok(Arc::new(
@@ -500,6 +500,17 @@ async fn open_store(config: &Config) -> Result<Arc<dyn PersistenceStore>, SdkErr
         }
         other => Err(SdkError::Store(format!("unknown store {other}"))),
     }
+}
+
+/// `[persistence] path` with `~/` under the home directory, as the default config writes
+/// it (`~/.rusty-harness/data`).
+#[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
+fn store_path(config: &Config) -> Option<std::path::PathBuf> {
+    config
+        .persistence
+        .path
+        .as_deref()
+        .map(crate::host::native_home_relative)
 }
 
 #[cfg(all(feature = "rt-tokio", not(target_arch = "wasm32")))]
@@ -800,4 +811,22 @@ fn operator() -> Caller {
 fn temporal_cache_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME")
         .map(|home| std::path::PathBuf::from(home).join(".cache/rusty-harness/temporal"))
+}
+
+#[cfg(all(test, feature = "rt-tokio"))]
+mod tests {
+    use super::store_path;
+    use crate::config::Config;
+
+    #[test]
+    fn the_file_store_path_expands_home() {
+        let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME is set"));
+        let mut config = Config::default();
+        config.persistence.path = Some("~/.rusty-harness/data".into());
+        assert_eq!(store_path(&config), Some(home.join(".rusty-harness/data")));
+        config.persistence.path = Some("/var/lib/rh".into());
+        assert_eq!(store_path(&config), Some("/var/lib/rh".into()));
+        config.persistence.path = None;
+        assert_eq!(store_path(&config), None);
+    }
 }

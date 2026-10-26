@@ -129,7 +129,7 @@ harness_async_trait! {
 }
 
 /// `~/…` under `$HOME`; any other path as written.
-fn home_relative(path: &Path) -> std::path::PathBuf {
+pub(crate) fn home_relative(path: &Path) -> std::path::PathBuf {
     match (path.strip_prefix("~"), std::env::var_os("HOME")) {
         (Ok(rest), Some(home)) => std::path::PathBuf::from(home).join(rest),
         _ => path.to_path_buf(),

@@ -52,29 +52,49 @@ pub struct PlanLocks(
 );
 
 impl PlanLocks {
-    /// Runs `edit` with `task`'s plan locked; the lock is dropped from the table once no
-    /// call holds or waits on it.
+    /// Runs `edit` with `task`'s plan locked. The table entry goes once no call holds or
+    /// waits on it, including when a call is cancelled mid-edit (the guard's `Drop`).
     async fn with<T>(&self, task: &TaskId, edit: impl std::future::Future<Output = T>) -> T {
-        let lock = {
-            let mut table = self
-                .0
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            Arc::clone(table.entry(task.clone()).or_default())
+        let entry = Entry {
+            locks: self,
+            task,
+            lock: Some({
+                let mut table = self
+                    .0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                Arc::clone(table.entry(task.clone()).or_default())
+            }),
         };
-        let out = {
-            let _held = lock.lock().await;
-            edit.await
-        };
+        let lock = entry.lock.as_ref().map(Arc::clone).unwrap_or_default();
+        let _held = lock.lock().await;
+        edit.await
+    }
+}
+
+/// This call's share of a table entry; on drop, the entry goes if nobody else has one.
+struct Entry<'a> {
+    locks: &'a PlanLocks,
+    task: &'a TaskId,
+    lock: Option<Arc<futures::lock::Mutex<()>>>,
+}
+
+impl Drop for Entry<'_> {
+    fn drop(&mut self) {
         let mut table = self
+            .locks
             .0
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        // The table's reference and ours: nobody else holds or waits on this lock.
-        if Arc::strong_count(&lock) == 2 {
-            table.remove(task);
+        // Under the table's lock: release this call's reference, then the entry is the
+        // table's alone exactly when no other call holds or waits on it.
+        drop(self.lock.take());
+        if table
+            .get(self.task)
+            .is_some_and(|l| Arc::strong_count(l) == 1)
+        {
+            table.remove(self.task);
         }
-        out
     }
 }
 
@@ -400,5 +420,39 @@ impl PlanStepDoneTool {
             other => failed(STEP_DONE_TOOL, other),
         })?;
         Ok(output(&plan))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PlanLocks;
+    use futures::FutureExt as _;
+
+    fn entries(locks: &PlanLocks) -> usize {
+        locks.0.lock().unwrap().len()
+    }
+
+    /// The lock table keeps no entry once no call holds or waits on it: after a call
+    /// completes, after two calls on one task finish, and after a call is cancelled
+    /// mid-edit (a cancelled task, a tool timeout).
+    #[test]
+    fn the_lock_table_keeps_no_entry_once_nobody_holds_it() {
+        let locks = PlanLocks::default();
+        let task = "t1".to_owned();
+        assert_eq!(locks.with(&task, async { 1 }).now_or_never(), Some(1));
+        assert_eq!(entries(&locks), 0, "after a completed call");
+
+        let both = futures::future::join(
+            locks.with(&task, async { 1 }),
+            locks.with(&task, async { 2 }),
+        );
+        assert_eq!(both.now_or_never(), Some((1, 2)));
+        assert_eq!(entries(&locks), 0, "after two calls on one task");
+
+        let mut cancelled = Box::pin(locks.with(&task, std::future::pending::<()>()));
+        assert!((&mut cancelled).now_or_never().is_none());
+        assert_eq!(entries(&locks), 1, "held while the edit runs");
+        drop(cancelled);
+        assert_eq!(entries(&locks), 0, "after a call cancelled mid-edit");
     }
 }

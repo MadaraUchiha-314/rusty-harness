@@ -28,8 +28,17 @@ const SECRET_NAMES: &[&str] = &[
 /// Field names that carry user or model content.
 const CONTENT_NAMES: &[&str] = &["content", "body", "text", "prompt", "transcript"];
 
+/// Token *counts* (`tokens.in`, `gen_ai.usage.input_tokens`) are usage, not credentials.
+const COUNT_NAMES: &[&str] = &["tokens", "token_count", "tokens_"];
+
 fn is_secret_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
+    if COUNT_NAMES.iter().any(|c| lower.contains(c)) && !lower.contains("secret") {
+        return SECRET_NAMES
+            .iter()
+            .filter(|s| **s != "token")
+            .any(|s| lower.contains(s));
+    }
     SECRET_NAMES.iter().any(|s| lower.contains(s))
 }
 
@@ -188,5 +197,13 @@ mod tests {
         assert_eq!(field("content", &long, Level::DEBUG), long);
         assert_eq!(field("message_text", "short", Level::INFO), "short");
         assert_eq!(field("task", "task_1", Level::INFO), "task_1");
+        assert_eq!(field("tokens.in", "10", Level::INFO), "10", "a count");
+        assert_eq!(field("gen_ai.usage.input_tokens", "10", Level::INFO), "10");
+        assert_eq!(
+            field("tokens_key", "x", Level::INFO),
+            REDACTED,
+            "still a key"
+        );
+        assert_eq!(field("refresh_token", "x", Level::INFO), REDACTED);
     }
 }

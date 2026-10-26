@@ -1,0 +1,35 @@
+# The definition-of-done demo (R32): the harness as a user runs it.
+#   cargo run -p rusty_harness --features cli -- --config tests/fixtures/demo/config.toml --no-tui
+# Credentials are references only: export OPENAI_API_KEY before starting. This is the
+# `none` variant; `config.remote.toml` beside it runs on Temporal Cloud.
+
+[agent]
+name = "demo-agent"
+description = "The rusty-harness demo agent: drafts release notes with you, served over A2A."
+
+[models.default]
+provider = "openai"
+model = "gpt-6.1-sol"
+api_key = "env:OPENAI_API_KEY"
+effort = "medium"
+
+[server]
+bind = "127.0.0.1:7474"
+bindings = ["jsonrpc", "rest"]
+
+[durable]
+mode = "none"
+
+[persistence]
+store = "file"
+path = "~/.cache/rusty-harness/demo-data"
+
+[plugins]
+paths = ["tests/fixtures/demo/plugins"]
+
+[loop]
+max_iterations = 50
+stall_after = "15m"
+
+[o11y]
+log_level = "info"

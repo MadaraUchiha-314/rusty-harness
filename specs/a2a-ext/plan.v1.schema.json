@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plan",
+  "description": "The plan (R13.1): a DAG of steps for one task.",
+  "type": "object",
+  "properties": {
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "id": {
+      "description": "The plan's id.",
+      "type": "string"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Step"
+      }
+    },
+    "task": {
+      "description": "The task it delivers.",
+      "type": "string"
+    },
+    "version": {
+      "description": "Incremented by every edit.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": ["id", "task", "steps", "edges", "version"],
+  "$defs": {
+    "Step": {
+      "description": "One step (R13.1).",
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "What to do.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Unique within the plan.",
+          "type": "string"
+        },
+        "linked_tasks": {
+          "description": "Tasks spawned while executing it (R12.3).",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TaskRef"
+          }
+        },
+        "name": {
+          "description": "Short name.",
+          "type": "string"
+        },
+        "output": {
+          "description": "What it produced.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepOutput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "description": "Where it is.",
+          "$ref": "#/$defs/StepStatus",
+          "default": "pending"
+        }
+      },
+      "required": ["id", "name", "description"]
+    },
+    "StepOutput": {
+      "description": "What a step produced (R13.3).",
+      "type": "object",
+      "properties": {
+        "blobs": {
+          "description": "Blob keys of the full output, when it was stored.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "description": "A short summary for the plan view and the context window.",
+          "type": "string"
+        }
+      },
+      "required": ["summary"]
+    },
+    "StepStatus": {
+      "description": "Where a step is.",
+      "oneOf": [
+        {
+          "description": "Not started.",
+          "type": "string",
+          "const": "pending"
+        },
+        {
+          "description": "Being executed.",
+          "type": "string",
+          "const": "running"
+        },
+        {
+          "description": "Done, with its output recorded.",
+          "type": "string",
+          "const": "done"
+        },
+        {
+          "description": "Skipped by a participant or the model.",
+          "type": "string",
+          "const": "skipped"
+        },
+        {
+          "description": "Failed; the plan may be edited around it.",
+          "type": "string",
+          "const": "failed"
+        }
+      ]
+    },
+    "TaskRef": {
+      "description": "A reference to another task.",
+      "type": "object",
+      "properties": {
+        "context_id": {
+          "description": "Its context, when known.",
+          "type": ["string", "null"]
+        },
+        "task": {
+          "description": "The task.",
+          "type": "string"
+        }
+      },
+      "required": ["task"]
+    }
+  }
+}

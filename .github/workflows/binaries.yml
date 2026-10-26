@@ -1,0 +1,95 @@
+# Builds the `rusty-harness` binary per platform (Q8): an archive for the GitHub release
+# and the npm platform package `@rusty-harness/cli-<platform>`. CI calls it on every
+# pull request (the release dry run); the release workflow calls it on the tag.
+name: Binaries
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The ref to build (the release tag); the triggering ref when empty.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  binary:
+    name: Binary (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu keeps the glibc floor low.
+          - { platform: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          - { platform: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { platform: darwin-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { platform: darwin-x64, os: macos-latest, target: x86_64-apple-darwin, cross: true }
+          - { platform: win32-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: ALSA headers for the `audio` feature (cpal)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev > /dev/null
+      - name: Build
+        run: >-
+          cargo build --profile dist --locked -p rusty_harness --features cli
+          --bin rusty-harness --target ${{ matrix.target }}
+      - uses: oven-sh/setup-bun@v2
+      - name: Package
+        id: package
+        shell: bash
+        run: |
+          exe=rusty-harness; [[ "${{ runner.os }}" == "Windows" ]] && exe=rusty-harness.exe
+          binary="target/${{ matrix.target }}/dist/$exe"
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "rusty_harness") | .version')"
+          bytes="$(wc -c < "$binary" | tr -d ' ')"
+          echo "| ${{ matrix.platform }} | \`$exe\` | $bytes bytes |" >> "$GITHUB_STEP_SUMMARY"
+          # A measured target, not a gate (Q13): flag it on the run, keep building.
+          if (( bytes > 25000000 )); then
+            echo "::warning::$exe is $bytes bytes, over the 25 MB target (T7, decision-006)"
+          fi
+          mkdir -p dist/archive dist/npm
+          bun packaging/npm/scripts/pack.ts platform ${{ matrix.platform }} "$binary" \
+            "dist/npm/cli-${{ matrix.platform }}"
+          name="rusty-harness-$version-${{ matrix.platform }}"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            7z a -bd "dist/archive/$name.zip" "./$binary" LICENSE README.md > /dev/null
+          else
+            tar -czf "dist/archive/$name.tar.gz" -C "$(dirname "$binary")" "$exe" \
+              -C "$GITHUB_WORKSPACE" LICENSE README.md
+          fi
+          ls -l dist/archive
+      - name: Smoke test through the npm shim, laid out as npm installs it
+        # The x64 macOS binary is cross-built on an arm64 runner, where node is arm64.
+        if: ${{ !matrix.cross }}
+        shell: bash
+        run: |
+          modules="$RUNNER_TEMP/smoke/node_modules/@rusty-harness"
+          mkdir -p "$modules"
+          cp -R "dist/npm/cli-${{ matrix.platform }}" "$modules/"
+          bun packaging/npm/scripts/pack.ts main "$modules/cli"
+          node "$modules/cli/bin/rusty-harness.js" --version
+      - name: TUI cold start (T7, measured)
+        if: runner.os == 'Linux'
+        run: |
+          ms="$(python3 scripts/cold-start.py "target/${{ matrix.target }}/dist/rusty-harness" 5)"
+          echo "| ${{ matrix.platform }} | TUI cold start | $ms ms (median of 5) |" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.platform }}
+          path: dist

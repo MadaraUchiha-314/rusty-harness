@@ -1,0 +1,55 @@
+{
+  "max_completion_tokens": 256,
+  "messages": [
+    {
+      "content": "[task-field]\nbe brief\n[/task-field]",
+      "role": "system"
+    },
+    {
+      "content": [
+        {
+          "text": "hi",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": "hello",
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"a\":1}",
+            "name": "add"
+          },
+          "id": "call_1",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "42",
+      "role": "tool",
+      "tool_call_id": "call_1"
+    }
+  ],
+  "model": "gpt-6.1",
+  "reasoning_effort": "high",
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  },
+  "tools": [
+    {
+      "function": {
+        "description": "adds",
+        "name": "add",
+        "parameters": {
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

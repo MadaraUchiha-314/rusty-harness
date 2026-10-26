@@ -26,6 +26,9 @@ pub mod self_improvement;
 
 pub use error::{Capability, HarnessError};
 pub use runtime::{HarnessFuture, HarnessStream, MaybeSend, MaybeSync, Runtime};
+pub use sdk::{Harness, HarnessBuilder, SdkError};
+
+mod sdk;
 
 /// Returns a greeting from the harness.
 ///

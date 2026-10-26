@@ -1,0 +1,30 @@
+┌ demo-agent · task_01HZX4V3K9N2 · ctx_9a1f ─────────────────────────────────── ● working step 1/4 ┐
+│                                                                                                  │
+│ you 12:30                                                                                        │
+│   Draft release notes for Q4. Keep the task open, I will iterate with you.                       │
+│                                                                                                  │
+│ demo-agent 12:31 · streaming                                                                     │
+│   Three areas changed since v0.3.0:                                                              │
+│                                                                                                  │
+│   - API: per-tenant rate limits (#401), pagination on /events (#404)                             │
+│   - Auth: refresh-token rotation (#407)                                                          │
+│   - CLI: the new --config flag                                                                   │
+│                                                                                                  │
+│ sub-task classify-25-prs                                                                         │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│                                                                                                  │
+│ plan ■ collect ▣ group □ draft □ review ─────────────────────────────────────────────────────────│
+│ › ▏                                                                                              │
+│                                                                                                  │
+│──────────────────────────────────────────────────────────────────────────────────────────────────│
+│  enter  send  /  commands  ^c  complete  ^x  cancel                      gpt-6.1 · high · remote │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘

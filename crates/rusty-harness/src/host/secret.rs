@@ -11,8 +11,9 @@ use zeroize::Zeroize;
 
 /// Where a credential comes from. Never the credential itself.
 ///
-/// Parsed from `env:NAME`, `keyring:<service>/<user>` or `file:<path>`; a configuration
-/// value that is not one of these is refused, so a literal key cannot sit in a config file.
+/// Parsed from `env:NAME`, `keyring:<service>/<user>`, `keyring:<attr>=<value>,…` or
+/// `file:<path>` (`~/` is the home directory); a configuration value that is not one of
+/// these is refused, so a literal key cannot sit in a config file.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum SecretRef {
@@ -25,6 +26,10 @@ pub enum SecretRef {
         /// The keyring's username attribute.
         user: String,
     },
+    /// An entry of the operator's keyring found by its attributes, in order
+    /// (`keyring:service=temporal,project=rusty-harness`), for entries stored with
+    /// attributes other than `service` and `username`.
+    KeyringAttributes(Vec<(String, String)>),
     /// A file whose trimmed contents are the secret (a mounted secret, for example).
     File(PathBuf),
 }
@@ -33,7 +38,7 @@ pub enum SecretRef {
 /// nothing: the offending text may be a real credential, so it is never echoed.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error(
-    "not a credential reference (expected env:NAME, keyring:SERVICE/USER or file:PATH); the value is not shown"
+    "not a credential reference (expected env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH); the value is not shown"
 )]
 pub struct InvalidSecretRef;
 
@@ -46,8 +51,8 @@ impl schemars::JsonSchema for SecretRef {
         schemars::json_schema!({
             "type": "string",
             "format": "secret-ref",
-            "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/]+/.+|file:.+)$",
-            "description": "A credential by reference: env:NAME, keyring:SERVICE/USER or file:PATH. Never a literal value."
+            "pattern": "^(env:[A-Za-z0-9_]+|keyring:[^/=,]+/.+|keyring:[^=,]+=[^,]+(,[^=,]+=[^,]+)*|file:.+)$",
+            "description": "A credential by reference: env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,… or file:PATH. Never a literal value."
         })
     }
 }
@@ -61,6 +66,25 @@ impl FromStr for SecretRef {
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         {
             return Ok(Self::Env(name.to_owned()));
+        }
+        // The attribute form when an `=` comes before any `/`: a value may itself contain
+        // a slash (`keyring:service=a/b`), which is not the service/user form.
+        if let Some(rest) = s.strip_prefix("keyring:")
+            && rest
+                .split('/')
+                .next()
+                .is_some_and(|head| head.contains('='))
+        {
+            let attributes: Option<Vec<(String, String)>> = rest
+                .split(',')
+                .map(|pair| {
+                    let (k, v) = pair.split_once('=')?;
+                    (!k.is_empty() && !v.is_empty()).then(|| (k.to_owned(), v.to_owned()))
+                })
+                .collect();
+            return attributes
+                .map(Self::KeyringAttributes)
+                .ok_or(InvalidSecretRef);
         }
         if let Some(rest) = s.strip_prefix("keyring:")
             && let Some((service, user)) = rest.split_once('/')
@@ -100,6 +124,11 @@ impl fmt::Display for SecretRef {
         match self {
             Self::Env(name) => write!(f, "env:{name}"),
             Self::Keyring { service, user } => write!(f, "keyring:{service}/{user}"),
+            Self::KeyringAttributes(attributes) => {
+                let pairs: Vec<String> =
+                    attributes.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                write!(f, "keyring:{}", pairs.join(","))
+            }
             Self::File(path) => write!(f, "file:{}", path.display()),
         }
     }
@@ -192,6 +221,20 @@ mod tests {
                 "file:/run/secrets/openai",
                 SecretRef::File(PathBuf::from("/run/secrets/openai")),
             ),
+            (
+                "keyring:service=temporal,project=rusty-harness",
+                SecretRef::KeyringAttributes(vec![
+                    ("service".into(), "temporal".into()),
+                    ("project".into(), "rusty-harness".into()),
+                ]),
+            ),
+            (
+                "keyring:service=a/b,project=x",
+                SecretRef::KeyringAttributes(vec![
+                    ("service".into(), "a/b".into()),
+                    ("project".into(), "x".into()),
+                ]),
+            ),
         ] {
             let parsed: SecretRef = text.parse().expect("parses");
             assert_eq!(parsed, expected);
@@ -207,6 +250,9 @@ mod tests {
             "sk-live-123",
             "env:",
             "keyring:nouser",
+            "keyring:service=",
+            "keyring:=temporal",
+            "keyring:service=temporal,project",
             "file:",
             "ENV:X",
             "env:not valid",

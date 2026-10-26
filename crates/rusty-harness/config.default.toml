@@ -1,6 +1,7 @@
 # rusty-harness configuration. Written on first run with every default; edit what you need.
 # Precedence: code overrides > RH__SECTION__KEY environment variables > this file > defaults.
-# Credentials are references only (env:NAME, keyring:SERVICE/USER, file:PATH), never values.
+# Credentials are references only (env:NAME, keyring:SERVICE/USER, keyring:ATTR=VALUE,…,
+# file:PATH with ~/ for home), never values.
 # Schema: https://madarauchiha-314.github.io/rusty-harness/rusty-harness.schema.json
 
 [agent]
@@ -11,15 +12,17 @@ description = "An agent served by rusty-harness."
 # Models by alias; the loop starts with `default`.
 # [models.default]
 # provider = "openai"            # openai | anthropic
-# model = "gpt-6.1"
+# model = "gpt-6.1-sol"
 # api_key = "env:OPENAI_API_KEY"
 # base_url = "http://127.0.0.1:11434/v1"   # any OpenAI-compatible endpoint
+# api = "responses"             # openai: responses (OpenAI itself) | chat-completions (the default with base_url)
 # effort = "high"
 
 [server]
 bind = "127.0.0.1:7474" # without [server.security] only a loopback address is accepted
 bindings = ["jsonrpc", "rest"]
 # public_url = "https://agent.example.com"
+# allow_origins = ["https://app.example.com"] # browser origins (CORS); empty = any on loopback, none otherwise
 # [server.security]
 # scheme = "bearer"
 # token = "env:RH_BEARER"
@@ -58,6 +61,10 @@ paths = []
 order = []
 [hooks.policies]
 
+[tools]
+max_result_bytes = 65536 # a larger tool result goes through `oversize`
+oversize = "truncate" # truncate | summarise
+
 [context]
 order = [
   "system_prompt",
@@ -82,6 +89,7 @@ max_iterations = 50
 stall_after = "15m"
 on_limit = "input-required" # input-required | fail
 signal_grace = "30s"
+heartbeat_interval = "5s"
 # max_tokens = 200000
 # wall_clock = "2h"
 # idle_timeout = "24h"
@@ -90,6 +98,9 @@ signal_grace = "30s"
 # provider = "openai-realtime"
 # model = "gpt-realtime-2.1"
 # api_key = "env:OPENAI_API_KEY"
+# transcribe_model = "gpt-live-transcribe"
+# speech_model = "gpt-4o-mini-tts"
+# voice = "marin"
 
 [o11y]
 log_level = "info"

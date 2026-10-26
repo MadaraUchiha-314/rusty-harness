@@ -15,7 +15,7 @@ include!(concat!(env!("OUT_DIR"), "/prompts.rs"));
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromptFragment {
     id: EntityId,
-    source: &'static str,
+    source: String,
     locale: String,
     description: String,
     placeholders: Vec<String>,
@@ -40,11 +40,13 @@ impl PromptFragment {
     ///
     /// [`PromptFileError`] for a missing or malformed front matter, an id that does not
     /// match the path, or a placeholder list that does not match the body.
-    pub fn parse(path: &'static str, text: &str) -> Result<Self, PromptFileError> {
+    pub fn parse(path: &str, text: &str) -> Result<Self, PromptFileError> {
         let err = |reason: &str| PromptFileError {
             path: path.to_owned(),
             reason: reason.to_owned(),
         };
+        // A checkout with CRLF line endings (Windows) embeds the shipped prompts that way.
+        let text = text.replace("\r\n", "\n");
         let rest = text
             .strip_prefix("---\n")
             .ok_or_else(|| err("missing front matter"))?;
@@ -101,7 +103,7 @@ impl PromptFragment {
         }
         Ok(Self {
             id: EntityId::versioned(id, version),
-            source: path,
+            source: path.to_owned(),
             locale,
             description,
             placeholders,
@@ -111,8 +113,8 @@ impl PromptFragment {
 
     /// The crate-relative path of the file.
     #[must_use]
-    pub fn source(&self) -> &'static str {
-        self.source
+    pub fn source(&self) -> &str {
+        &self.source
     }
 
     /// The locale the file is written in.
@@ -427,6 +429,16 @@ mod tests {
                 .contains("placeholders")
         );
         assert!(PromptFragment::parse("system/greet.md", "no front matter").is_err());
+    }
+
+    #[test]
+    fn a_fragment_with_crlf_line_endings_parses_the_same() {
+        let lf = PromptFragment::parse("system/greet.md", FILE).expect("parses");
+        let crlf = PromptFragment::parse("system/greet.md", &FILE.replace('\n', "\r\n"))
+            .expect("a CRLF checkout parses");
+        assert_eq!(crlf.entity_id(), lf.entity_id());
+        assert_eq!(crlf.placeholders(), lf.placeholders());
+        assert_eq!(crlf.body(), lf.body());
     }
 
     #[test]

@@ -45,6 +45,8 @@ pub struct Config {
     pub agents: BTreeMap<String, SubAgentConfig>,
     /// Hook ordering and policies.
     pub hooks: HooksConfig,
+    /// Tool execution.
+    pub tools: ToolsConfig,
     /// The context window.
     pub context: ContextConfig,
     /// The core loop's limits.
@@ -111,6 +113,20 @@ pub struct ModelConfig {
     /// Retry policy for retryable provider errors (R9.6).
     #[serde(default)]
     pub retry: RetryConfig,
+    /// `openai` only: the wire. `responses` on `OpenAI`'s own endpoint and
+    /// `chat-completions` for a `base_url` of an `OpenAI`-compatible server, when absent.
+    #[serde(default)]
+    pub api: Option<OpenAiApi>,
+}
+
+/// Which `OpenAI` API a model is reached through.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OpenAiApi {
+    /// `POST /responses`: function tools with reasoning on current models.
+    Responses,
+    /// `POST /chat/completions`: what `OpenAI`-compatible servers implement.
+    ChatCompletions,
 }
 
 /// `[system_one.<alias>]`.
@@ -167,6 +183,11 @@ pub struct ServerConfig {
     pub limits: LimitsConfig,
     /// Push notifications (abuse 9).
     pub push: PushConfig,
+    /// Browser origins allowed to call the server (CORS, R25.1): a surface served from
+    /// another origin, such as the web renderer's dev server. Empty allows any origin
+    /// while the server is loopback-only and none otherwise (fail-closed).
+    #[serde(default)]
+    pub allow_origins: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -178,6 +199,7 @@ impl Default for ServerConfig {
             security: None,
             limits: LimitsConfig::default(),
             push: PushConfig::default(),
+            allow_origins: Vec::new(),
         }
     }
 }
@@ -330,6 +352,37 @@ pub struct HooksConfig {
     pub policies: BTreeMap<String, String>,
 }
 
+/// `[tools]`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct ToolsConfig {
+    /// A tool result larger than this, in bytes, goes through the oversize policy (R8.6).
+    pub max_result_bytes: usize,
+    /// `truncate` (keep the head and the tail) or `summarise` (one call to the `default`
+    /// model with `prompts/tool/summarise-result.md`).
+    pub oversize: OversizePolicyConfig,
+}
+
+impl Default for ToolsConfig {
+    fn default() -> Self {
+        Self {
+            max_result_bytes: 64 * 1024,
+            oversize: OversizePolicyConfig::Truncate,
+        }
+    }
+}
+
+/// `[tools] oversize`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum OversizePolicyConfig {
+    /// Keep the head and the tail, mark the cut.
+    #[default]
+    Truncate,
+    /// Ask a model for a shorter version; truncate when that fails.
+    Summarise,
+}
+
 /// `[context]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
@@ -402,6 +455,8 @@ pub struct LoopConfig {
     pub on_limit: String,
     /// How long a signalled inbox event may wait before the heartbeat re-signals it.
     pub signal_grace: DurationStr,
+    /// How often the heartbeat ticks (R23.1).
+    pub heartbeat_interval: DurationStr,
 }
 
 impl Default for LoopConfig {
@@ -414,6 +469,7 @@ impl Default for LoopConfig {
             idle_timeout: None,
             on_limit: "input-required".into(),
             signal_grace: DurationStr::secs(30),
+            heartbeat_interval: DurationStr::secs(5),
         }
     }
 }
@@ -428,6 +484,14 @@ pub struct VoiceConfig {
     pub model: Option<String>,
     /// The credential, by reference.
     pub api_key: Option<SecretRef>,
+    /// The API base (`https://api.openai.com/v1` when absent).
+    pub base_url: Option<url::Url>,
+    /// The streaming transcription model (`gpt-live-transcribe` when absent).
+    pub transcribe_model: Option<String>,
+    /// The synthesis model (`gpt-4o-mini-tts` when absent).
+    pub speech_model: Option<String>,
+    /// The voice the model speaks with (`marin` when absent).
+    pub voice: Option<String>,
 }
 
 /// `[o11y]`.
@@ -574,6 +638,42 @@ impl Config {
             .map_err(|e: toml::de::Error| ConfigError::Invalid(e.message().to_owned()))
     }
 
+    /// [`Config::from_layers`] with the code layer as JSON, the shape the SDKs hold it in
+    /// (a Python `dict`, a JavaScript object). `null`s are dropped: TOML has none, and an
+    /// absent key already means "the layer below".
+    ///
+    /// # Errors
+    ///
+    /// As [`Config::from_layers`]; [`ConfigError::Invalid`] when `overrides` is not an
+    /// object.
+    pub fn from_layers_json(
+        file: Option<&str>,
+        env: impl IntoIterator<Item = (String, String)>,
+        overrides: Option<serde_json::Value>,
+    ) -> Result<Self, ConfigError> {
+        fn without_nulls(value: serde_json::Value) -> serde_json::Value {
+            match value {
+                serde_json::Value::Object(map) => serde_json::Value::Object(
+                    map.into_iter()
+                        .filter(|(_, v)| !v.is_null())
+                        .map(|(k, v)| (k, without_nulls(v)))
+                        .collect(),
+                ),
+                serde_json::Value::Array(items) => {
+                    serde_json::Value::Array(items.into_iter().map(without_nulls).collect())
+                }
+                other => other,
+            }
+        }
+        let overrides = overrides
+            .map(|v| {
+                toml::Table::try_from(without_nulls(v))
+                    .map_err(|e| ConfigError::Invalid(format!("the code layer: {e}")))
+            })
+            .transpose()?;
+        Self::from_layers(file, env, overrides)
+    }
+
     /// Loads from [`ConfigSources`] through the host's file system (R27.2).
     ///
     /// # Errors
@@ -616,6 +716,45 @@ impl Config {
         )
         .await
         .map_err(|e| read_error(path, &e))
+    }
+
+    /// Every credential reference the configuration holds, by its dotted path, for the
+    /// startup check that each resolves (fail-closed list).
+    #[must_use]
+    pub fn secret_refs(&self) -> Vec<(String, SecretRef)> {
+        let mut out = Vec::new();
+        for (alias, model) in &self.models {
+            out.push((format!("models.{alias}.api_key"), model.api_key.clone()));
+        }
+        for (alias, judge) in &self.system_one {
+            if let Some(key) = &judge.api_key {
+                out.push((format!("system_one.{alias}.api_key"), key.clone()));
+            }
+        }
+        match &self.server.security {
+            Some(SecuritySchemeConfig::Bearer { token }) => {
+                out.push(("server.security.token".into(), token.clone()));
+            }
+            Some(SecuritySchemeConfig::ApiKey { key, .. }) => {
+                out.push(("server.security.key".into(), key.clone()));
+            }
+            None => {}
+        }
+        for (name, agent) in &self.agents {
+            if let Some(key) = &agent.api_key {
+                out.push((format!("agents.{name}.api_key"), key.clone()));
+            }
+        }
+        for (field, value) in [
+            ("address", &self.durable.temporal.address),
+            ("namespace", &self.durable.temporal.namespace),
+            ("api_key", &self.durable.temporal.api_key),
+        ] {
+            if let Some(reference) = value {
+                out.push((format!("durable.temporal.{field}"), reference.clone()));
+            }
+        }
+        out
     }
 
     /// The JSON schema of the whole configuration (Q9), as published in

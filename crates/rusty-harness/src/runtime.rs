@@ -45,6 +45,10 @@ pub trait MaybeSync {}
 #[cfg(target_arch = "wasm32")]
 impl<T: ?Sized> MaybeSync for T {}
 
+/// A monotonic instant: std's natively, `performance.now()` on `wasm32`, where
+/// `std::time::Instant::now` panics.
+pub use web_time::Instant;
+
 /// The capabilities the harness needs from an async runtime.
 pub trait Runtime {
     /// Runs `future` in the background, detached from the caller.
@@ -186,4 +190,22 @@ macro_rules! harness_async_trait {
         #[cfg_attr(target_arch = "wasm32", ::async_trait::async_trait(?Send))]
         $($item)*
     };
+}
+
+/// Boxes a stream as a [`HarnessStream`]: `Send` natively, local on `wasm32`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn boxed_stream<'a, S>(stream: S) -> HarnessStream<'a, S::Item>
+where
+    S: futures::Stream + Send + 'a,
+{
+    Box::pin(stream)
+}
+
+/// Boxes a stream as a [`HarnessStream`]: `Send` natively, local on `wasm32`.
+#[cfg(target_arch = "wasm32")]
+pub fn boxed_stream<'a, S>(stream: S) -> HarnessStream<'a, S::Item>
+where
+    S: futures::Stream + 'a,
+{
+    Box::pin(stream)
 }

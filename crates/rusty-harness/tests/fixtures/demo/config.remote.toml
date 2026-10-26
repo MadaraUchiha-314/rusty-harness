@@ -1,0 +1,43 @@
+# The definition-of-done demo (R32), `remote` variant: the same harness on Temporal Cloud.
+#   cargo run -p rusty_harness --features cli -- --config tests/fixtures/demo/config.remote.toml --no-tui
+# Every Temporal value is a reference, read where the operator keeps it: the address and the
+# namespace in ~/.config/rusty-harness/ (not secrets, but not this repository's either), the
+# API key in the OS keyring. Set `from_env = true` to take TEMPORAL_ADDRESS,
+# TEMPORAL_NAMESPACE and TEMPORAL_API_KEY from the environment instead.
+
+[agent]
+name = "demo-agent"
+description = "The rusty-harness demo agent: drafts release notes with you, served over A2A."
+
+[models.default]
+provider = "openai"
+model = "gpt-6.1-sol"
+api_key = "env:OPENAI_API_KEY"
+effort = "medium"
+
+[server]
+bind = "127.0.0.1:7474"
+bindings = ["jsonrpc", "rest"]
+
+[durable]
+mode = "remote"
+
+[durable.temporal]
+address = "file:~/.config/rusty-harness/temporal-address"
+namespace = "file:~/.config/rusty-harness/temporal-namespace"
+api_key = "keyring:service=temporal,project=rusty-harness"
+task_queue = "rusty-harness-demo"
+
+[persistence]
+store = "file"
+path = "~/.cache/rusty-harness/demo-data-remote"
+
+[plugins]
+paths = ["tests/fixtures/demo/plugins"]
+
+[loop]
+max_iterations = 50
+stall_after = "15m"
+
+[o11y]
+log_level = "info"

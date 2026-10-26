@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskMeta",
+  "description": "The record's extension payload (`task/v1`).",
+  "type": "object",
+  "properties": {
+    "acceptance_criteria": {
+      "description": "How to tell it is done.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "description": {
+      "description": "The longer description.",
+      "type": "string"
+    },
+    "goal": {
+      "description": "What done looks like.",
+      "type": "string"
+    },
+    "mode": {
+      "description": "One-shot or long-running.",
+      "$ref": "#/$defs/TaskMode"
+    },
+    "name": {
+      "description": "Short name.",
+      "type": "string"
+    },
+    "parent_tasks": {
+      "description": "Parents.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TaskRef"
+      }
+    },
+    "reference_task_ids": {
+      "description": "Finished tasks this one continues.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sub_state": {
+      "description": "The sub-state, when any.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SubState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sub_tasks": {
+      "description": "Spawned tasks.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TaskRef"
+      }
+    },
+    "type": {
+      "description": "Optional type.",
+      "type": ["string", "null"]
+    }
+  },
+  "required": [
+    "name",
+    "goal",
+    "description",
+    "acceptance_criteria",
+    "mode",
+    "sub_tasks",
+    "parent_tasks",
+    "reference_task_ids"
+  ],
+  "$defs": {
+    "SubState": {
+      "description": "A condition A2A's state enum cannot express, carried on the status metadata (R21.4).",
+      "oneOf": [
+        {
+          "description": "A long-running task delivered a response and waits for the next message.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "awaiting-next-turn"
+            }
+          },
+          "required": ["kind"]
+        },
+        {
+          "description": "Waiting for a participant's answer to `ask`.",
+          "type": "object",
+          "properties": {
+            "ask": {
+              "description": "The question.",
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "awaiting-participant"
+            }
+          },
+          "required": ["kind", "ask"]
+        },
+        {
+          "description": "Paused by a participant.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "paused"
+            }
+          },
+          "required": ["kind"]
+        },
+        {
+          "description": "Running with reduced capability; `reason` is a string-catalog key.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "degraded"
+            },
+            "reason": {
+              "description": "The catalog key of the reason.",
+              "type": "string"
+            }
+          },
+          "required": ["kind", "reason"]
+        },
+        {
+          "description": "The context is being compacted.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "compacting"
+            }
+          },
+          "required": ["kind"]
+        },
+        {
+          "description": "Waiting on a sub-task.",
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "delegated"
+            },
+            "task": {
+              "description": "The sub-task.",
+              "type": "string"
+            }
+          },
+          "required": ["kind", "task"]
+        }
+      ]
+    },
+    "TaskMode": {
+      "description": "Whether a task closes after one response or stays open across turns (R21.1).",
+      "oneOf": [
+        {
+          "description": "Completed once a response is delivered.",
+          "type": "string",
+          "const": "one-shot"
+        },
+        {
+          "description": "Moves to `input-required` after each response and waits for the next turn.",
+          "type": "string",
+          "const": "long-running"
+        }
+      ]
+    },
+    "TaskRef": {
+      "description": "A reference to another task.",
+      "type": "object",
+      "properties": {
+        "context_id": {
+          "description": "Its context, when known.",
+          "type": ["string", "null"]
+        },
+        "task": {
+          "description": "The task.",
+          "type": "string"
+        }
+      },
+      "required": ["task"]
+    }
+  }
+}

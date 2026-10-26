@@ -17,7 +17,7 @@ use rusty_harness::harness::channels::CHANNELS_EXT;
 use rusty_harness::harness::commands::ModelSelection;
 use rusty_harness::harness::core_loop::persistence::TaskCommit;
 use rusty_harness::harness::core_loop::task::{
-    Participant, ParticipantKind, Role, TASK_EXT, TaskDraft, TaskMode, TaskRecord,
+    Caller, Participant, ParticipantKind, Role, TASK_EXT, TaskDraft, TaskMode, TaskRecord,
 };
 use rusty_harness::harness::models::llm::testing::RecordedLlm;
 use rusty_harness::harness::models::llm::{ModelEvent, StopReason};
@@ -107,8 +107,9 @@ fn message(text: &str, task: Option<&str>) -> Value {
 ///     Given a task with alice (admin) and bob (watcher) and a question asked of alice
 ///     When bob reads the task and subscribes to it
 ///     Then bob sees input-required and the sub-state but no question parts
-///     And alice sees the question
+///     And alice sees the question, through the server and through the SDK alike
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::too_many_lines)] // one scenario: the server, the stream and the SDK
 async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_question() {
     let ask = vec![
         ModelEvent::ToolCall {
@@ -212,6 +213,26 @@ async fn a_task_watcher_outside_a_channel_sees_the_state_change_but_not_the_ques
         .unwrap();
     assert!(!body.contains("Deploy to prod?"), "{body}");
     assert!(body.contains("TASK_STATE_INPUT_REQUIRED"), "{body}");
+
+    // The SDK's getTask applies the same rule as the server's.
+    let as_bob = h
+        .get_task("shared", Some(Caller::human("bob", [Role::Watcher])))
+        .await
+        .expect("bob reads the task");
+    let bob_message = as_bob.status.message.as_ref().expect("a status message");
+    assert!(
+        bob_message.parts.is_empty(),
+        "no question for bob through the SDK: {bob_message:?}"
+    );
+    let as_alice = h
+        .get_task("shared", Some(Caller::human("alice", [Role::Admin])))
+        .await
+        .expect("alice reads the task");
+    assert_eq!(
+        as_alice.status.message.as_ref().and_then(|m| m.text()),
+        Some("Deploy to prod?"),
+        "alice sees the question through the SDK"
+    );
     running.stop();
 }
 

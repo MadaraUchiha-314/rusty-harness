@@ -737,11 +737,32 @@ impl Harness {
         task: &str,
         caller: Option<Caller>,
     ) -> Result<a2a::Task, a2a::A2AError> {
-        self.store
-            .a2a_task(&task.to_owned(), &caller.unwrap_or_else(operator))
+        let internal = |e: crate::harness::core_loop::persistence::StoreError| {
+            a2a::A2AError::internal(e.to_string())
+        };
+        // As the server's GetTask: the caller sees the channels it belongs to, and a
+        // channel's question only if it is a member (R18.5, abuse 2).
+        let viewer = crate::app_service::channels_api::viewer_for(
+            self.store.as_ref(),
+            task,
+            &caller.unwrap_or_else(operator),
+        )
+        .await
+        .map_err(internal)?;
+        let mut found = self
+            .store
+            .a2a_task(&task.to_owned(), &viewer)
             .await
-            .map_err(|e| a2a::A2AError::internal(e.to_string()))?
-            .ok_or_else(|| a2a::A2AError::task_not_found(task))
+            .map_err(internal)?
+            .ok_or_else(|| a2a::A2AError::task_not_found(task))?;
+        crate::app_service::channels_api::redact_for_viewer(
+            self.store.as_ref(),
+            &mut found,
+            &viewer,
+        )
+        .await
+        .map_err(internal)?;
+        Ok(found)
     }
 
     /// Cancels the task on behalf of `caller`: the SDK's `cancelTask`.

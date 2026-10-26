@@ -208,12 +208,22 @@ impl Decoder {
                             "a function_call item without its call_id or name".into(),
                         ));
                     };
+                    // No arguments is an empty object; text that is not JSON (a cut or
+                    // malformed generation) is retried rather than run as `{}`.
+                    let arguments = if arguments.trim().is_empty() {
+                        Value::Object(serde_json::Map::new())
+                    } else {
+                        serde_json::from_str(&arguments).map_err(|e| ModelError::Retryable {
+                            status: None,
+                            message: format!("the arguments of {name} are not JSON: {e}"),
+                            retry_after: None,
+                        })?
+                    };
                     out.push(ModelEvent::ToolCall {
                         call: ToolCall {
                             id,
                             name,
-                            arguments: serde_json::from_str(&arguments)
-                                .unwrap_or(Value::Object(serde_json::Map::new())),
+                            arguments,
                         },
                     });
                 }
@@ -451,6 +461,18 @@ mod tests {
                 Some(Err(crate::harness::models::llm::ModelError::Decode(_)))
             ),
             "a call the next request could not answer is refused: {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_function_call_whose_arguments_are_not_json_is_retryable() {
+        let events: Vec<_> = futures::StreamExt::collect(decode(chunks(vec![
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"math_add\",\"arguments\":\"{\\\"a\\\": 1\"}}\n\n",
+        ])))
+        .await;
+        assert!(
+            matches!(events.first(), Some(Err(e)) if e.is_retryable()),
+            "the tool never runs on arguments it was not given: {events:?}"
         );
     }
 }

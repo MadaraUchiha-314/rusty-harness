@@ -21,6 +21,9 @@ test.use({ viewport: { width: 1920, height: 1000 } });
 test("both renderers on one harness, recorded", async ({ page, baseURL }) => {
   test.setTimeout(900_000);
   const web = `${baseURL ?? ""}/?url=${encodeURIComponent(harness ?? "")}`;
+  // The wrapper must be a secure context too, or the framed renderer is not one and has
+  // no `crypto.randomUUID` to name its messages: write it over a page of the preview's.
+  await page.goto(`${baseURL ?? ""}/`);
   await page.setContent(`<!doctype html>
     <style>body{margin:0;display:flex;height:100vh;font:14px sans-serif}
       figure{margin:0;flex:1;display:flex;flex-direction:column;border-right:2px solid #ccc}

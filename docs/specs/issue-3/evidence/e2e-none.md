@@ -24,6 +24,13 @@ root task over three turns:
 3. **The second client** asks for a shorter version; the model revises it; the task is
    still open. The TUI, given the task, shows the revision.
 
+**Both renderers at once, recorded (R32.6):** the demo harness, the web renderer and the
+TUI (served in a browser terminal by `ttyd`, attached with `--url`) side by side, each
+working a task through the A2UI ask to the draft:
+[`e2e/demo-both-renderers.webm`](e2e/demo-both-renderers.webm) (26 s), last frame
+[`e2e/demo-both-renderers.png`](e2e/demo-both-renderers.png); spec
+`web/tests/e2e/demo-recording.spec.ts`, passed (25.5 s).
+
 The browser leg ran the same journey in the web renderer (the A2UI form through the
 official React renderer): stills [`e2e/web-1-ask.png`](e2e/web-1-ask.png),
 [`e2e/web-2-draft.png`](e2e/web-2-draft.png),

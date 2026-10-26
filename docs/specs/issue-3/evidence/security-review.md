@@ -23,6 +23,7 @@ workItem: "issue-3"
   | Id | Severity | Finding | Disposition |
   |----|----------|---------|-------------|
   | SEC-1 | low | `web-time`, `jsonschema` (dev) and `criterion` (dev), added in M7, were not justified in `design.md`'s dependency table | fixed [`2982ba4`](https://github.com/MadaraUchiha-314/rusty-harness/commit/2982ba4); `cargo deny check` passes all four checks |
+  | SEC-2 | low | RUSTSEC-2026-0391, -0398 and -0403 (published after the review) against zstd 0.13 / zstd-safe 7, reached only through the Temporal SDK's dev server (`zip` 8, pinned upstream); no fixed release is reachable | accepted with reasons in `deny.toml`: `zip` reads through the read-side decoder with a fresh context, and `seekable` is off, so no affected path is used; revisit when the SDK moves to `zip` 9 |
 
 - **Human sign-off:** _pending_. The risk tier is 4 (`requirements.md`), so a named human
   must approve this review before the work item completes. Requested on #3.

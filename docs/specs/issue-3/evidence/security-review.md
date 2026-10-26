@@ -25,8 +25,12 @@ workItem: "issue-3"
   | SEC-1 | low | `web-time`, `jsonschema` (dev) and `criterion` (dev), added in M7, were not justified in `design.md`'s dependency table | fixed [`2982ba4`](https://github.com/MadaraUchiha-314/rusty-harness/commit/2982ba4); `cargo deny check` passes all four checks |
   | SEC-2 | low | RUSTSEC-2026-0391, -0398 and -0403 (published after the review) against zstd 0.13 / zstd-safe 7, reached only through the Temporal SDK's dev server (`zip` 8, pinned upstream); no fixed release is reachable | accepted with reasons in `deny.toml`: `zip` reads through the read-side decoder with a fresh context, and `seekable` is off, so no affected path is used; revisit when the SDK moves to `zip` 9 |
 
-- **Human sign-off:** _pending_. The risk tier is 4 (`requirements.md`), so a named human
-  must approve this review before the work item completes. Requested on #3.
+- **Human sign-off:** approved by MadaraUchiha-314 on 2026-10-26
+  ([comment](https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6421744302)),
+  in reply to the [request](https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6421685956)
+  that listed the remaining risks. The risk tier is 4 (`requirements.md`). Accepted: voice on
+  a real microphone stays unverified until V1–V3 run after the merge, and SEC-2. The
+  process-wide `/model` risk was removed before the sign-off ([`0ff3fd8`](https://github.com/MadaraUchiha-314/rusty-harness/commit/0ff3fd8)).
 
 ### The checklist, item by item
 

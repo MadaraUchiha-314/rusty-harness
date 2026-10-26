@@ -1,6 +1,7 @@
 # Getting started
 
-rusty-harness ships the same Rust core to three ecosystems. Pick yours.
+rusty-harness ships the same Rust core to three ecosystems. Pick yours. To run the agent
+as a server instead of embedding it, see [Run the server](./run-the-server).
 
 ## Rust
 

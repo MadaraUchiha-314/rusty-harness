@@ -1,0 +1,80 @@
+{
+  "capabilities": {
+    "extendedAgentCard": false,
+    "extensions": [
+      {
+        "description": "rusty-harness task/v1 extension",
+        "params": {
+          "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/task.v1.schema.json"
+        },
+        "required": false,
+        "uri": "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/task/v1"
+      },
+      {
+        "description": "rusty-harness participants/v1 extension",
+        "params": {
+          "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/participants.v1.schema.json"
+        },
+        "required": false,
+        "uri": "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/participants/v1"
+      },
+      {
+        "description": "rusty-harness plan/v1 extension",
+        "params": {
+          "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/plan.v1.schema.json"
+        },
+        "required": false,
+        "uri": "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/plan/v1"
+      },
+      {
+        "description": "rusty-harness channels/v1 extension",
+        "params": {
+          "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/channels.v1.schema.json"
+        },
+        "required": false,
+        "uri": "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/channels/v1"
+      },
+      {
+        "description": "rusty-harness commands/v1 extension",
+        "params": {
+          "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/commands.v1.schema.json"
+        },
+        "required": false,
+        "uri": "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/commands/v1"
+      },
+      {
+        "description": "rusty-harness voice/v1 extension",
+        "params": {
+          "schema": "https://madarauchiha-314.github.io/rusty-harness/a2a-ext/voice.v1.schema.json"
+        },
+        "required": false,
+        "uri": "https://madarauchiha-314.github.io/rusty-harness/a2a/ext/voice/v1"
+      },
+      {
+        "description": "A2UI 0.9.1 payloads as application/a2ui+json data parts",
+        "required": false,
+        "uri": "https://a2ui.org/a2a-extension/a2ui/v0.9.1"
+      }
+    ],
+    "pushNotifications": false,
+    "streaming": true
+  },
+  "defaultInputModes": ["text/plain"],
+  "defaultOutputModes": ["text/plain"],
+  "description": "An agent served by rusty-harness.",
+  "name": "rusty-harness",
+  "skills": [],
+  "supportedInterfaces": [
+    {
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "1.0",
+      "url": "http://127.0.0.1:0/"
+    },
+    {
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0",
+      "url": "http://127.0.0.1:0/"
+    }
+  ],
+  "version": "0.1.0"
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VoiceMeta",
+  "description": "The `voice/v1` extension payload on an audio part (design.md § A2A extensions).",
+  "type": "object",
+  "properties": {
+    "attempt": {
+      "description": "The attempt that produced it (retracted attempts are dropped by renderers).",
+      "$ref": "#/$defs/Attempt"
+    },
+    "final": {
+      "description": "Whether this is the last chunk of the utterance.",
+      "type": "boolean"
+    },
+    "format": {
+      "description": "`pcm16@24k` or `opus`.",
+      "type": "string"
+    },
+    "seq": {
+      "description": "The chunk's position in its attempt.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "session": {
+      "description": "The voice session.",
+      "type": "string"
+    }
+  },
+  "required": ["seq", "attempt", "format", "final", "session"],
+  "$defs": {
+    "Attempt": {
+      "description": "One attempt of an activity: `(iteration, n)` (design.md § attempt protocol).",
+      "type": "object",
+      "properties": {
+        "iteration": {
+          "description": "The loop iteration.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "n": {
+          "description": "The attempt within it, from 1.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": ["iteration", "n"]
+    }
+  }
+}

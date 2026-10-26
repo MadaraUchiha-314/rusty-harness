@@ -73,6 +73,8 @@ async fn the_harness_is_usable_from_rust_in_process() {
         },
         metadata: None,
         extensions: vec![],
+        inbox_event_id: None,
+        traceparent: None,
     };
     let events: Vec<_> = harness.agent().send_message(request).collect().await;
     assert!(
@@ -86,8 +88,11 @@ async fn the_harness_is_usable_from_rust_in_process() {
         .unwrap()
         .unwrap();
     assert_eq!(task.state, a2a::TaskState::Completed, "one-shot by default");
-    let durable = harness.durable();
-    assert!(!durable.is_running(&"t1".into()));
+    assert!(
+        harness.durable().is_some(),
+        "the in-process durable mode is shared"
+    );
+    assert!(harness.inbox().is_some());
 }
 
 #[tokio::test]

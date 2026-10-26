@@ -15,6 +15,15 @@ authors = ["MadaraUchiha-314"]
 # The official A2A protocol crates (protocol 1.0; crates.io names end in -lf, imported as `a2a`, `a2a_client`, `a2a_server`).
 a2a-lf = "0.4.2"
 a2a-client-lf = { version = "0.2.9", default-features = false }
+a2a-server-lf = { version = "0.5.3", default-features = false }
+clap = { version = "4.6", features = [
+  "derive",
+  "std",
+  "help",
+  "usage",
+  "error-context",
+], default-features = false }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 async-trait = "0.1"
 base64 = "0.22"
 bytes = { version = "1", features = ["serde"] }
@@ -35,9 +44,14 @@ opentelemetry = { version = "0.33", features = ["trace"] }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = [
   "trace",
   "http-proto",
-  "reqwest-client",
+  "reqwest-blocking-client",
   "reqwest-rustls",
 ] }
+opentelemetry-proto = { version = "0.33", default-features = false, features = [
+  "gen-tonic-messages",
+  "trace",
+] }
+prost = "0.14"
 opentelemetry_sdk = { version = "0.33", features = ["trace", "rt-tokio"] }
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
 pyo3-async-runtimes = { version = "0.29", features = ["tokio-runtime"] }

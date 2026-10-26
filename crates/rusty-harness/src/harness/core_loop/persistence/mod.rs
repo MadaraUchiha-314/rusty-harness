@@ -224,6 +224,10 @@ pub struct TaskQuery {
     /// Page size; `0` means the store's default (50).
     #[serde(default)]
     pub limit: usize,
+    /// Skip the viewer check: the service layer's own listing, after it applied the
+    /// participant guard itself.
+    #[serde(default)]
+    pub everyone: bool,
 }
 
 impl TaskQuery {
@@ -237,13 +241,22 @@ impl TaskQuery {
             open_only: false,
             after: None,
             limit: 0,
+            everyone: false,
         }
+    }
+
+    /// Every task, for a caller the service layer already authorised.
+    #[must_use]
+    pub fn everyone() -> Self {
+        let mut q = Self::for_viewer(Caller::system("service"));
+        q.everyone = true;
+        q
     }
 
     /// Whether `task` matches.
     #[must_use]
     pub fn matches(&self, task: &TaskRecord) -> bool {
-        self.viewer.sees(task)
+        (self.everyone || self.viewer.sees(task))
             && self.states.as_ref().is_none_or(|s| s.contains(&task.state))
             && self
                 .context_id

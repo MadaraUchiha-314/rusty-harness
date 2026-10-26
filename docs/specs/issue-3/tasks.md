@@ -257,7 +257,7 @@ abuse cases are tests like any other (`reference/security.md`).
 
 ### M3 — App service layer (PR 3: `loop/issue-3-m3-service`)
 
-- [ ] 20. A2A server adapter: `HarnessExecutor: AgentExecutor` over the SDK's
+- [x] 20. A2A server adapter: `HarnessExecutor: AgentExecutor` over the SDK's
   `DefaultRequestHandler`, `AgentCardBuilder`, JSON-RPC and REST routers, the agent
   card route, the event-log tail as the response stream, `PersistenceStore` as the SDK
   `TaskStore`, the `a2a-grpc` feature wiring (off by default).
@@ -267,7 +267,7 @@ abuse cases are tests like any other (`reference/security.md`).
     test:contract`): `Scenario: The official TypeScript SDK drives every A2A 1.0
     operation against the server`, `Scenario: A request with A2A-Version 0.3 is
     rejected`; T6 — `snapshot_agent_card`
-- [ ] 21. `protocol_gap` and authentication: `ExtensionNegotiator` (parse, intersect,
+- [x] 21. `protocol_gap` and authentication: `ExtensionNegotiator` (parse, intersect,
   echo, expose the active set), the `Caller` from `RequestAuthorizer` (bearer and API
   key, constant time), the participant guard on every task-scoped operation, `ListTasks`
   filtered by membership, per-caller token bucket and `streams_per_caller`, loopback-only
@@ -278,7 +278,7 @@ abuse cases are tests like any other (`reference/security.md`).
     created`, `abuse_non_participant_gets_task_not_found_and_empty_list_tasks`,
     `abuse_ninth_stream_of_one_caller_is_rejected_and_the_other_task_keeps_streaming`;
     T3 — `Scenario: An extension not advertised in the card is not activated`
-- [ ] 22. Inbox and events: `InboxEvent` with the tri-state status, `Inbox::accept`
+- [x] 22. Inbox and events: `InboxEvent` with the tri-state status, `Inbox::accept`
   (validation per R20.6, hooks, store, signal, status), `/inbox` route, delivery policy
   (interrupt vs queue), the applied-set dedupe, the `events/` webhook adapters. 🔒
   boundary 2.
@@ -287,7 +287,7 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A duplicate inbox signal applies the event once`,
     `Scenario: A follow-up to a completed task starts a new task with referenceTaskIds`;
     T8 — `abuse_inbox_event_for_a_terminal_task_is_rejected_without_creating_one`
-- [ ] 23. Channels API, per-subscriber projection and push notifications: the
+- [x] 23. Channels API, per-subscriber projection and push notifications: the
   `channels/v1` handling on the server, `visibility: members` redaction in
   `tail_events`, push configs through the SDK's `HttpPushSender` with the operator
   allowlist. 🔒 boundary 2, abuse 9.
@@ -296,14 +296,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T2 — `Scenario: A task watcher outside a channel sees the state change but
     not the question`, `Scenario: GetTask after a restart returns the full A2A task`;
     T8 — `abuse_push_config_naming_a_link_local_address_is_rejected`
-- [ ] 24. Heartbeat: interval loop on the runtime seam, re-signalling of `Received` and
+- [x] 24. Heartbeat: interval loop on the runtime seam, re-signalling of `Received` and
   stale `Signalled` events, liveness record and gauge, `task.stalled` hook with the
   default warning.
   - _Depends on:_ 22
   - _Requirements:_ R23.1–3
   - _Test:_ T2 — `Scenario: The heartbeat forwards an event whose signal failed`; T1 —
     `heartbeat::tests` (stall detection with a paused clock)
-- [ ] 25. The server binary: `src/bin/rusty-harness.rs` with `clap`, `--config`,
+- [x] 25. The server binary: `src/bin/rusty-harness.rs` with `clap`, `--config`,
   `--no-tui`, `--url`, `--locale`, first-run config write, startup checks (secret
   references resolve, `remote` reachable or exit 2), strings from the catalog, the
   `demo` fixture config.
@@ -312,14 +312,14 @@ abuse cases are tests like any other (`reference/security.md`).
   - _Test:_ T1 — `bin::tests` (argument precedence); T6 — `snapshot_first_run_output`
     (`NO_COLOR`); T8 — `abuse_remote_durable_unreachable_refuses_to_start` (completed in
     task 30)
-- [ ] 26. Observability end to end: one trace per task across request, inbox and loop,
+- [x] 26. Observability end to end: one trace per task across request, inbox and loop,
   Langfuse configuration of the hook set, canary extended to A2A responses, the card and
   the store.
   - _Depends on:_ 23
   - _Requirements:_ R24.1, R24.3, abuse 7
   - _Test:_ T2 — `Scenario: Every operation of a task appears in one trace` (OTLP
     collector stub in the test); T8 — the canary scenario, second leg
-- [ ] 27. M3 pull request: capability docs for the server, inbox, channels, heartbeat;
+- [x] 27. M3 pull request: capability docs for the server, inbox, channels, heartbeat;
   `docs/guide/` "Run the server" page; the A2A extension pages on the docs site (Q12);
   `evidence/pull-requests.md` row.
   - _Depends on:_ 25, 26

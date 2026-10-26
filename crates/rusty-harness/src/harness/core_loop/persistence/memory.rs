@@ -88,6 +88,12 @@ impl Inner {
         }
         commit.task.version = checked.version;
         commit.task.pending_calls = std::mem::take(&mut commit.pending_calls);
+        // The applied set lives on the record (design.md § Inbox): a duplicate signal is a no-op.
+        for id in &commit.inbox_applied {
+            if !commit.task.applied_events.contains(id) {
+                commit.task.applied_events.push(id.clone());
+            }
+        }
         self.tasks.insert(id.clone(), commit.task);
         self.commits.insert(id.clone(), checked.seq);
         if let Some(state) = commit.state {
@@ -308,9 +314,13 @@ harness_async_trait! {
         }
 
         async fn put_inbox(&self, event: &InboxEvent) -> Result<EventRef, StoreError> {
-            let mut stored = event.clone();
-            stored.status = InboxStatus::Received;
-            self.lock().inbox.insert(event.id.clone(), stored);
+            let mut inner = self.lock();
+            // Idempotent on the id: a second put keeps the stored event and its status.
+            inner.inbox.entry(event.id.clone()).or_insert_with(|| {
+                let mut stored = event.clone();
+                stored.status = InboxStatus::Received;
+                stored
+            });
             Ok(EventRef { id: event.id.clone(), target: event.target.clone() })
         }
 

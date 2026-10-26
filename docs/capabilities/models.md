@@ -34,6 +34,8 @@ flowchart LR
   `cache_control` there and the OpenAI client SHALL keep the prefix stable.
 - WHEN a System One judgement is needed THEN the system SHALL ask the configured HTTP
   classifier or, absent one, the LLM on the `system-one/classify` fragment.
+- WHEN a provider refuses with a body that echoes the credential THEN the error SHALL
+  carry `[redacted]` where the credential was (abuse 7).
 
 ## Design
 

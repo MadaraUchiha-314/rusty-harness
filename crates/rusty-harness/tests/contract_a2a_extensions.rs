@@ -39,6 +39,21 @@ fn contract_a2a_extension_schemas() {
         if published != generated {
             stale.push(path.display().to_string());
         }
+        // The docs site serves the same schema next to the extension's page (Q12).
+        let served = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/public/a2a/ext")
+            .join(extension.name)
+            .join("v1.schema.json");
+        if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+            std::fs::create_dir_all(served.parent().unwrap()).unwrap();
+            std::fs::write(&served, &json).expect("writes the served schema");
+        }
+        let on_site: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&served).unwrap_or_default())
+                .unwrap_or(serde_json::Value::Null);
+        if on_site != generated {
+            stale.push(served.display().to_string());
+        }
     }
     assert!(
         stale.is_empty(),

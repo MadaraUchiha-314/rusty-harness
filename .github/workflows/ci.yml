@@ -111,6 +111,19 @@ jobs:
       - run: bun run lint
       - run: bun run format
 
+  conformance:
+    name: A2A conformance (TypeScript SDK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: cargo build -p rusty_harness --features cli --bin rusty-harness
+      - name: the official TypeScript SDK drives the binary
+        run: bun run --cwd web test:contract
+
   python-lint:
     name: Python lint
     runs-on: ubuntu-latest

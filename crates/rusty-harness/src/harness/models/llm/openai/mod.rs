@@ -425,7 +425,7 @@ harness_async_trait! {
                         break;
                     }
                 }
-                return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).into_owned(), retry_after(&response.headers)));
+                return Err(ModelError::from_status(response.status.as_u16(), String::from_utf8_lossy(&text).replace(self.api_key.expose(), "[redacted]"), retry_after(&response.headers)));
             }
             Ok(decode(response.body))
         }

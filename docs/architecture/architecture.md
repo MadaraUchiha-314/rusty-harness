@@ -34,7 +34,7 @@ draws.
 | Module | Role | Capability doc |
 |---|---|---|
 | `interaction/` | layer 1: surfaces, renderers, inbound events | (M5) |
-| `app_service/` | layer 2: A2A server, inbox, channels API, heartbeat, durable execution, o11y | [loop](../capabilities/loop.md) (durable `none`), [hooks](../capabilities/hooks.md) (o11y is a hook set) |
+| `app_service/` | layer 2: A2A server, inbox, channels API, heartbeat, durable execution, o11y | [server](../capabilities/server.md), [inbox](../capabilities/inbox.md), [heartbeat](../capabilities/heartbeat.md), [loop](../capabilities/loop.md) (durable `none`), [observability](../capabilities/observability.md) |
 | `harness/` | layer 3: the core loop and its entities, prompts, skills, tools, hooks, models, A2A client, channels, plugins, commands | [loop](../capabilities/loop.md), [task](../capabilities/task.md), [models](../capabilities/models.md), [tools](../capabilities/tools.md), [plugins](../capabilities/plugins.md), [skills](../capabilities/skills.md), [channels](../capabilities/channels.md), [commands](../capabilities/commands.md), [hooks](../capabilities/hooks.md) |
 | `self_improvement/` | layer 4: placeholders, out of scope | — |
 | `registry/` | entity identity and resolution | [registry](../capabilities/registry.md) |

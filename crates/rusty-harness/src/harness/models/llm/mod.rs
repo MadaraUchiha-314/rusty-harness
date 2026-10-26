@@ -191,6 +191,10 @@ pub struct CacheBreakpoint {
 /// One model call (R9.1).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ModelRequest {
+    /// The model alias the call targets, for observability (R24.3); the router picks
+    /// the client regardless.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// The instructions: fragments and framed data only.
     pub instructions: Prompt,
     /// The conversation.
@@ -210,6 +214,7 @@ impl ModelRequest {
     #[must_use]
     pub fn new(instructions: Prompt, messages: Vec<ContextMessage>) -> Self {
         Self {
+            model: None,
             instructions,
             messages,
             tools: Vec::new(),

@@ -42,6 +42,11 @@ sequenceDiagram
   not-found and resume the original suspended call for a member, however late.
 - WHEN `participant.delegate` runs THEN the system SHALL create a task with the delegate
   as assignee and the current assignee as reporter, linked both ways.
+- WHEN a subscriber outside a channel watches the task over A2A THEN they SHALL see the
+  state change but never the question or the reply; `GetTask` after a restart SHALL
+  return the full task from the file store (R19.7, R12).
+- WHEN a push-notification webhook is configured THEN only an allowlisted host SHALL ever
+  be called (abuse 9).
 
 ## Design
 
@@ -53,6 +58,7 @@ sequenceDiagram
 
 | Work item | What changed | Links |
 |-----------|--------------|-------|
+| issue-3 (M3, task 23) | Channels on the server: the per-viewer projection, push to allowlisted hosts | PR #9 |
 | issue-3 (M2, task 18) | Remote, loopback and browser transports, `agent.call`, channels and the participant tools, extension schemas | [spec](https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/), PR #8 |
 
 [design]: https://github.com/MadaraUchiha-314/rusty-harness/blob/loop/issue-3-spec/docs/specs/issue-3/design.md

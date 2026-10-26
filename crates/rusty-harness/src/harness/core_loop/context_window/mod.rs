@@ -479,6 +479,7 @@ impl ContextBuilder {
             },
         };
         let mut request = ModelRequest::new(instructions, messages);
+        request.model = Some(inputs.task.model.model.clone());
         request.tools.clone_from(&inputs.tools);
         request.cache_hints = vec![CacheBreakpoint {
             after: breakpoint_after,

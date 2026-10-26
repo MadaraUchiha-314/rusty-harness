@@ -24,6 +24,8 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all --check
 cargo nextest run --workspace --all-features
 cargo test --doc --workspace --all-features
+# The official TypeScript A2A SDK against the binary (builds it with --features cli):
+bun run --cwd web test:contract
 # The core must stay runtime-free for the browser:
 cargo check --target wasm32-unknown-unknown -p rusty_harness --no-default-features --features rt-wasm
 # Supply chain:

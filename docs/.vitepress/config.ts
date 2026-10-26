@@ -24,6 +24,7 @@ export default defineConfig({
         text: "Guide",
         items: [
           { text: "Getting started", link: "/guide/getting-started" },
+          { text: "Run the server", link: "/guide/run-the-server" },
           { text: "Async model", link: "/guide/async-model" },
           { text: "Embed the SDK", link: "/guide/embed-the-sdk" },
           { text: "Write a plugin", link: "/guide/write-a-plugin" },
@@ -43,6 +44,7 @@ export default defineConfig({
         items: [
           { text: "Architecture", link: "/architecture/architecture" },
           { text: "Capabilities", link: "/capabilities/capabilities" },
+          { text: "A2A extensions", link: "/a2a/ext/" },
           { text: "Decisions", link: "/decisions/decisions" },
           { text: "Learnings", link: "/learnings/learnings" },
         ],

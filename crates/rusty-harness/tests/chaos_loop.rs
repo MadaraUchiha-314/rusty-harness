@@ -133,6 +133,8 @@ fn chaos_loop_child() {
             },
             metadata: None,
             extensions: vec![],
+            inbox_event_id: None,
+            traceparent: None,
         };
         let _ = agent.send_message(request).collect::<Vec<_>>().await;
     });

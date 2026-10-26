@@ -17,3 +17,7 @@ behaviour. Add one line per capability doc here.
 | [The core loop](loop.md) | sherma's agent in A2A types, four hookable steps, limits, context positions and compaction |
 | [Sub-agents, participants and channels](channels.md) | every sub-agent over A2A through one tool; asks through owned channels |
 | [Commands and the system prompt](commands.md) | `/commands` from people only; the prompt is a plan of fragments |
+| [The A2A server](server.md) | A2A 1.0 on the official SDK behind a gate: auth, participants, limits, extensions; loopback without credentials |
+| [The durable inbox](inbox.md) | one door for every event, stored before answered, applied exactly once; `POST /inbox` for webhooks |
+| [The heartbeat](heartbeat.md) | liveness per worker, re-signalled events, a hook on stalled tasks |
+| [Observability](observability.md) | one persisted trace per task over OTLP; Langfuse as hooks; logs without credentials |

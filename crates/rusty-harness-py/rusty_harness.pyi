@@ -31,14 +31,18 @@ class Config:
         The defaults, as `config.default.toml` writes them.
         """
     @staticmethod
-    def from_toml(text: builtins.str) -> Config:
+    def from_toml(text: builtins.str, env: builtins.bool = True) -> Config:
         r"""
-        Parses TOML text, unknown fields refused and credentials by reference only.
+        Parses TOML text, unknown fields refused and credentials by reference only. The
+        `RH__SECTION__KEY` environment variables apply over the file (R30.4) unless `env`
+        is false.
         """
     @staticmethod
-    def from_dict(value: ConfigDict) -> Config:
+    def from_dict(value: ConfigDict, env: builtins.bool = True) -> Config:
         r"""
-        Builds from a `dict` of the `ConfigDict` shape (the TOML file's tables as dicts).
+        Builds from a `dict` of the `ConfigDict` shape (the TOML file's tables as dicts). The
+        dict is the code layer: it wins over the `RH__SECTION__KEY` environment variables,
+        which apply under it unless `env` is false (R30.4).
         """
     def to_dict(self) -> ConfigDict:
         r"""

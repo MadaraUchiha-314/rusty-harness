@@ -638,6 +638,42 @@ impl Config {
             .map_err(|e: toml::de::Error| ConfigError::Invalid(e.message().to_owned()))
     }
 
+    /// [`Config::from_layers`] with the code layer as JSON, the shape the SDKs hold it in
+    /// (a Python `dict`, a JavaScript object). `null`s are dropped: TOML has none, and an
+    /// absent key already means "the layer below".
+    ///
+    /// # Errors
+    ///
+    /// As [`Config::from_layers`]; [`ConfigError::Invalid`] when `overrides` is not an
+    /// object.
+    pub fn from_layers_json(
+        file: Option<&str>,
+        env: impl IntoIterator<Item = (String, String)>,
+        overrides: Option<serde_json::Value>,
+    ) -> Result<Self, ConfigError> {
+        fn without_nulls(value: serde_json::Value) -> serde_json::Value {
+            match value {
+                serde_json::Value::Object(map) => serde_json::Value::Object(
+                    map.into_iter()
+                        .filter(|(_, v)| !v.is_null())
+                        .map(|(k, v)| (k, without_nulls(v)))
+                        .collect(),
+                ),
+                serde_json::Value::Array(items) => {
+                    serde_json::Value::Array(items.into_iter().map(without_nulls).collect())
+                }
+                other => other,
+            }
+        }
+        let overrides = overrides
+            .map(|v| {
+                toml::Table::try_from(without_nulls(v))
+                    .map_err(|e| ConfigError::Invalid(format!("the code layer: {e}")))
+            })
+            .transpose()?;
+        Self::from_layers(file, env, overrides)
+    }
+
     /// Loads from [`ConfigSources`] through the host's file system (R27.2).
     ///
     /// # Errors

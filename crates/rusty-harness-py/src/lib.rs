@@ -58,6 +58,17 @@ fn from_py<T: serde::de::DeserializeOwned>(value: &Bound<'_, PyAny>, what: &str)
     serde_json::from_str(&text).map_err(|e| PyValueError::new_err(format!("{what}: {e}")))
 }
 
+fn layered(file: Option<&str>, code: Option<serde_json::Value>, env: bool) -> PyResult<Config> {
+    let vars: Vec<(String, String)> = if env {
+        std::env::vars().collect()
+    } else {
+        Vec::new()
+    };
+    rusty_harness::config::Config::from_layers_json(file, vars, code)
+        .map(|inner| Config { inner })
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 fn a2a_error(e: &a2a::A2AError) -> PyErr {
     let err = A2AError::new_err(e.to_string());
     Python::attach(|py| {
@@ -85,20 +96,25 @@ impl Config {
         }
     }
 
-    /// Parses TOML text, unknown fields refused and credentials by reference only.
+    /// Parses TOML text, unknown fields refused and credentials by reference only. The
+    /// `RH__SECTION__KEY` environment variables apply over the file (R30.4) unless `env`
+    /// is false.
     #[staticmethod]
-    fn from_toml(text: &str) -> PyResult<Self> {
-        rusty_harness::config::Config::from_layers(Some(text), Vec::new(), None)
-            .map(|inner| Self { inner })
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+    #[pyo3(signature = (text, env = true))]
+    fn from_toml(text: &str, env: bool) -> PyResult<Self> {
+        layered(Some(text), None, env)
     }
 
-    /// Builds from a `dict` of the `ConfigDict` shape (the TOML file's tables as dicts).
+    /// Builds from a `dict` of the `ConfigDict` shape (the TOML file's tables as dicts). The
+    /// dict is the code layer: it wins over the `RH__SECTION__KEY` environment variables,
+    /// which apply under it unless `env` is false (R30.4).
     #[staticmethod]
+    #[pyo3(signature = (value, env = true))]
     fn from_dict(
         #[gen_stub(override_type(type_repr = "ConfigDict", imports = ()))] value: &Bound<'_, PyAny>,
+        env: bool,
     ) -> PyResult<Self> {
-        from_py(value, "config").map(|inner| Self { inner })
+        layered(None, Some(from_py(value, "config")?), env)
     }
 
     /// The whole configuration as a `dict`.

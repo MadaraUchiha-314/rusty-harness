@@ -110,3 +110,16 @@ async def test_serve_listens_on_loopback_and_stops(model: tuple[str, Calls]) -> 
     server.stop()
     with pytest.raises(ValueError, match="loopback"):
         harness.serve_sync("0.0.0.0:0")
+
+
+def test_the_environment_layer_applies_between_the_file_and_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R30.4: code, then environment, then file, then defaults, on every path."""
+    monkeypatch.setenv("RH__AGENT__NAME", "from-env")
+    from_file = Config.from_toml('[agent]\nname = "from-file"\n')
+    assert from_file.to_dict().get("agent", {}).get("name") == "from-env"
+    from_code = Config.from_dict({"agent": {"name": "from-code"}})
+    assert from_code.to_dict().get("agent", {}).get("name") == "from-code"
+    isolated = Config.from_toml('[agent]\nname = "from-file"\n', env=False)
+    assert isolated.to_dict().get("agent", {}).get("name") == "from-file"

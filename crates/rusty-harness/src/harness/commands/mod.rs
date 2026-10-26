@@ -624,6 +624,40 @@ pub fn install_builtins(
     Ok(())
 }
 
+/// What a person's command message comes to (R10.1, R10.6): the `commands/v1` outcome
+/// (`done`, `exit`, `unknown` or `failed`) and the line to show. A role veto (abuse 10) is
+/// `failed` with the denied line, not an error.
+///
+/// # Errors
+///
+/// A hook failure other than a veto.
+pub async fn answer(
+    dispatcher: &HookDispatcher,
+    cx: &HookCx,
+    call: CommandCall,
+) -> Result<(&'static str, Line), HarnessError> {
+    let name = format!("/{}", call.name);
+    let role = if call.caller.roles.iter().all(|r| *r == Role::Watcher) {
+        "watcher"
+    } else {
+        "other"
+    };
+    match invoke(dispatcher, cx, call).await {
+        Ok(CommandResult::Done { line }) => Ok(("done", line)),
+        Ok(CommandResult::Exit { line }) => Ok(("exit", line)),
+        Ok(CommandResult::Unknown { line }) => Ok(("unknown", line)),
+        Ok(CommandResult::Failed { line }) => Ok(("failed", line)),
+        Err(HarnessError::Vetoed(_)) => Ok((
+            "failed",
+            Line::new(
+                keys::command::DENIED,
+                &[("role", role.to_owned()), ("name", name)],
+            ),
+        )),
+        Err(e) => Err(e),
+    }
+}
+
 /// Runs a parsed command through the dispatcher (R10.1, R10.4, R10.6).
 ///
 /// # Errors

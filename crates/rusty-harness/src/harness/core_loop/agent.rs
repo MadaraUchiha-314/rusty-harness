@@ -502,6 +502,7 @@ pub struct LocalAgent {
     last_boundary: Mutex<Option<DateTime<Utc>>>,
     /// The voice a spoken turn is answered in (`[voice] voice`, R28.4).
     voice: crate::harness::models::speech::VoiceId,
+    locale: String,
 }
 
 impl core::fmt::Debug for LocalAgent {
@@ -798,8 +799,9 @@ impl LocalAgent {
             builder: ContextBuilder::new(
                 ContextTemplate::from_order(&config.context.order),
                 Arc::clone(&prompts),
-                locale,
+                locale.clone(),
             ),
+            locale,
             compaction: config.context.compaction.clone(),
             registry,
             dispatcher,
@@ -820,6 +822,61 @@ impl LocalAgent {
                 }),
             ),
         }
+    }
+
+    /// A person's `/command` (R10.1, R10.6): run it instead of the model and answer with
+    /// its line and a `commands/v1` payload (the token, the outcome). `None` when the
+    /// message is not a command from a human participant; tool output and agents never
+    /// reach here as commands (boundary 4).
+    async fn command(&self, request: &AgentRequest) -> Result<Option<a2a::Message>, AgentError> {
+        use crate::harness::commands::{
+            COMMANDS_EXT, CommandCall, CommandOutcome, CommandParser, CommandToken, CommandsMeta,
+        };
+        use crate::harness::models::llm::MessageRole;
+        if request.message.role != a2a::Role::User {
+            return Ok(None);
+        }
+        let text = message_text(&request.message);
+        let Some((name, args)) =
+            CommandParser::parse(MessageRole::User, request.call.caller.human, &text)
+        else {
+            return Ok(None);
+        };
+        let mut cx =
+            crate::harness::hooks::HookCx::new(Arc::clone(&self.registry), Arc::clone(&self.host));
+        cx.task = Some(request.call.task_id.clone());
+        let call = CommandCall {
+            name: name.clone(),
+            args,
+            caller: request.call.caller.clone(),
+        };
+        let (outcome, line) = crate::harness::commands::answer(&self.dispatcher, &cx, call)
+            .await
+            .map_err(AgentError::from)?;
+        let start = text.find('/').unwrap_or(0);
+        let meta = CommandsMeta {
+            commands: Vec::new(),
+            tokens: vec![CommandToken {
+                start,
+                end: start + 1 + name.len(),
+                name: name.clone(),
+            }],
+            result: Some(CommandOutcome {
+                name,
+                outcome: outcome.to_owned(),
+            }),
+        };
+        let shown = line.render(&crate::assets::Catalog::builtin(), &self.locale);
+        let mut reply = a2a::Message::new(a2a::Role::Agent, vec![a2a::Part::text(shown)]);
+        reply.context_id = Some(request.call.context_id.clone());
+        reply.metadata = Some(
+            [(
+                COMMANDS_EXT.to_owned(),
+                serde_json::to_value(meta).unwrap_or(Value::Null),
+            )]
+            .into(),
+        );
+        Ok(Some(reply))
     }
 
     /// The policy for sub-tasks of a task that reached a terminal state (R12.4).
@@ -2300,6 +2357,13 @@ harness_async_trait! {
         /// streams the events the call produced from the store's log.
         fn send_message(&self, request: AgentRequest) -> HarnessStream<'_, Result<a2a::StreamResponse, AgentError>> {
             let fut = async move {
+                // A person's command runs instead of the model (R10.1): the answer is a
+                // message, and no task is opened or changed.
+                match self.command(&request).await {
+                    Ok(Some(reply)) => return vec![Ok(a2a::StreamResponse::Message(reply))],
+                    Ok(None) => {}
+                    Err(e) => return vec![Err(e)],
+                }
                 let task = request.call.task_id.clone();
                 let caller = request.call.caller.clone();
                 let viewer = caller.clone();

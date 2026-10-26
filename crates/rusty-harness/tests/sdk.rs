@@ -173,3 +173,60 @@ async fn a_file_system_prompt_replaces_the_default() {
         .expect_err("fails closed");
     assert!(matches!(err, SdkError::Prompt(_)), "{err}");
 }
+
+/// Scenario: A person's command runs instead of the model (R10.1, R10.6)
+///     Given a harness whose model must not be called
+///     When `/model default` and then `/modle` are sent
+///     Then each is answered with its line and a `commands/v1` outcome, and the model is
+///     never called
+#[tokio::test]
+async fn a_persons_command_runs_instead_of_the_model() {
+    use rusty_harness::harness::commands::{COMMANDS_EXT, CommandsMeta};
+    let llm = Arc::new(RecordedLlm::new("default", vec![]));
+    let harness = HarnessBuilder::new(Config::default())
+        .host(Host::testing())
+        .llm(Arc::clone(&llm) as Arc<dyn rusty_harness::harness::models::llm::Llm>)
+        .build()
+        .await
+        .expect("builds");
+    let send = |text: &str| {
+        let mut message = a2a::Message::new(a2a::Role::User, vec![a2a::Part::text(text)]);
+        message.task_id = Some(format!("t-{}", text.len()));
+        a2a::SendMessageRequest {
+            message,
+            configuration: None,
+            metadata: None,
+            tenant: None,
+        }
+    };
+    for (text, outcome, says) in [
+        ("/model default", "done", "default"),
+        ("/modle", "unknown", "/model"),
+    ] {
+        let events: Vec<_> = harness.send_message(send(text), None).collect().await;
+        let [Ok(a2a::StreamResponse::Message(reply))] = events.as_slice() else {
+            panic!("one reply message for {text}: {events:?}");
+        };
+        let meta: CommandsMeta =
+            serde_json::from_value(reply.metadata.as_ref().unwrap()[COMMANDS_EXT].clone()).unwrap();
+        assert_eq!(
+            meta.result.as_ref().map(|r| r.outcome.as_str()),
+            Some(outcome),
+            "{text}"
+        );
+        assert_eq!(
+            meta.tokens.first().map(|t| (t.start, t.end)),
+            Some((
+                0,
+                text.len()
+                    .min(1 + text[1..].find(' ').unwrap_or(text.len() - 1))
+            )),
+            "{text}"
+        );
+        assert!(
+            reply.text().is_some_and(|t| t.contains(says)),
+            "{text}: {reply:?}"
+        );
+    }
+    assert_eq!(llm.attempts(), 0, "no command reached the model");
+}

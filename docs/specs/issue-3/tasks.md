@@ -558,6 +558,17 @@ abuse cases are tests like any other (`reference/security.md`).
     `a_plan_artifact_feeds_the_plan_strip_not_the_chat`, the web store's
     `takes a plan/v1 artifact as the task's plan, not as an output`
 
+- [x] 54. Commands at runtime (found by the task 47 sweep: `CommandParser` and
+  `commands::invoke` had no caller outside their unit tests, so a person's `/model` went
+  to the model): `LocalAgent::send_message` runs a human participant's `/<name>`
+  through `command.invoke` instead of the loop and answers with the line and the
+  `commands/v1` token and outcome, a role veto as the denied line, an unknown name with
+  its suggestion (R10.1, R10.6), on every path (SDK, server, TUI, web).
+  - _Depends on:_ 47
+  - _Requirements:_ R10.1, R10.4, R10.6
+  - _Test:_ T2 — `a_persons_command_runs_instead_of_the_model` (`tests/sdk.rs`); T3 —
+    `contract_extension_payloads_match_their_schemas` (the `commands/v1` message form)
+
 ## Dependency graph (DAG)
 
 ```mermaid

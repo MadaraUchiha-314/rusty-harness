@@ -190,7 +190,16 @@ that point; the full matrix is the condition for the last milestone.
 - [x] T4 — `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_remote_)' --run-ignored all`
   (needs `OPENAI_API_KEY`, `TEMPORAL_*`)
 - [x] T4 — `bun run --cwd web test:e2e` against the running demo
-- [ ] T11 — the manual procedures in `evidence/manual.md` (voice on TUI and web; the demo recording)
+- [x] T11 — the demo recording of both renderers (V4 in `evidence/manual.md`)
+
+**Replanned at verification (2026-10-25):** V1–V3, voice on a real microphone and
+speakers (push-to-talk hold and toggle on the TUI, capture and playback on the web), are
+**deferred until after the merge** and are no longer an activity of this gate. They need
+a person speaking, which an unattended session cannot provide. The operator will run them
+from `evidence/manual.md` after the merge ([decision][t11-decision], [replan][t11-replan]).
+A skip of `verification` was refused because the node had already been entered. Until
+V1–V3 run, R28.3–6 is proved on real hardware by nothing; the automated stand-ins are
+listed under Verification results.
 
 ## Verification results
 
@@ -233,19 +242,20 @@ fixed in this run (marked below).
 | T4 demo, `none` | `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_none_)' --run-ignored all` | passed (17.8 s), live on `gpt-6.1-sol` | [`e2e-none.md`](evidence/e2e-none.md) |
 | T4 demo, `remote` | `cargo nextest run -p rusty_harness --features cli -E 'test(e2e_remote_)' --run-ignored all` | passed (24.3 s), live on Temporal Cloud; 85 history events | [`e2e-remote.md`](evidence/e2e-remote.md) |
 | T4 browser leg | `RH_DEMO_URL=… bunx playwright test --project=e2e` against the demo binary | passed (17.3 s). **Fixed on the way:** the first attempt ran the binary from the wrong directory, and the harness started silently without the configured plugin; an unlistable plugin path now fails the build | [`e2e-none.md`](evidence/e2e-none.md) |
-| T11 manual | the procedures in `evidence/manual.md` | **partly executed:** V4 (the recording of both renderers) done in task 46; V1–V3 (voice with a real microphone and speakers) need a person and were not run | [`manual.md`](evidence/manual.md) |
+| T11 manual | V4 in `evidence/manual.md`: the recording of both renderers | executed in task 46. **Replanned:** V1–V3 (voice with a real microphone and speakers) are deferred until after the merge, by the operator's decision | [`manual.md`](evidence/manual.md) |
 
 <!-- markdownlint-enable MD013 -->
 
-**Not executed:** T11's V1–V3. They need a person at a microphone and speakers. The
-operator chose to keep them recorded as not executed and to run them after the merge
-([decided on #3][t11-decision]); the T11 activity stays unticked until then. Their
+**Deferred after the merge:** T11's V1–V3. They need a person at a microphone and
+speakers. The operator chose to run them after the merge ([decided on #3][t11-decision]),
+and the activity was replanned to V4 when a skip of the entered node was refused. Their
 automated stand-ins ran: the TUI scenario that sends a capture as a voice part and
 queues the spoken reply (T2), the Realtime session-config snapshot (T6), the voice-key
 abuse test (T8), and the voice states of the TUI and the web renderer (T5, `voice:
 listening, then the utterance is sent as 24 kHz PCM`).
 
 [t11-decision]: https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6409132309
+[t11-replan]: https://github.com/MadaraUchiha-314/rusty-harness/issues/3#issuecomment-6409811995
 
 ## Review comments
 
